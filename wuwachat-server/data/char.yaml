@@ -1,0 +1,6 @@
+characters:
+  - id: katixiya
+    name: 卡提希娅
+    prompt_file: katixiya.卡提希娅.md
+    avatar: katixiya.head.png
+    card_bg: katixiya.activityRole.png
