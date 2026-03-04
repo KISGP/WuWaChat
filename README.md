@@ -1,13 +1,25 @@
 # WuWaChat
 
+> [!warning]
+> 
+> 此项目仅在WIN11/10 做过少量测试，可能存在许多预料之外的 BUG
+
+## 项目体验
+
+在 [releases](https://github.com/KISGP/WuWaChat/releases) 页面下载，下载完成后运行 wuwachat-ui.exe 即可。
+
 ## 项目简介
 
 飞讯模拟器
 
+![](https://raw.githubusercontent.com/KISGP/WuWaChat/refs/heads/main/image/1.png)
+
+![](https://raw.githubusercontent.com/KISGP/WuWaChat/refs/heads/main/image/2.png)
+
+![](https://raw.githubusercontent.com/KISGP/WuWaChat/refs/heads/main/image/3.png)
 
 
-
-## 📁 目录结构
+## 目录结构
 
 主要由两部分构成：
 
@@ -54,7 +66,7 @@ npm install
 npm run tauri dev
 ```
 
-## 📦 构建与打包
+## 构建与打包
 
 执行项目根目录下的脚本：
 
