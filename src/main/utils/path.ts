@@ -18,12 +18,8 @@ export function getAppPath(): string {
 
 export function getBundledResourcesRoot(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'resources')
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'resources')
     : join(app.getAppPath(), 'resources')
-}
-
-export function getBundledCharactersRoot(): string {
-  return join(getBundledResourcesRoot(), 'chars')
 }
 
 export function getBundledWorldRoot(): string {
