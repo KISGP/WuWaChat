@@ -25,14 +25,6 @@ import {
 import { CloudEmbeddingProvider, createCloudEmbeddingFingerprint } from './embedding-provider'
 import { logger } from './logger'
 import {
-  createLocalEmbeddingFingerprint,
-  downloadLocalEmbeddingModel,
-  getInstalledLocalEmbeddingModel,
-  listLocalEmbeddingModels,
-  LocalEmbeddingProvider,
-  removeLocalEmbeddingModel
-} from './local-embedding'
-import {
   getBundledWorldRoot,
   getMemoryDatabasePath,
   getMemorySettingsPath,
@@ -55,8 +47,26 @@ type EmbeddingProvider = {
   testConnection: () => Promise<EmbeddingConnectionTestResult>
 }
 
+type LocalEmbeddingModule = typeof import('./local-embedding')
+
 const WORLD_SCOPE = 'world'
 const MEMORY_SCOPE = 'character-memory'
+
+function createLocalFingerprint(
+  model: Pick<
+    InstalledLocalEmbeddingModel,
+    'id' | 'repoId' | 'dimensions' | 'runtime' | 'installedAt'
+  >
+): EmbeddingFingerprint {
+  return {
+    mode: 'local',
+    provider: model.runtime,
+    model: model.id,
+    dimensions: model.dimensions,
+    implementationVersion: `transformers-js-v1:${model.repoId}`,
+    createdAt: model.installedAt
+  }
+}
 
 async function walkMarkdownFiles(rootPath: string): Promise<string[]> {
   if (!(await pathExists(rootPath))) {
@@ -180,6 +190,7 @@ export class MemoryService {
   private initialized = false
   private db: DatabaseSync | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
+  private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -218,6 +229,7 @@ export class MemoryService {
   }
 
   async listLocalModels(): Promise<LocalEmbeddingCatalogItem[]> {
+    const { listLocalEmbeddingModels } = await this.getLocalEmbeddingModule()
     return listLocalEmbeddingModels(this.settings.localEmbedding.model)
   }
 
@@ -226,6 +238,7 @@ export class MemoryService {
       'local-model-download',
       'character-memory',
       async (taskId, updateTask) => {
+        const { downloadLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
         const installedModel = await downloadLocalEmbeddingModel(
           modelId,
           this.settings.localEmbedding,
@@ -259,6 +272,7 @@ export class MemoryService {
   }
 
   async selectLocalModel(modelId: string): Promise<MemorySettingsStore> {
+    const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const installedModel = await getInstalledLocalEmbeddingModel(modelId)
     if (!installedModel) {
       throw new Error('Selected local embedding model is not installed or is invalid.')
@@ -278,6 +292,7 @@ export class MemoryService {
   }
 
   async removeLocalModel(modelId: string): Promise<boolean> {
+    const { removeLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const removed = await removeLocalEmbeddingModel(modelId)
     if (!removed) {
       return false
@@ -928,15 +943,12 @@ export class MemoryService {
     }
 
     if (this.settings.retrievalMode === 'vector-local' && this.settings.localEmbedding.modelPath) {
-      return createLocalEmbeddingFingerprint({
+      return createLocalFingerprint({
         id: this.settings.localEmbedding.model,
         repoId: this.settings.localEmbedding.model,
-        label: this.settings.localEmbedding.model,
-        source: 'builtin',
         installedAt: now(),
         dimensions: this.settings.localEmbedding.dimensions || 0,
         runtime: 'transformers-js',
-        modelPath: this.settings.localEmbedding.modelPath
       })
     }
 
@@ -1105,11 +1117,20 @@ export class MemoryService {
     return result.count
   }
 
+  private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {
+    if (!this.localEmbeddingModulePromise) {
+      this.localEmbeddingModulePromise = import('./local-embedding')
+    }
+
+    return this.localEmbeddingModulePromise
+  }
+
   private async requireInstalledLocalModel(): Promise<InstalledLocalEmbeddingModel> {
     if (this.settings.retrievalMode !== 'vector-local') {
       throw new Error('Local embeddings are only available in vector-local mode')
     }
 
+    const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const installedModel = await getInstalledLocalEmbeddingModel(this.settings.localEmbedding.model)
     if (!installedModel) {
       throw new Error('Selected local embedding model is not installed or is invalid.')
@@ -1125,6 +1146,7 @@ export class MemoryService {
 
     if (this.settings.retrievalMode === 'vector-local') {
       const installedModel = await this.requireInstalledLocalModel()
+      const { LocalEmbeddingProvider } = await this.getLocalEmbeddingModule()
       return new LocalEmbeddingProvider(installedModel, this.settings.localEmbedding)
     }
 
@@ -1147,9 +1169,12 @@ export class MemoryService {
     }
 
     const installedModel = await this.requireInstalledLocalModel()
-    return createLocalEmbeddingFingerprint({
-      ...installedModel,
-      dimensions: dimensions || installedModel.dimensions
+    return createLocalFingerprint({
+      id: installedModel.id,
+      repoId: installedModel.repoId,
+      installedAt: now(),
+      dimensions: dimensions || installedModel.dimensions,
+      runtime: installedModel.runtime
     })
   }
 

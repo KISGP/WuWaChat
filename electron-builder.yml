@@ -2,6 +2,11 @@ appId: com.electron.app
 productName: wuwachat
 directories:
   buildResources: build
+
+electronLanguages:
+  - zh-CN
+  - en-US
+
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -9,10 +14,27 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!**/*.d.ts'
+  - '!**/*.map'
+  - '!**/node_modules/*/{README.md,README,Readme.md,readme.md}'
+  - '!**/node_modules/*/{CHANGELOG.md,CHangelog.md,changelog.md}'
+  - '!**/node_modules/*/{docs,doc,example,examples}'
+  - '!**/node_modules/*/{test,tests,Testing,testing}'
+  - '!**/node_modules/*/{.github,.husky,.circleci}'
+  - '!**/node_modules/@huggingface/inference/src/**'
+  - '!**/node_modules/@huggingface/transformers/src/**'
+  - '!**/node_modules/@huggingface/transformers/types/**'
+  - '!**/node_modules/onnxruntime-node/bin/napi-v3/darwin/**'
+  - '!**/node_modules/onnxruntime-node/bin/napi-v3/linux/**'
+  - '!**/node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/**'
 asarUnpack:
   - resources/**
 win:
   executableName: wuwachat
+  target:
+    - target: nsis
+      arch:
+        - x64
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

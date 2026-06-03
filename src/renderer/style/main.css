@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
-@import "shadcn/tailwind.css";
+@import "tailwind.css";
 
 html,
 body {
