@@ -1,6 +1,5 @@
 import { safeStorage } from 'electron'
 import { copyFile, readFile } from 'fs/promises'
-import { join } from 'path'
 import type { ModelProfile } from '../shared/ai'
 import {
   type OpenAIProfileConnectionTestResult,
@@ -9,7 +8,7 @@ import {
   normalizeModelProfile,
   normalizeProfilesStore
 } from '../shared/model-settings'
-import { joinUrl, pathExists, writeJsonFileAtomic, getResourcesRoot } from './utils'
+import { getProfilesPath, joinUrl, pathExists, writeJsonFileAtomic } from './utils'
 import { logger } from './logger'
 
 type StoredProfile = Omit<ModelProfile, 'apiKey'> & {
@@ -23,7 +22,7 @@ type StoredProfilesStore = Omit<ProfilesStore, 'profiles'> & {
 }
 
 function getSettingsPath(): string {
-  return join(getResourcesRoot(), 'settings.json')
+  return getProfilesPath()
 }
 
 function decryptApiKey(profile: StoredProfile): string {
@@ -35,10 +34,15 @@ function decryptApiKey(profile: StoredProfile): string {
     return safeStorage.decryptString(Buffer.from(profile.encryptedApiKey, 'base64'))
   } catch (error) {
     console.error('Failed to decrypt profile API key', error)
-    void logger.error('settings', 'decrypt-api-key-failed', 'Failed to decrypt stored profile API key', {
-      profileId: profile.id,
-      error: error instanceof Error ? error.message : String(error)
-    })
+    void logger.error(
+      'settings',
+      'decrypt-api-key-failed',
+      'Failed to decrypt stored profile API key',
+      {
+        profileId: profile.id,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    )
     return ''
   }
 }
@@ -48,9 +52,9 @@ function toRuntimeProfilesStore(store: StoredProfilesStore): ProfilesStore {
     ...store,
     profiles: Array.isArray(store.profiles)
       ? store.profiles.map((profile) => ({
-        ...profile,
-        apiKey: decryptApiKey(profile)
-      }))
+          ...profile,
+          apiKey: decryptApiKey(profile)
+        }))
       : []
   })
 }
@@ -105,11 +109,16 @@ export async function getProfiles(): Promise<ProfilesStore> {
     }
 
     console.error('Failed to read settings store', error)
-    void logger.error('settings', 'profiles-read-failed', 'Failed to read settings store, using defaults', {
-      filePath,
-      corruptPath,
-      error: error instanceof Error ? error.message : String(error)
-    })
+    void logger.error(
+      'settings',
+      'profiles-read-failed',
+      'Failed to read settings store, using defaults',
+      {
+        filePath,
+        corruptPath,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    )
     return createDefaultProfilesStore()
   }
 }
@@ -173,8 +182,8 @@ async function fetchModelList(profile: ModelProfile): Promise<string[]> {
     await fetch(joinUrl(requireBaseUrl(profile), '/models'), {
       headers: profile.apiKey.trim()
         ? {
-          Authorization: `Bearer ${profile.apiKey.trim()}`
-        }
+            Authorization: `Bearer ${profile.apiKey.trim()}`
+          }
         : undefined
     })
   )
@@ -182,7 +191,9 @@ async function fetchModelList(profile: ModelProfile): Promise<string[]> {
   return modelNamesFromData(body)
 }
 
-export async function testProfile(profile: ModelProfile): Promise<OpenAIProfileConnectionTestResult> {
+export async function testProfile(
+  profile: ModelProfile
+): Promise<OpenAIProfileConnectionTestResult> {
   const startedAt = Date.now()
 
   try {
@@ -202,15 +213,20 @@ export async function testProfile(profile: ModelProfile): Promise<OpenAIProfileC
         : `Connected successfully, but the selected model was not found: ${normalized.model}`
     }
 
-    void logger.info('settings', 'profile-test-success', 'Model profile connection test completed', {
-      profileId: normalized.id,
-      provider: normalized.provider,
-      baseUrl: normalized.baseUrl,
-      model: normalized.model,
-      modelCount: models.length,
-      latencyMs,
-      ok: result.ok
-    })
+    void logger.info(
+      'settings',
+      'profile-test-success',
+      'Model profile connection test completed',
+      {
+        profileId: normalized.id,
+        provider: normalized.provider,
+        baseUrl: normalized.baseUrl,
+        model: normalized.model,
+        modelCount: models.length,
+        latencyMs,
+        ok: result.ok
+      }
+    )
 
     return result
   } catch (error) {

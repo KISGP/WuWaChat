@@ -34,14 +34,7 @@ import { NumberInput } from './memory/NumberInput'
 import { StatusCard } from './memory/StatusCard'
 import { TaskPanel } from './memory/TaskPanel'
 import { Switch } from '../switch'
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldTitle
-} from "../field"
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '../field'
 
 export function MemoryTab(): ReactElement {
   const { activateChar, characters } = useCharacter()
@@ -162,32 +155,31 @@ export function MemoryTab(): ReactElement {
   const autosaveMeta =
     autosaveState === 'saving'
       ? {
-        icon: LoaderCircle,
-        iconClassName: 'animate-spin text-amber-200',
-        tone: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
-        title: '正在自动保存记忆设置',
-      }
+          icon: LoaderCircle,
+          iconClassName: 'animate-spin text-amber-200',
+          tone: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
+          title: '正在自动保存记忆设置'
+        }
       : autosaveState === 'saved'
         ? {
-          icon: CheckCircle2,
-          iconClassName: 'text-emerald-200',
-          tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
-          title: '记忆设置已自动保存',
-        }
+            icon: CheckCircle2,
+            iconClassName: 'text-emerald-200',
+            tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
+            title: '记忆设置已自动保存'
+          }
         : autosaveState === 'error'
           ? {
-            icon: XCircle,
-            iconClassName: 'text-red-200',
-            tone: 'border-red-400/30 bg-red-500/10 text-red-100',
-            title: '记忆设置保存失败',
-          }
+              icon: XCircle,
+              iconClassName: 'text-red-200',
+              tone: 'border-red-400/30 bg-red-500/10 text-red-100',
+              title: '记忆设置保存失败'
+            }
           : {
-            icon: CheckCircle2,
-            iconClassName: 'text-white/55',
-            tone: 'border-white/10 bg-black/20 text-white/70',
-            title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆设置会自动保存',
-
-          }
+              icon: CheckCircle2,
+              iconClassName: 'text-white/55',
+              tone: 'border-white/10 bg-black/20 text-white/70',
+              title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆设置会自动保存'
+            }
 
   const AutosaveIcon = autosaveMeta.icon
 
@@ -199,7 +191,12 @@ export function MemoryTab(): ReactElement {
         </div>
       )}
 
-      <div className={cn('flex items-center justify-between gap-4 rounded border px-4 py-3', autosaveMeta.tone)}>
+      <div
+        className={cn(
+          'flex items-center justify-between gap-4 rounded border px-4 py-3',
+          autosaveMeta.tone
+        )}
+      >
         <div className="flex items-start gap-3">
           <AutosaveIcon className={cn('mt-0.5 size-4 shrink-0', autosaveMeta.iconClassName)} />
           <div className="min-w-0">
@@ -244,32 +241,44 @@ export function MemoryTab(): ReactElement {
           ))}
         </div>
 
-        <FieldGroup className="mt-4 w-full grid grid-cols-2 gap-3">
+        <FieldGroup className="mt-4 grid w-full grid-cols-2 gap-3">
           <FieldLabel htmlFor="switch-world" className="border-none">
-            <Field orientation="horizontal" className="h-fit rounded border-0 border-white/10 bg-black/20">
+            <Field
+              orientation="horizontal"
+              className="h-fit rounded border-0 border-white/10 bg-black/20"
+            >
               <FieldContent>
                 <FieldTitle className="text-sm text-white/80">启用世界知识检索</FieldTitle>
                 <FieldDescription>
-                  从 `resources/world/` 中检索相关内容，并追加到提示词上下文里。
+                  从内置 world 知识库中检索相关内容，并追加到提示词上下文里。
                 </FieldDescription>
               </FieldContent>
-              <Switch id="switch-world" checked={draft.worldSearchEnabled} onCheckedChange={(checked) => updateDraft({ worldSearchEnabled: checked })} className="data-checked:bg-[#e8c690] data-unchecked:bg-input/20" />
+              <Switch
+                id="switch-world"
+                checked={draft.worldSearchEnabled}
+                onCheckedChange={(checked) => updateDraft({ worldSearchEnabled: checked })}
+                className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+              />
             </Field>
           </FieldLabel>
           <FieldLabel htmlFor="switch-memory" className="border-none">
-            <Field orientation="horizontal" className="h-fit rounded border border-white/10 bg-black/20">
+            <Field
+              orientation="horizontal"
+              className="h-fit rounded border border-white/10 bg-black/20"
+            >
               <FieldContent>
                 <FieldTitle className="text-sm text-white/80">启用长期记忆检索</FieldTitle>
-                <FieldDescription>
-                  从历史会话整理出的长期记忆里检索相关内容。
-                </FieldDescription>
+                <FieldDescription>从历史会话整理出的长期记忆里检索相关内容。</FieldDescription>
               </FieldContent>
-              <Switch id="switch-memory" checked={draft.memorySearchEnabled} onCheckedChange={(checked) => updateDraft({ memorySearchEnabled: checked })} className="data-checked:bg-[#e8c690] data-unchecked:bg-input/20" />
+              <Switch
+                id="switch-memory"
+                checked={draft.memorySearchEnabled}
+                onCheckedChange={(checked) => updateDraft({ memorySearchEnabled: checked })}
+                className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+              />
             </Field>
           </FieldLabel>
         </FieldGroup>
-
-
       </section>
 
       {draft.retrievalMode !== 'string' && (
@@ -349,7 +358,11 @@ export function MemoryTab(): ReactElement {
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs text-white/55">提供方</span>
-                  <input value={draft.cloudEmbedding.provider} className={inputClassName()} disabled />
+                  <input
+                    value={draft.cloudEmbedding.provider}
+                    className={inputClassName()}
+                    disabled
+                  />
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs text-white/55">模型</span>
@@ -368,8 +381,8 @@ export function MemoryTab(): ReactElement {
                       value={draft.cloudEmbedding.inferenceProvider || 'hf-inference'}
                       onChange={(event) =>
                         updateCloudEmbedding({
-                          inferenceProvider:
-                            event.target.value as CloudEmbeddingSettings['inferenceProvider']
+                          inferenceProvider: event.target
+                            .value as CloudEmbeddingSettings['inferenceProvider']
                         })
                       }
                       className={inputClassName()}
@@ -444,11 +457,25 @@ export function MemoryTab(): ReactElement {
             <div className="space-y-4">
               <FieldGroup className="mt-4 w-full gap-3">
                 <FieldLabel htmlFor="switch-mirror" className="border-none">
-                  <Field orientation="horizontal" className="h-fit rounded border-0 border-white/10 bg-black/20 ">
+                  <Field
+                    orientation="horizontal"
+                    className="h-fit rounded border-0 border-white/10 bg-black/20"
+                  >
                     <FieldContent>
-                      <FieldTitle className="text-sm text-white/80">使用 Hugging Face 镜像下载本地模型</FieldTitle>
+                      <FieldTitle className="text-sm text-white/80">
+                        使用 Hugging Face 镜像下载本地模型
+                      </FieldTitle>
                     </FieldContent>
-                    <Switch id="switch-mirror" checked={draft.localEmbedding.useHuggingFaceMirror} onCheckedChange={(checked) => updateDraft({ localEmbedding: { ...draft.localEmbedding, useHuggingFaceMirror: checked } })} className="data-checked:bg-[#e8c690] data-unchecked:bg-input/20" />
+                    <Switch
+                      id="switch-mirror"
+                      checked={draft.localEmbedding.useHuggingFaceMirror}
+                      onCheckedChange={(checked) =>
+                        updateDraft({
+                          localEmbedding: { ...draft.localEmbedding, useHuggingFaceMirror: checked }
+                        })
+                      }
+                      className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+                    />
                   </Field>
                 </FieldLabel>
               </FieldGroup>
@@ -499,16 +526,26 @@ export function MemoryTab(): ReactElement {
         </div>
 
         <div className="grid grid-cols-2 items-start gap-3">
-          <FieldGroup className="w-full col-span-2 gap-3">
+          <FieldGroup className="col-span-2 w-full gap-3">
             <FieldLabel htmlFor="switch-shareMemory" className="border-none">
-              <Field orientation="horizontal" className="h-fit rounded border-0 border-white/10 bg-black/20">
+              <Field
+                orientation="horizontal"
+                className="h-fit rounded border-0 border-white/10 bg-black/20"
+              >
                 <FieldContent>
                   <FieldTitle className="text-sm text-white/80">同一角色跨会话共享记忆</FieldTitle>
                   <FieldDescription>
                     开启后，同一角色名下的不同会话会共享同一套长期记忆索引。
                   </FieldDescription>
                 </FieldContent>
-                <Switch id="switch-shareMemory" checked={draft.crossSessionCharacterMemory} onCheckedChange={(checked) => updateDraft({ crossSessionCharacterMemory: checked })} className="data-checked:bg-[#e8c690] data-unchecked:bg-input/20" />
+                <Switch
+                  id="switch-shareMemory"
+                  checked={draft.crossSessionCharacterMemory}
+                  onCheckedChange={(checked) =>
+                    updateDraft({ crossSessionCharacterMemory: checked })
+                  }
+                  className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+                />
               </Field>
             </FieldLabel>
           </FieldGroup>
@@ -583,7 +620,8 @@ export function MemoryTab(): ReactElement {
             <div className="mt-3 flex items-start gap-2 rounded border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <span>
-                当前向量索引与正在使用的 embedding 模型不一致。在完成重建前，系统会回退到字符串检索。
+                当前向量索引与正在使用的 embedding
+                模型不一致。在完成重建前，系统会回退到字符串检索。
               </span>
             </div>
           )}
@@ -626,7 +664,9 @@ export function MemoryTab(): ReactElement {
             summary="从资源中刷新世界知识原始内容。"
             guidance="当你新增、替换或修正了世界知识文件时，先执行这一步。"
             effect="它会更新知识内容本身，但不会自动生成向量索引。"
-            statusText={worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'}
+            statusText={
+              worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'
+            }
             tone={worldBundleBusy || worldIndexNeedsBuild ? 'highlight' : 'default'}
             disabled={worldBundleBusy}
             disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
@@ -638,7 +678,9 @@ export function MemoryTab(): ReactElement {
             summary="把世界知识转换成可供语义检索的向量索引。"
             guidance="只有在你打算使用向量检索时才需要执行；更新知识包后通常也要再构建一次。"
             effect="完成后，世界知识检索才能真正走向量语义匹配。"
-            statusText={worldVectorPending ? '构建中' : worldIndexNeedsBuild ? '建议执行' : '可按需重建'}
+            statusText={
+              worldVectorPending ? '构建中' : worldIndexNeedsBuild ? '建议执行' : '可按需重建'
+            }
             tone={worldVectorPending || worldIndexNeedsBuild ? 'highlight' : 'default'}
             disabled={worldVectorPending || !vectorModeSelected}
             disabledReason={
@@ -688,7 +730,9 @@ export function MemoryTab(): ReactElement {
             summary="为所有角色统一重建长期记忆向量索引。"
             guidance="当你调整了 embedding 配置、切换了模型，或想一次性修复所有角色时使用。"
             effect="耗时通常比单角色更长，但能保证所有角色索引一致。"
-            statusText={allMemoryPending ? '构建中' : memoryIndexNeedsBuild ? '建议执行' : '适合全量更新'}
+            statusText={
+              allMemoryPending ? '构建中' : memoryIndexNeedsBuild ? '建议执行' : '适合全量更新'
+            }
             tone={allMemoryPending || memoryIndexNeedsBuild ? 'highlight' : 'default'}
             disabled={characters.length === 0 || allMemoryPending || !vectorModeSelected}
             disabledReason={

@@ -32,7 +32,14 @@ import {
   LocalEmbeddingProvider,
   removeLocalEmbeddingModel
 } from './local-embedding'
-import { writeJsonFileAtomic, now, pathExists, getWorldRoot, getResourcesRoot, getMemorySettingsPath, getMemoryDatabasePath } from './utils'
+import {
+  getBundledWorldRoot,
+  getMemoryDatabasePath,
+  getMemorySettingsPath,
+  now,
+  pathExists,
+  writeJsonFileAtomic
+} from './utils'
 
 type SearchRow = {
   id: string
@@ -50,10 +57,6 @@ type EmbeddingProvider = {
 
 const WORLD_SCOPE = 'world'
 const MEMORY_SCOPE = 'character-memory'
-
-
-
-
 
 async function walkMarkdownFiles(rootPath: string): Promise<string[]> {
   if (!(await pathExists(rootPath))) {
@@ -219,32 +222,40 @@ export class MemoryService {
   }
 
   async downloadLocalModel(modelId: string): Promise<MemoryTask> {
-    return this.runTask('local-model-download', 'character-memory', async (taskId, updateTask) => {
-      const installedModel = await downloadLocalEmbeddingModel(
-        modelId,
-        this.settings.localEmbedding,
-        (progress, message) => {
-          updateTask(taskId, {
-            progress: Math.max(5, progress),
-            message,
-            characterId: modelId
-          })
-        }
-      )
-
-      if (!this.settings.localEmbedding.modelPath || this.settings.localEmbedding.model === modelId) {
-        this.settings = normalizeMemorySettingsStore({
-          ...this.settings,
-          localEmbedding: {
-            ...this.settings.localEmbedding,
-            model: installedModel.id,
-            modelPath: installedModel.modelPath,
-            dimensions: installedModel.dimensions
+    return this.runTask(
+      'local-model-download',
+      'character-memory',
+      async (taskId, updateTask) => {
+        const installedModel = await downloadLocalEmbeddingModel(
+          modelId,
+          this.settings.localEmbedding,
+          (progress, message) => {
+            updateTask(taskId, {
+              progress: Math.max(5, progress),
+              message,
+              characterId: modelId
+            })
           }
-        })
-        await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
-      }
-    }, modelId)
+        )
+
+        if (
+          !this.settings.localEmbedding.modelPath ||
+          this.settings.localEmbedding.model === modelId
+        ) {
+          this.settings = normalizeMemorySettingsStore({
+            ...this.settings,
+            localEmbedding: {
+              ...this.settings.localEmbedding,
+              model: installedModel.id,
+              modelPath: installedModel.modelPath,
+              dimensions: installedModel.dimensions
+            }
+          })
+          await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+        }
+      },
+      modelId
+    )
   }
 
   async selectLocalModel(modelId: string): Promise<MemorySettingsStore> {
@@ -328,7 +339,8 @@ export class MemoryService {
       entryCount: manifest?.entryCount || this.worldEntries.length,
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null,
-      message: compatibility.message || manifest?.message || this.defaultMessage(availability, 'world')
+      message:
+        compatibility.message || manifest?.message || this.defaultMessage(availability, 'world')
     }
   }
 
@@ -345,7 +357,8 @@ export class MemoryService {
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null,
-      message: compatibility.message || manifest?.message || this.defaultMessage(availability, 'memory')
+      message:
+        compatibility.message || manifest?.message || this.defaultMessage(availability, 'memory')
     }
   }
 
@@ -364,14 +377,16 @@ export class MemoryService {
   }
 
   getTasks(): MemoryTask[] {
-    return [...this.tasks.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    return [...this.tasks.values()].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    )
   }
 
   async startWorldBundleDownload(): Promise<MemoryTask> {
     return this.runTask('world-bundle-download', 'world', async (taskId, updateTask) => {
       updateTask(taskId, {
         progress: 100,
-        message: 'World bundle still uses local resources/world content.'
+        message: 'World knowledge currently uses bundled world content.'
       })
     })
   }
@@ -492,8 +507,9 @@ export class MemoryService {
 
     if (
       this.settings.retrievalMode !== 'string' &&
-      this.getMemoryCompatibility(this.settings.crossSessionCharacterMemory ? session.characterId : session.id)
-        .compatible
+      this.getMemoryCompatibility(
+        this.settings.crossSessionCharacterMemory ? session.characterId : session.id
+      ).compatible
     ) {
       try {
         return await this.retrieveMemoryVectorContext(query, session)
@@ -572,16 +588,21 @@ export class MemoryService {
     try {
       return normalizeMemorySettingsStore(JSON.parse(await readFile(filePath, 'utf-8')))
     } catch (error) {
-      void logger.error('memory', 'settings-read-failed', 'Failed to read memory settings, using defaults', {
-        filePath,
-        error: error instanceof Error ? error.message : String(error)
-      })
+      void logger.error(
+        'memory',
+        'settings-read-failed',
+        'Failed to read memory settings, using defaults',
+        {
+          filePath,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      )
       return createDefaultMemorySettingsStore()
     }
   }
 
   private async loadWorldEntries(): Promise<MemoryEntry[]> {
-    const worldRoot = getWorldRoot()
+    const worldRoot = getBundledWorldRoot()
     const markdownFiles = await walkMarkdownFiles(worldRoot)
     const entries = await Promise.all(
       markdownFiles.map(async (filePath) => {
@@ -590,7 +611,7 @@ export class MemoryService {
           id: `world:${relative(worldRoot, filePath)}:${chunkIndex}`,
           text,
           sourceType: 'world' as const,
-          sourcePath: relative(getResourcesRoot(), filePath).replace(/\\/g, '/'),
+          sourcePath: relative(worldRoot, filePath).replace(/\\/g, '/'),
           chunkIndex,
           createdAt: now(),
           updatedAt: now(),
@@ -671,7 +692,9 @@ export class MemoryService {
       return []
     }
 
-    const whereClause = this.settings.crossSessionCharacterMemory ? 'character_id = ?' : 'session_id = ?'
+    const whereClause = this.settings.crossSessionCharacterMemory
+      ? 'character_id = ?'
+      : 'session_id = ?'
     const rows = this.getDatabase()
       .prepare(
         `
@@ -697,8 +720,12 @@ export class MemoryService {
     const characterSessions = this.sessions.filter((session) => session.characterId === characterId)
 
     return characterSessions.flatMap((session) => {
-      const completedMessages = session.messages.filter((message) => Boolean(message.content.trim()))
-      const recentMessages = completedMessages.slice(-Math.max(this.settings.summaryTriggerTurns, 4))
+      const completedMessages = session.messages.filter((message) =>
+        Boolean(message.content.trim())
+      )
+      const recentMessages = completedMessages.slice(
+        -Math.max(this.settings.summaryTriggerTurns, 4)
+      )
       if (recentMessages.length === 0) {
         return []
       }
@@ -707,7 +734,9 @@ export class MemoryService {
         {
           id: `memory:${characterId}:${session.id}`,
           text: recentMessages
-            .map((message) => `${message.role === 'user' ? 'User' : 'Character'}: ${message.content}`)
+            .map(
+              (message) => `${message.role === 'user' ? 'User' : 'Character'}: ${message.content}`
+            )
             .join('\n'),
           sourceType: 'summary',
           characterId,
@@ -866,7 +895,10 @@ export class MemoryService {
       )
   }
 
-  private getManifest(scope: 'world' | 'character-memory', targetId?: string | null): IndexManifestRecord | null {
+  private getManifest(
+    scope: 'world' | 'character-memory',
+    targetId?: string | null
+  ): IndexManifestRecord | null {
     const row = this.getDatabase()
       .prepare(
         'SELECT scope, target_id AS targetId, fingerprint_key AS fingerprintKey, status, entry_count AS entryCount, built_at AS builtAt, message FROM index_manifests WHERE scope = ? AND target_id IS ?'
@@ -1107,7 +1139,9 @@ export class MemoryService {
     return this.requireVectorEmbeddingProvider()
   }
 
-  private async createActiveEmbeddingFingerprint(dimensions?: number): Promise<EmbeddingFingerprint> {
+  private async createActiveEmbeddingFingerprint(
+    dimensions?: number
+  ): Promise<EmbeddingFingerprint> {
     if (this.settings.retrievalMode === 'vector-cloud') {
       return createCloudEmbeddingFingerprint(this.settings.cloudEmbedding, dimensions)
     }

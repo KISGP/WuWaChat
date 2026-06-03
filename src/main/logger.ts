@@ -9,7 +9,7 @@ import type {
   LogViewerState,
   RendererLogEventPayload
 } from '../shared/logging'
-import { pathExists, getResourcesRoot } from './utils'
+import { getLogsRoot, pathExists } from './utils'
 
 type LogInput = {
   level: LogLevel
@@ -37,7 +37,7 @@ const SENSITIVE_KEYS = new Set([
 let writeQueue = Promise.resolve()
 
 function getLogsDirectory(): string {
-  return join(getResourcesRoot(), 'logs')
+  return getLogsRoot()
 }
 
 function getLogFilePath(): string {

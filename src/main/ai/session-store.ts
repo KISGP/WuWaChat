@@ -1,14 +1,12 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
-import { join } from 'path'
 import type {
   ConversationMessage,
   ConversationSession,
   MessageStatus,
   SessionStatus
 } from '../../shared/ai'
-import { writeJsonFileAtomic, pathExists, getResourcesRoot } from '../utils'
-
+import { getSessionsPath, pathExists, writeJsonFileAtomic } from '../utils'
 
 function now(): string {
   return new Date().toISOString()
@@ -79,17 +77,14 @@ export class SessionStore {
     return session ? cloneSession(session) : null
   }
 
-  startRun(input: {
-    sessionId?: string | null
-    characterId: string
-    userMessage: string
-  }): {
+  startRun(input: { sessionId?: string | null; characterId: string; userMessage: string }): {
     session: ConversationSession
     assistantMessage: ConversationMessage
   } {
     const timestamp = now()
     const session =
-      (input.sessionId && this.sessions.get(input.sessionId)) || createSession(input.characterId, timestamp)
+      (input.sessionId && this.sessions.get(input.sessionId)) ||
+      createSession(input.characterId, timestamp)
 
     if (session.characterId !== input.characterId) {
       session.characterId = input.characterId
@@ -182,8 +177,8 @@ export class SessionStore {
       typeof patch === 'function'
         ? patch(cloneMessage(currentMessage))
         : patch || {
-          status: defaultMessageStatus || currentMessage.status
-        }
+            status: defaultMessageStatus || currentMessage.status
+          }
 
     session.messages[index] = {
       ...currentMessage,
@@ -199,7 +194,7 @@ export class SessionStore {
   }
 
   private getStorePath(): string {
-    return join(getResourcesRoot(), 'sessions.json')
+    return getSessionsPath()
   }
 
   private async persist(): Promise<void> {

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerAppEvents } from './app-events'
 import { initializeAi } from './ai'
+import { bootstrapAppData } from './bootstrap-data'
 import { registerIpc } from './ipc'
 import { logger } from './logger'
 import { createMainWindow } from './window'
@@ -15,9 +16,14 @@ function registerProcessErrorHandlers(): void {
   })
 
   process.on('unhandledRejection', (reason) => {
-    void logger.error('main', 'unhandled-rejection', 'Unhandled promise rejection in main process', {
-      reason: reason instanceof Error ? reason.message : String(reason)
-    })
+    void logger.error(
+      'main',
+      'unhandled-rejection',
+      'Unhandled promise rejection in main process',
+      {
+        reason: reason instanceof Error ? reason.message : String(reason)
+      }
+    )
   })
 }
 
@@ -25,10 +31,13 @@ registerProcessErrorHandlers()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
-  void logger.info('main', 'app-ready', 'Electron app is ready')
-  registerAppEvents()
-  void logger.info('main', 'ai-initialize-start', 'Starting AI initialization')
-  void initializeAi()
+  void bootstrapAppData()
+    .then(() => {
+      void logger.info('main', 'app-ready', 'Electron app is ready')
+      registerAppEvents()
+      void logger.info('main', 'ai-initialize-start', 'Starting AI initialization')
+      return initializeAi()
+    })
     .then(() => {
       void logger.info('main', 'ai-initialize-success', 'AI initialization completed')
       registerIpc()

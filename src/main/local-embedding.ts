@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { env, type FeatureExtractionPipeline, pipeline } from '@huggingface/transformers'
@@ -11,7 +10,13 @@ import type {
   LocalEmbeddingModelStatus,
   LocalEmbeddingSettings
 } from '../shared/memory-settings'
-import { pathExists, readOptionalFile, writeJsonFileAtomic } from './utils'
+import {
+  getBundledEmbeddingCatalogPath,
+  getLocalEmbeddingRoot,
+  pathExists,
+  readOptionalFile,
+  writeJsonFileAtomic
+} from './utils'
 
 type ProgressReporter = (progress: number, message: string) => void
 type InstalledModelManifest = InstalledLocalEmbeddingModel
@@ -45,16 +50,12 @@ function normalizeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function getResourcesRoot(): string {
-  return app.isPackaged ? join(process.resourcesPath, 'resources') : join(app.getAppPath(), 'resources')
-}
-
 function getCatalogPath(): string {
-  return join(getResourcesRoot(), 'embedding.json')
+  return getBundledEmbeddingCatalogPath()
 }
 
 function getAppModelRoot(): string {
-  return join(getResourcesRoot(), 'models', 'embeddings')
+  return getLocalEmbeddingRoot()
 }
 
 function getMetadataRoot(): string {
@@ -89,7 +90,10 @@ function getRemoteHost(settings: LocalEmbeddingRuntimeSettings): string {
   return DEFAULT_HUGGING_FACE_REMOTE_HOST
 }
 
-function createInvalidStatus(message: string): { status: LocalEmbeddingModelStatus; validationMessage: string } {
+function createInvalidStatus(message: string): {
+  status: LocalEmbeddingModelStatus
+  validationMessage: string
+} {
   return {
     status: 'invalid',
     validationMessage: message
@@ -108,7 +112,7 @@ async function ensureWritableModelRoot(): Promise<string> {
       '模型目录不可写',
       '准备模型目录',
       `${root}\n${normalizeErrorMessage(error)}`,
-      ['请确认 resources 目录具有写入权限。', '如果是打包版，请确认应用安装目录允许写入。']
+      ['请确认应用数据目录具有写入权限。', '如果是打包版，请检查 userData/app-data 目录是否可写。']
     )
   }
 
@@ -130,7 +134,10 @@ async function loadCatalogFile(): Promise<LocalEmbeddingCatalogModel[]> {
       '读取模型清单失败',
       '加载 embedding.json',
       normalizeErrorMessage(error),
-      ['请确认 resources/embedding.json 存在且格式正确。', '如果你刚修改过模型清单，请检查 JSON 语法。']
+      [
+        '请确认内置资源目录中的 embedding.json 存在且格式正确。',
+        '如果你刚修改过模型清单，请检查 JSON 语法。'
+      ]
     )
   }
 }
@@ -148,7 +155,9 @@ async function readInstalledManifest(modelId: string): Promise<InstalledModelMan
   }
 }
 
-async function readInstalledManifestFromDirectory(dir: string): Promise<InstalledModelManifest | null> {
+async function readInstalledManifestFromDirectory(
+  dir: string
+): Promise<InstalledModelManifest | null> {
   const content = await readOptionalFile(join(dir, 'model.json'))
   if (!content) {
     return null
@@ -199,7 +208,10 @@ async function validateInstalledModel(
   model: InstalledLocalEmbeddingModel,
   catalogModel?: LocalEmbeddingCatalogModel
 ): Promise<{ ok: boolean; message?: string }> {
-  if (!(await pathExists(getManifestPath(model.id))) || !(await pathExists(getInstallMarkerPath(model.id)))) {
+  if (
+    !(await pathExists(getManifestPath(model.id))) ||
+    !(await pathExists(getInstallMarkerPath(model.id)))
+  ) {
     return {
       ok: false,
       message: '本地模型元数据不存在或未完成安装。'
@@ -267,7 +279,9 @@ async function loadFeatureExtractionPipeline(
   const onProgress = options?.onProgress
   const remoteHost = setTransformersEnvironment(modelRoot, allowRemoteModels, settings)
   const pipelineKeyBase =
-    'modelPath' in model && model.modelPath ? model.modelPath : getPayloadDirectoryByRepoId(model.repoId)
+    'modelPath' in model && model.modelPath
+      ? model.modelPath
+      : getPayloadDirectoryByRepoId(model.repoId)
   const cacheKey = `${resolve(pipelineKeyBase)}|${allowRemoteModels ? remoteHost : 'local-only'}`
   let pipelinePromise = pipelineCache.get(cacheKey)
 
@@ -303,7 +317,7 @@ async function loadFeatureExtractionPipeline(
         allowRemoteModels
           ? ['请确认模型仓库地址正确且可以访问。', '如果是私有模型，请确认已配置 HF_TOKEN。']
           : [
-              '请确认本地模型目录位于 resources/models/embeddings 下的规范路径中。',
+              '请确认本地模型目录位于应用数据目录的 models/embeddings 下。',
               '请确认模型目录内包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
             ]
       )
@@ -326,7 +340,7 @@ async function embedText(
       '本地模型加载失败',
       '校验本地模型目录',
       validation.message || '本地模型目录无效。',
-      ['请重新下载该模型。', '请确认模型文件位于 resources/models/embeddings 下的规范目录中。']
+      ['请重新下载该模型。', '请确认模型文件位于应用数据目录的 models/embeddings 规范目录中。']
     )
   }
 
@@ -355,7 +369,9 @@ function inferDimensions(vector: number[]): number {
   return vector.length
 }
 
-async function writeInstalledManifest(model: LocalEmbeddingCatalogModel): Promise<InstalledLocalEmbeddingModel> {
+async function writeInstalledManifest(
+  model: LocalEmbeddingCatalogModel
+): Promise<InstalledLocalEmbeddingModel> {
   const modelDir = getPayloadDirectoryByRepoId(model.repoId)
   const manifestDir = getManifestDirectoryById(model.id)
   const installedModel: InstalledLocalEmbeddingModel = {
@@ -500,7 +516,9 @@ export async function downloadLocalEmbeddingModel(
     onProgress?.(100, `${model.label} 下载完成`)
     return installedModel
   } catch (error) {
-    pipelineCache.delete(`${resolve(getPayloadDirectoryByRepoId(model.repoId))}|${getRemoteHost(settings)}`)
+    pipelineCache.delete(
+      `${resolve(getPayloadDirectoryByRepoId(model.repoId))}|${getRemoteHost(settings)}`
+    )
     throw createStructuredError(
       '模型下载失败',
       'Transformers.js 自动下载',

@@ -1,6 +1,5 @@
-import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import type {
   CharacterPromptDocument,
   CharacterSummary,
@@ -8,7 +7,13 @@ import type {
   ChatRunRequest,
   ConversationSession
 } from '../../shared/ai'
-import { pathExists, readDirectoryNames, readImageDataUrl } from '../utils'
+import {
+  getBundledCharactersRoot,
+  getCharacterPromptOverridePath,
+  pathExists,
+  readDirectoryNames,
+  readImageDataUrl
+} from '../utils'
 import { AiRuntime } from './runtime'
 import { MemoryService } from '../memory'
 
@@ -27,28 +32,22 @@ const AVATAR_FILE_NAME = 'avatar.png'
 const CARD_BG_FILE_NAME = 'cardBg.png'
 const INFO_FILE_NAME = 'info.json'
 
-function getResourcesRoot(): string {
-  return app.isPackaged ? join(process.resourcesPath, 'resources') : join(app.getAppPath(), 'resources')
-}
-
-function getBuiltInCharactersRoot(): string {
-  return join(getResourcesRoot(), 'chars')
-}
-
 /**
  * @description 加载角色资源记录
  * @param id 角色ID
  * @returns 角色资源记录，如果角色不存在或资源不完整则返回null
  */
 async function loadCharacterRecord(id: string): Promise<CharacterResourceRecord | null> {
-  const characterDir = join(getBuiltInCharactersRoot(), id)
-  const promptPath = join(characterDir, PROMPT_FILE_NAME)
+  const characterDir = join(getBundledCharactersRoot(), id)
+  const bundledPromptPath = join(characterDir, PROMPT_FILE_NAME)
+  const overridePromptPath = getCharacterPromptOverridePath(id)
   const infoPath = join(characterDir, INFO_FILE_NAME)
 
-  if (!(await pathExists(promptPath)) || !(await pathExists(infoPath))) {
+  if (!(await pathExists(bundledPromptPath)) || !(await pathExists(infoPath))) {
     return null
   }
 
+  const promptPath = (await pathExists(overridePromptPath)) ? overridePromptPath : bundledPromptPath
   const prompt = await readFile(promptPath, 'utf-8')
   const avatarPath = join(characterDir, AVATAR_FILE_NAME)
   const cardPath = join(characterDir, CARD_BG_FILE_NAME)
@@ -76,7 +75,7 @@ async function loadCharacterResource(characterId: string): Promise<CharacterReso
 }
 
 export async function getCharacters(): Promise<CharacterSummary[]> {
-  const characterIds = await readDirectoryNames(getBuiltInCharactersRoot())
+  const characterIds = await readDirectoryNames(getBundledCharactersRoot())
   const characters = await Promise.all(characterIds.map((id) => loadCharacterRecord(id)))
 
   return characters
@@ -89,9 +88,7 @@ export async function getCharacters(): Promise<CharacterSummary[]> {
     }))
 }
 
-export async function getCharacterPrompt(
-  characterId: string
-): Promise<CharacterPromptDocument> {
+export async function getCharacterPrompt(characterId: string): Promise<CharacterPromptDocument> {
   const character = await loadCharacterResource(characterId)
 
   return {
@@ -106,10 +103,10 @@ export async function saveCharacterPrompt(
   promptText: string
 ): Promise<CharacterPromptDocument> {
   const character = await loadCharacterResource(characterId)
-  const targetDir = join(getBuiltInCharactersRoot(), characterId)
+  const targetPath = getCharacterPromptOverridePath(characterId)
 
-  await mkdir(targetDir, { recursive: true })
-  await writeFile(join(targetDir, character.promptFileName), promptText, 'utf-8')
+  await mkdir(dirname(targetPath), { recursive: true })
+  await writeFile(targetPath, promptText, 'utf-8')
 
   return {
     characterId,
@@ -122,24 +119,24 @@ const memoryService = new MemoryService()
 
 const runtime = new AiRuntime(
   {
-  getCharacter: async (characterId) => {
-    const character = await loadCharacterResource(characterId)
+    getCharacter: async (characterId) => {
+      const character = await loadCharacterResource(characterId)
 
-    return {
-      id: character.id,
-      name: character.name,
-      avatar: character.avatar,
-      cardBg: character.cardBg
-    }
-  },
-  getCharacterPrompt: async (characterId) => {
-    const character = await loadCharacterResource(characterId)
+      return {
+        id: character.id,
+        name: character.name,
+        avatar: character.avatar,
+        cardBg: character.cardBg
+      }
+    },
+    getCharacterPrompt: async (characterId) => {
+      const character = await loadCharacterResource(characterId)
 
-    return {
-      characterId: character.id,
-      prompt: character.prompt
+      return {
+        characterId: character.id,
+        prompt: character.prompt
+      }
     }
-  }
   },
   memoryService
 )
