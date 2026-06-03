@@ -22,16 +22,20 @@ export function getBundledResourcesRoot(): string {
     : join(app.getAppPath(), 'resources')
 }
 
-export function getBundledWorldRoot(): string {
-  return join(getBundledResourcesRoot(), 'world')
-}
-
 export function getBundledEmbeddingCatalogPath(): string {
   return join(getBundledResourcesRoot(), 'embedding.json')
 }
 
 export function getAppDataRoot(): string {
   return join(app.getPath('userData'), 'app-data')
+}
+
+export function getWorldRoot(): string {
+  return join(getAppDataRoot(), 'world')
+}
+
+export function getWorldInfoPath(): string {
+  return join(getWorldRoot(), 'info.txt')
 }
 
 export function getLogsRoot(): string {

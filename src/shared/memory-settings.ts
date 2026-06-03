@@ -125,6 +125,7 @@ export type IndexManifestRecord = {
   fingerprintKey: string
   status: IndexAvailability
   entryCount: number
+  dataVersion?: string | null
   builtAt?: string | null
   message?: string
 }

@@ -1,6 +1,6 @@
 import { BrowserWindow, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
-import { LINUX_ICON, PRELOAD_PATH, RENDERER_HTML, WINDOW_SIZE ,IconPath} from './constants'
+import { PRELOAD_PATH, RENDERER_HTML, WINDOW_SIZE, IconPath } from './constants'
 import { logger } from './logger'
 
 function loadRenderer(window: BrowserWindow): void {

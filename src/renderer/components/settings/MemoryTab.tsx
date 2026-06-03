@@ -661,9 +661,9 @@ export function MemoryTab(): ReactElement {
           <ActionCard
             icon={Download}
             title="更新世界知识包"
-            summary="从资源中刷新世界知识原始内容。"
-            guidance="当你新增、替换或修正了世界知识文件时，先执行这一步。"
-            effect="它会更新知识内容本身，但不会自动生成向量索引。"
+            summary="从远端下载最新 world 压缩包，并覆盖本地 app-data/world。"
+            guidance="首次缺少 world 内容时会自动准备；之后当远端版本更新时，也可以在这里手动刷新。"
+            effect="它只会更新 world 原始内容，不会自动生成向量索引。完成后如需向量检索，请再执行一次世界知识向量构建。"
             statusText={
               worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'
             }
