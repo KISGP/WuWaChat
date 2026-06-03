@@ -7,7 +7,6 @@ out
 resources/models
 resources/world
 resources/logs
-resources/embedding.json
 resources/memory-settings.json
 resources/memory.db
 resources/sessions.json

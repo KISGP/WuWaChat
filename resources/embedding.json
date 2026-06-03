@@ -1,0 +1,38 @@
+[
+  {
+    "id": "Xenova/bge-small-zh-v1.5",
+    "label": "BGE Small ZH v1.5",
+    "repoId": "Xenova/bge-small-zh-v1.5",
+    "dimensions": 512,
+    "languages": ["zh"],
+    "sizeMb": 130,
+    "speedTier": "fast",
+    "recommended": true,
+    "description": "中文优先，适合作为默认本地检索模型。",
+    "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
+  },
+  {
+    "id": "intfloat/multilingual-e5-small",
+    "label": "Multilingual E5 Small",
+    "repoId": "Xenova/multilingual-e5-small",
+    "dimensions": 384,
+    "languages": ["zh", "en", "ja", "ko", "multilingual"],
+    "sizeMb": 120,
+    "speedTier": "balanced",
+    "recommended": false,
+    "description": "多语言兼容性更好，适合中英混合内容。",
+    "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
+  },
+  {
+    "id": "BAAI/bge-m3",
+    "label": "BGE M3",
+    "repoId": "Xenova/BAAI-bge-m3",
+    "dimensions": 1024,
+    "languages": ["zh", "en", "multilingual"],
+    "sizeMb": 460,
+    "speedTier": "quality",
+    "recommended": false,
+    "description": "质量更高，但下载和推理都更重。",
+    "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
+  }
+]
