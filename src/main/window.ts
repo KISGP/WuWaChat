@@ -1,6 +1,6 @@
 import { BrowserWindow, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
-import { LINUX_ICON, PRELOAD_PATH, RENDERER_HTML, WINDOW_SIZE } from './constants'
+import { LINUX_ICON, PRELOAD_PATH, RENDERER_HTML, WINDOW_SIZE ,IconPath} from './constants'
 import { logger } from './logger'
 
 function loadRenderer(window: BrowserWindow): void {
@@ -39,7 +39,7 @@ export function createMainWindow(): BrowserWindow {
     fullscreenable: false,
     // only on windows
     backgroundMaterial: "acrylic",
-    ...LINUX_ICON,
+    icon: IconPath,
     webPreferences: {
       preload: PRELOAD_PATH,
       sandbox: false
