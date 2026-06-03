@@ -2,6 +2,7 @@ import { mkdir } from 'fs/promises'
 import { dirname } from 'path'
 import {
   getAppDataRoot,
+  getCharactersRoot,
   getLocalEmbeddingRoot,
   getLogsRoot,
   getMemoryDatabasePath,
@@ -13,6 +14,7 @@ import {
 export async function bootstrapAppData(): Promise<void> {
   await Promise.all([
     mkdir(getAppDataRoot(), { recursive: true }),
+    mkdir(getCharactersRoot(), { recursive: true }),
     mkdir(getLogsRoot(), { recursive: true }),
     mkdir(getLocalEmbeddingRoot(), { recursive: true }),
     mkdir(dirname(getProfilesPath()), { recursive: true }),

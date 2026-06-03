@@ -19,6 +19,30 @@ export type CharacterSummary = {
   cardBg?: string
 }
 
+export type CharacterInfo = {
+  name: { en?: string; cn?: string; jp?: string }
+  description: { en?: string; cn?: string; jp?: string }
+}
+
+export type CharacterSource = 'preset' | 'custom'
+
+export type LocalCharacterEntry = CharacterSummary & {
+  source: CharacterSource
+}
+
+export type RemoteCharacterEntry = {
+  id: string
+  name: string
+  description?: string
+  isDownloaded: boolean
+}
+
+export type CharacterCatalog = {
+  local: LocalCharacterEntry[]
+  remote: RemoteCharacterEntry[]
+  refreshedAt: string | null
+}
+
 export type CharacterPromptDocument = {
   characterId: string
   prompt: string

@@ -62,6 +62,30 @@ export function getLocalEmbeddingRoot(): string {
   return join(getAppDataRoot(), 'models', 'embeddings')
 }
 
-export function getCharacterPromptOverridePath(characterId: string): string {
-  return join(getAppDataRoot(), 'chars', characterId, 'prompt.md')
+export function getCharactersRoot(): string {
+  return join(getAppDataRoot(), 'chars')
+}
+
+export function getCharacterDirectoryPath(characterId: string): string {
+  return join(getCharactersRoot(), characterId)
+}
+
+export function getCharacterInfoPath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'info.json')
+}
+
+export function getCharacterPromptPath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'prompt.md')
+}
+
+export function getCharacterAvatarPath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'avatar.png')
+}
+
+export function getCharacterCardBgPath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'cardBg.png')
+}
+
+export function getCharacterManifestPath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'manifest.json')
 }

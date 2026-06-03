@@ -1,6 +1,7 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   ChatRunAccepted,
+  CharacterCatalog,
   ChatRunEvent,
   ChatRunRequest,
   CharacterPromptDocument,
@@ -19,10 +20,7 @@ import type {
   MemoryTaskEvent,
   WorldIndexStatus
 } from '../shared/memory-settings'
-import type {
-  OpenAIProfileConnectionTestResult,
-  ProfilesStore
-} from '../shared/model-settings'
+import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '../shared/model-settings'
 
 declare global {
   interface Window {
@@ -41,6 +39,13 @@ declare global {
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
+    }
+    characters: {
+      getCharacterCatalog: () => Promise<CharacterCatalog>
+      refreshRemoteCharacters: () => Promise<CharacterCatalog>
+      getRemoteCharacterPrompt: (characterId: string) => Promise<string>
+      downloadCharacter: (characterId: string) => Promise<CharacterSummary>
+      resetPresetCharacter: (characterId: string) => Promise<CharacterSummary>
     }
     settings: {
       getProfiles: () => Promise<ProfilesStore>

@@ -8,6 +8,13 @@ import {
   saveCharacterPrompt,
   sendMessage
 } from './ai'
+import {
+  downloadCharacter,
+  getCharacterCatalog,
+  getRemoteCharacterPrompt,
+  refreshRemoteCharacters,
+  resetPresetCharacter
+} from './characters'
 import { getProfiles, saveProfiles, testProfile } from './settings'
 import type { ChatRunRequest, ModelProfile } from '../shared/ai'
 import type { RendererLogEventPayload } from '../shared/logging'
@@ -43,9 +50,9 @@ function summarizeValue(value: unknown): unknown {
   return typeof value
 }
 
-function getSenderContext(
-  event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
-): { webContentsId: number } {
+function getSenderContext(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): {
+  webContentsId: number
+} {
   return {
     webContentsId: event.sender.id
   }
@@ -94,16 +101,38 @@ export function registerIpc(): void {
   })
 
   handleLogged('ai:getCharacters', () => getCharacters())
-  handleLogged('ai:getCharacterPrompt', (_event, characterId: string) => getCharacterPrompt(characterId), (characterId) => ({
-    characterId
-  }))
+  handleLogged(
+    'ai:getCharacterPrompt',
+    (_event, characterId: string) => getCharacterPrompt(characterId),
+    (characterId) => ({
+      characterId
+    })
+  )
   handleLogged(
     'ai:saveCharacterPrompt',
-    (_event, characterId: string, promptText: string) => saveCharacterPrompt(characterId, promptText),
+    (_event, characterId: string, promptText: string) =>
+      saveCharacterPrompt(characterId, promptText),
     (characterId, promptText) => ({
       characterId,
       promptLength: promptText.length
     })
+  )
+  handleLogged('character:getCatalog', () => getCharacterCatalog())
+  handleLogged('character:refreshRemote', () => refreshRemoteCharacters())
+  handleLogged(
+    'character:getRemotePrompt',
+    (_event, characterId: string) => getRemoteCharacterPrompt(characterId),
+    (characterId) => ({ characterId })
+  )
+  handleLogged(
+    'character:download',
+    (_event, characterId: string) => downloadCharacter(characterId),
+    (characterId) => ({ characterId })
+  )
+  handleLogged(
+    'character:resetPreset',
+    (_event, characterId: string) => resetPresetCharacter(characterId),
+    (characterId) => ({ characterId })
   )
   handleLogged('ai:getSessions', () => getSessions())
   handleLogged(
@@ -117,9 +146,13 @@ export function registerIpc(): void {
       messageLength: request.userMessage.length
     })
   )
-  handleLogged('ai:abortRun', (_event, requestId: string) => abortRun(requestId), (requestId) => ({
-    requestId
-  }))
+  handleLogged(
+    'ai:abortRun',
+    (_event, requestId: string) => abortRun(requestId),
+    (requestId) => ({
+      requestId
+    })
+  )
   handleLogged('settings:getProfiles', () => getProfiles())
   handleLogged(
     'settings:saveProfiles',
@@ -149,9 +182,13 @@ export function registerIpc(): void {
       memorySearchEnabled: store.memorySearchEnabled
     })
   )
-  handleLogged('memory:getStatus', (_event, characterId?: string | null) => memory.getStatus(characterId), (characterId) => ({
-    characterId
-  }))
+  handleLogged(
+    'memory:getStatus',
+    (_event, characterId?: string | null) => memory.getStatus(characterId),
+    (characterId) => ({
+      characterId
+    })
+  )
   handleLogged('memory:listLocalModels', () => memory.listLocalModels())
   handleLogged(
     'memory:downloadLocalModel',
@@ -188,12 +225,20 @@ export function registerIpc(): void {
     (characterId) => ({ characterId })
   )
   handleLogged('memory:startAllMemoryBuild', () => memory.startAllMemoryBuild())
-  handleLogged('memory:cancelTask', (_event, taskId: string) => memory.cancelTask(taskId), (taskId) => ({
-    taskId
-  }))
-  handleLogged('log:track', (_event, payload: RendererLogEventPayload) => logger.trackRendererEvent(payload), (payload) => ({
-    event: payload.event
-  }))
+  handleLogged(
+    'memory:cancelTask',
+    (_event, taskId: string) => memory.cancelTask(taskId),
+    (taskId) => ({
+      taskId
+    })
+  )
+  handleLogged(
+    'log:track',
+    (_event, payload: RendererLogEventPayload) => logger.trackRendererEvent(payload),
+    (payload) => ({
+      event: payload.event
+    })
+  )
   handleLogged('log:getViewerState', () => logger.getViewerState())
   handleLogged('log:readEntries', () => logger.readEntries())
   handleLogged('log:openDirectory', () => logger.openDirectory())

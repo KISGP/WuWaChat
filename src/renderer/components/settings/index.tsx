@@ -3,15 +3,15 @@ import SettingIcon from '../../assets/settingIcon.png'
 import CloseIcon from '../close'
 import Tab from '../tab'
 import { BackgroundTab } from './BackgroundTab'
+import { CharacterTab } from './CharacterTab'
 import { LogTab } from './LogTab'
 import { MemoryTab } from './MemoryTab'
 import { ModelTab } from './ModelTab'
-import { PromptTab } from './PromptTab'
 
 const TABS = [
   { id: 'model', label: '模型', component: ModelTab },
   { id: 'memory', label: '记忆', component: MemoryTab },
-  { id: 'prompt', label: '提示词', component: PromptTab },
+  { id: 'character', label: '角色', component: CharacterTab },
   { id: 'bg', label: '背景图像', component: BackgroundTab },
   { id: 'log', label: '日志', component: LogTab }
 ] as const
@@ -32,7 +32,7 @@ export default function Settings({ onClose }: { onClose?: () => void }): ReactEl
       <div data-drag-region className="relative h-16 shrink-0 items-center justify-between">
         <div data-drag-region className="absolute bottom-4 left-6 flex items-center gap-1">
           <img src={SettingIcon} className="size-8 object-contain" alt="" />
-          <span className="tracking-wider text-white">璁剧疆</span>
+          <span className="tracking-wider text-white">设置</span>
         </div>
         <CloseIcon className="absolute right-6 bottom-2" onClick={handleClose} />
       </div>

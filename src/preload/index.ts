@@ -29,6 +29,16 @@ const ai = {
   }
 }
 
+const characters = {
+  getCharacterCatalog: () => ipcRenderer.invoke('character:getCatalog'),
+  refreshRemoteCharacters: () => ipcRenderer.invoke('character:refreshRemote'),
+  getRemoteCharacterPrompt: (characterId: string) =>
+    ipcRenderer.invoke('character:getRemotePrompt', characterId),
+  downloadCharacter: (characterId: string) => ipcRenderer.invoke('character:download', characterId),
+  resetPresetCharacter: (characterId: string) =>
+    ipcRenderer.invoke('character:resetPreset', characterId)
+}
+
 const settings = {
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
   saveProfiles: (data: unknown) => ipcRenderer.invoke('settings:saveProfiles', data),
@@ -79,6 +89,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('ai', ai)
+    contextBridge.exposeInMainWorld('characters', characters)
     contextBridge.exposeInMainWorld('settings', settings)
     contextBridge.exposeInMainWorld('memory', memory)
     contextBridge.exposeInMainWorld('logs', logs)
@@ -92,6 +103,8 @@ if (process.contextIsolated) {
   window.api = api
   // @ts-ignore (define in dts)
   window.ai = ai
+  // @ts-ignore (define in dts)
+  window.characters = characters
   // @ts-ignore (define in dts)
   window.settings = settings
   // @ts-ignore (define in dts)
