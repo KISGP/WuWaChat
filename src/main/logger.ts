@@ -1,5 +1,5 @@
 import { app, shell } from 'electron'
-import { appendFile, mkdir, readFile, stat } from 'fs/promises'
+import { appendFile, mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type {
   LogContext,
@@ -32,6 +32,13 @@ const SENSITIVE_KEYS = new Set([
   'vectors',
   'vectorJson',
   'encryptedApiKey'
+])
+
+const FULL_TEXT_LOG_KEYS = new Set([
+  'systemPromptText',
+  'retrievalContextText',
+  'chatMessages',
+  'modelInput'
 ])
 
 let writeQueue = Promise.resolve()
@@ -74,12 +81,26 @@ function sanitizeValue(value: unknown): unknown {
   return String(value)
 }
 
+function sanitizeByKey(key: string, value: unknown): unknown {
+  if (SENSITIVE_KEYS.has(key)) {
+    return '[redacted]'
+  }
+
+  if (FULL_TEXT_LOG_KEYS.has(key)) {
+    return sanitizeValue(value)
+  }
+
+  return sanitizeValue(value)
+}
+
 function sanitizeContext(context?: LogContext): LogContext | undefined {
   if (!context) {
     return undefined
   }
 
-  return sanitizeValue(context) as LogContext
+  return Object.fromEntries(
+    Object.entries(context).slice(0, 50).map(([key, value]) => [key, sanitizeByKey(key, value)])
+  ) as LogContext
 }
 
 function toConsoleMethod(level: LogLevel): 'log' | 'warn' | 'error' {
@@ -175,7 +196,7 @@ export const logger = {
       updatedAt: fileStat.mtime.toISOString()
     }
   },
-  async readEntries(): Promise<LogEntry[]> {
+  async readLogs(): Promise<LogEntry[]> {
     const filePath = getLogFilePath()
     if (!(await pathExists(filePath))) {
       return []
@@ -206,6 +227,10 @@ export const logger = {
     const directoryPath = getLogsDirectory()
     await mkdir(directoryPath, { recursive: true })
     await shell.openPath(directoryPath)
+  },
+  async clearLogs(): Promise<void> {
+    await mkdir(getLogsDirectory(), { recursive: true })
+    await writeFile(getLogFilePath(), '', 'utf-8')
   },
   getLogFilePath,
   getLogsDirectory

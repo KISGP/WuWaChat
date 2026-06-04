@@ -80,8 +80,9 @@ const memory = {
 const logs = {
   track: (payload: RendererLogEventPayload) => ipcRenderer.invoke('log:track', payload),
   getViewerState: () => ipcRenderer.invoke('log:getViewerState'),
-  readEntries: () => ipcRenderer.invoke('log:readEntries'),
-  openDirectory: () => ipcRenderer.invoke('log:openDirectory')
+  readLogs: () => ipcRenderer.invoke('log:readLogs'),
+  openDirectory: () => ipcRenderer.invoke('log:openDirectory'),
+  clearLogs: () => ipcRenderer.invoke('log:clearLogs')
 }
 
 if (process.contextIsolated) {

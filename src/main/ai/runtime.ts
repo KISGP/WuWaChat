@@ -85,6 +85,21 @@ function contentToText(content: unknown): string {
     .join('')
 }
 
+function toLoggableMessages(messages: BaseMessage[]): Array<{
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}> {
+  return messages.map((message) => ({
+    role:
+      message instanceof SystemMessage
+        ? 'system'
+        : message instanceof AIMessage
+          ? 'assistant'
+          : 'user',
+    content: contentToText(message.content)
+  }))
+}
+
 function toModelMessages(prompt: string, history: ConversationMessage[], retrievalContext: string[]): BaseMessage[] {
   const systemSections = [prompt.trim()]
 
@@ -349,6 +364,35 @@ export class AiRuntime {
       .addNode('buildMessages', (state) => ({
         llmMessages: toModelMessages(state.prompt, state.history, state.retrievalContext)
       }))
+      .addNode('logModelInput', async (state) => {
+        const chatMessages = toLoggableMessages(state.llmMessages)
+        const systemPromptText = state.llmMessages
+          .filter((message) => message instanceof SystemMessage)
+          .map((message) => contentToText(message.content))
+          .filter(Boolean)
+          .join('\n\n')
+        const retrievalContextText = state.retrievalContext.join('\n\n')
+
+        await logger.info('ai', 'run-model-input-built', 'Built chat model input', {
+          requestId: state.requestId,
+          sessionId: state.sessionId,
+          characterId: state.characterId,
+          profileId: state.profileId,
+          messageCount: state.llmMessages.length,
+          historyMessageCount: state.history.length,
+          retrievalContextCount: state.retrievalContext.length,
+          systemPromptText,
+          retrievalContextText,
+          chatMessages,
+          modelInput: {
+            systemPromptText,
+            retrievalContextText,
+            chatMessages
+          }
+        })
+
+        return {}
+      })
       .addNode('invokeModel', async (state) => {
         const model = createChatModel(state.profile)
         const stream = await model.stream(state.llmMessages, {
@@ -447,7 +491,8 @@ export class AiRuntime {
       .addEdge('loadPrompt', 'prepareHistory')
       .addEdge('prepareHistory', 'retrieveContext')
       .addEdge('retrieveContext', 'buildMessages')
-      .addEdge('buildMessages', 'invokeModel')
+      .addEdge('buildMessages', 'logModelInput')
+      .addEdge('logModelInput', 'invokeModel')
       .addEdge('invokeModel', 'commitAssistantMessage')
       .addEdge('commitAssistantMessage', END)
       .compile()

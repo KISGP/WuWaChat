@@ -81,8 +81,9 @@ declare global {
     logs: {
       track: (payload: RendererLogEventPayload) => Promise<void>
       getViewerState: () => Promise<LogViewerState>
-      readEntries: () => Promise<LogEntry[]>
+      readLogs: () => Promise<LogEntry[]>
       openDirectory: () => Promise<void>
+      clearLogs: () => Promise<void>
     }
   }
 }

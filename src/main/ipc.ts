@@ -240,6 +240,7 @@ export function registerIpc(): void {
     })
   )
   handleLogged('log:getViewerState', () => logger.getViewerState())
-  handleLogged('log:readEntries', () => logger.readEntries())
+  handleLogged('log:readLogs', () => logger.readLogs())
   handleLogged('log:openDirectory', () => logger.openDirectory())
+  handleLogged('log:clearLogs', () => logger.clearLogs())
 }

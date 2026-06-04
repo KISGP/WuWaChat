@@ -35,6 +35,7 @@ export function LogTab(): ReactElement {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [viewerState, setViewerState] = useState<LogViewerState | null>(null)
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
   const lines = useMemo(() => entries.map((entry) => formatLogLine(entry)), [entries])
@@ -45,7 +46,7 @@ export function LogTab(): ReactElement {
       setErrorMessage('')
       const [nextViewerState, nextEntries] = await Promise.all([
         window.logs.getViewerState(),
-        window.logs.readEntries()
+        window.logs.readLogs()
       ])
       setViewerState(nextViewerState)
       setEntries(nextEntries)
@@ -66,6 +67,30 @@ export function LogTab(): ReactElement {
       window.clearTimeout(timeout)
     }
   }, [])
+
+  const handleOpenDirectory = (): void => {
+    trackUiEvent('log-directory-open', 'User opened the log directory from the log tab')
+    void window.logs.openDirectory()
+  }
+
+  const handleClearLogs = async (): Promise<void> => {
+    if (!window.confirm('Clear the current log file?')) {
+      return
+    }
+
+    try {
+      setClearing(true)
+      setErrorMessage('')
+      trackUiEvent('log-clear', 'User cleared log entries from the log tab')
+      await window.logs.clearLogs()
+      await refreshLogs()
+    } catch (error) {
+      console.error('Failed to clear logs:', error)
+      setErrorMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setClearing(false)
+    }
+  }
 
   return (
     <div className="flex h-full flex-col px-8 py-4">
@@ -88,20 +113,24 @@ export function LogTab(): ReactElement {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              trackUiEvent('log-directory-open', 'User opened the log directory from the log tab')
-              void window.logs.openDirectory()
-            }}
+            onClick={() => void handleClearLogs()}
+            disabled={loading || clearing}
+            className="rounded bg-red-500/20 px-3 py-1 text-sm text-red-100 hover:bg-red-500/30 disabled:opacity-50"
+          >
+            {clearing ? '清空中...' : '清空日志'}
+          </button>
+          <button
+            onClick={handleOpenDirectory}
             className="rounded bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
           >
-            Open Folder
+            打开日志文件夹
           </button>
           <button
             onClick={() => void refreshLogs()}
-            disabled={loading}
+            disabled={loading || clearing}
             className="rounded bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20 disabled:opacity-50"
           >
-            {loading ? 'Refreshing...' : 'Refresh'}
+            {loading ? '刷新中...' : '刷新'}
           </button>
         </div>
       </div>
