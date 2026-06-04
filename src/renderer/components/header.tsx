@@ -6,16 +6,9 @@ import MinIcon from './min'
 import Info from '../assets/T_BtnHelpInfoNor.png'
 import Dialog from './dialog'
 import { useState } from 'react'
-import LoadingIcon from '../assets/loading.png'
 
 export default function Header({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-
-  const handleRefresh = () => {
-    setIsRefreshing(true)
-    window.location.reload()
-  }
 
   const openSettings = () => {
     if (onOpenSettings) {
@@ -51,12 +44,6 @@ export default function Header({ onOpenSettings }: { onOpenSettings?: () => void
       <span className="absolute top-5 left-38 text-lg font-semibold text-neutral-500/80">飞讯</span>
 
       <div className="no-drag pointer-events-auto absolute top-3.5 right-6 z-100 flex gap-6">
-        <img
-          src={LoadingIcon}
-          className={`no-drag pointer-events-auto z-100 mt-1 size-8 cursor-pointer transition-transform duration-200 hover:scale-110 ${isRefreshing ? 'animate-spin' : ''}`}
-          draggable="false"
-          onClick={handleRefresh}
-        />
         <img
           src={Icon2}
           className="no-drag pointer-events-auto z-10 size-10 scale-90 cursor-pointer transition-transform duration-200 hover:scale-95"
