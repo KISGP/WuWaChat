@@ -40,6 +40,9 @@ type UseMemoryTabViewStateResult = {
   characterMemoryBusy: boolean
   worldIndexNeedsBuild: boolean
   memoryIndexNeedsBuild: boolean
+  memoryIndexMissingWithEntries: boolean
+  memoryIndexMissingWithoutEntries: boolean
+  shouldSuggestMemoryBuild: boolean
   operationTips: string[]
 }
 
@@ -80,16 +83,49 @@ export function useMemoryTabViewState({
       memoryIndex.availability === 'failed' ||
       memoryIndex.availability === 'incompatible')
 
+  const memoryIndexMissingWithEntries =
+    vectorModeSelected &&
+    memoryIndex?.availability === 'missing' &&
+    memoryIndex.entryCount > 0
+  const memoryIndexMissingWithoutEntries =
+    vectorModeSelected &&
+    memoryIndex?.availability === 'missing' &&
+    memoryIndex.entryCount === 0
+  const shouldSuggestMemoryBuild =
+    vectorModeSelected &&
+    (memoryIndex?.availability === 'incompatible' ||
+      memoryIndex?.availability === 'failed' ||
+      memoryIndexMissingWithEntries)
+
   const operationTips = useMemo(
     () =>
       [
-        worldIndexNeedsBuild ? '当前世界知识索引还不可直接用于向量检索，建议先更新知识包，再构建世界知识向量。' : null,
-        memoryIndexNeedsBuild ? '当前角色记忆索引还不可直接用于向量检索，建议重建当前角色或全部角色记忆。' : null,
+        worldIndexNeedsBuild
+          ? '当前世界知识索引还不可直接用于向量检索，建议先更新知识包，再构建世界知识向量。'
+          : null,
+        memoryIndex?.availability === 'incompatible'
+          ? '当前角色记忆索引与正在使用的 embedding 配置不一致，建议重建当前角色或全部角色记忆。'
+          : null,
+        memoryIndex?.availability === 'failed'
+          ? '当前角色记忆索引上一次构建失败，建议检查 embedding 配置后重新构建。'
+          : null,
+        memoryIndexMissingWithEntries
+          ? '当前已有角色记忆内容，但还没有构建向量索引，建议重建当前角色或全部角色记忆。'
+          : null,
+        memoryIndexMissingWithoutEntries
+          ? '当前还没有角色记忆内容，先开始聊天产生记忆后，再构建向量索引即可。'
+          : null,
         !vectorModeSelected
           ? '你当前使用的是字符串检索模式，下面这些构建操作不是必须，但提前构建后切到向量模式会更顺畅。'
           : null
       ].filter(Boolean) as string[],
-    [memoryIndexNeedsBuild, vectorModeSelected, worldIndexNeedsBuild]
+    [
+      memoryIndex?.availability,
+      memoryIndexMissingWithEntries,
+      memoryIndexMissingWithoutEntries,
+      vectorModeSelected,
+      worldIndexNeedsBuild
+    ]
   )
 
   return {
@@ -112,6 +148,9 @@ export function useMemoryTabViewState({
     characterMemoryBusy,
     worldIndexNeedsBuild,
     memoryIndexNeedsBuild,
+    memoryIndexMissingWithEntries,
+    memoryIndexMissingWithoutEntries,
+    shouldSuggestMemoryBuild,
     operationTips
   }
 }

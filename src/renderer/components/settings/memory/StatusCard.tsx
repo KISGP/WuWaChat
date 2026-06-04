@@ -6,7 +6,12 @@ import type {
   WorldIndexStatus
 } from '../../../../shared/memory-settings'
 import { cn } from '../../../utils'
-import { formatDateTime, getAvailabilityMeta, getRuntimeModeMeta } from './helpers'
+import {
+  formatDateTime,
+  getAvailabilityMeta,
+  getRuntimeModeMeta,
+  getStatusCardEmptyHint
+} from './helpers'
 import { InfoPill } from './InfoPill'
 
 export function StatusCard({
@@ -24,8 +29,15 @@ export function StatusCard({
   metadataValue?: string | number | null
   emptyHint: string
 }): ReactElement {
-  const availabilityMeta = getAvailabilityMeta(index?.availability)
+  const availabilityMeta = getAvailabilityMeta(index?.availability, index)
   const runtimeMeta = getRuntimeModeMeta(index?.runtimeMode)
+  const derivedEmptyHint = getStatusCardEmptyHint(index, emptyHint)
+  const compatibilityMessage =
+    compatibility && (index?.availability === 'ready' || index?.availability === 'incompatible')
+      ? compatibility.compatible
+        ? '当前索引与正在使用的 embedding 配置一致。'
+        : compatibility.message
+      : null
 
   return (
     <div className="rounded border border-white/10 bg-black/20 p-3">
@@ -53,14 +65,12 @@ export function StatusCard({
 
       <div className="mt-3 rounded border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/55">
         <div>向量模型：{index?.fingerprint?.model || '尚未生成'}</div>
-        {!index?.fingerprint?.model && <div className="mt-1">{emptyHint}</div>}
+        {!index?.fingerprint?.model && <div className="mt-1">{derivedEmptyHint}</div>}
       </div>
 
-      {compatibility && (
+      {compatibilityMessage && (
         <div className="mt-3 rounded border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60">
-          {compatibility.compatible
-            ? '当前索引与正在使用的 embedding 配置一致。'
-            : compatibility.message}
+          {compatibilityMessage}
         </div>
       )}
 

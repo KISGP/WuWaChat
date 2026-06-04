@@ -1,9 +1,12 @@
 import type {
+  CharacterMemoryIndexStatus,
   CloudEmbeddingSettings,
   MemoryRetrievalMode,
   MemoryTask,
   WorldIndexStatus
 } from '../../../../shared/memory-settings'
+
+type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
 
 export function inputClassName(): string {
   return 'h-9 rounded border border-white/15 bg-black/35 px-3 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-[#e8c690]'
@@ -63,7 +66,10 @@ export function formatDateTime(value?: string | null): string {
   }).format(date)
 }
 
-export function getAvailabilityMeta(availability?: WorldIndexStatus['availability']): {
+export function getAvailabilityMeta(
+  availability?: WorldIndexStatus['availability'],
+  index?: IndexStatus
+): {
   label: string
   tone: string
   description: string
@@ -95,6 +101,24 @@ export function getAvailabilityMeta(availability?: WorldIndexStatus['availabilit
       }
     case 'missing':
     default:
+      if (index?.scope === 'character-memory') {
+        if ((index.entryCount || 0) > 0) {
+          return {
+            label: '未构建',
+            tone: 'border-white/15 bg-white/5 text-white/70',
+            description:
+              '当前已有角色记忆内容，但还没有构建向量索引。系统会暂时回退到字符串检索。'
+          }
+        }
+
+        return {
+          label: '未构建',
+          tone: 'border-white/15 bg-white/5 text-white/70',
+          description:
+            '当前还没有可供索引的角色记忆内容。系统会直接使用字符串检索，先开始聊天后再构建即可。'
+        }
+      }
+
       return {
         label: '未构建',
         tone: 'border-white/15 bg-white/5 text-white/70',
@@ -137,6 +161,22 @@ export function getSelectedEmbeddingModeLabel(mode: MemoryRetrievalMode): string
     default:
       return '字符串检索'
   }
+}
+
+export function getStatusCardEmptyHint(index: IndexStatus, fallbackHint: string): string {
+  if (!index) {
+    return fallbackHint
+  }
+
+  if (index.scope !== 'character-memory' || index.availability !== 'missing') {
+    return fallbackHint
+  }
+
+  if (index.entryCount > 0) {
+    return '当前已有角色记忆内容。完成一次当前角色或全部角色重建后，就可以启用向量检索。'
+  }
+
+  return '当前还没有产生可索引的角色记忆。先开始聊天，等有记忆内容后再构建向量索引即可。'
 }
 
 export function hasRunningTask(tasks: MemoryTask[], taskType: MemoryTask['taskType']): boolean {

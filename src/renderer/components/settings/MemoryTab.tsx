@@ -85,6 +85,7 @@ export function MemoryTab(): ReactElement {
     characterMemoryBusy,
     worldIndexNeedsBuild,
     memoryIndexNeedsBuild,
+    shouldSuggestMemoryBuild,
     operationTips
   } = useMemoryTabViewState({
     draft,
@@ -615,8 +616,8 @@ export function MemoryTab(): ReactElement {
         </div>
 
         {draft.retrievalMode !== 'string' &&
-          ((worldCompatibility && !worldCompatibility.compatible) ||
-            (memoryCompatibility && !memoryCompatibility.compatible)) && (
+          (worldIndex?.availability === 'incompatible' ||
+            memoryIndex?.availability === 'incompatible') && (
             <div className="mt-3 flex items-start gap-2 rounded border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <span>
@@ -703,12 +704,12 @@ export function MemoryTab(): ReactElement {
                 ? '需先选择角色'
                 : characterMemoryPending
                   ? '构建中'
-                  : memoryIndexNeedsBuild
+                  : shouldSuggestMemoryBuild
                     ? '建议执行'
                     : '适合局部更新'
             }
             tone={
-              activateChar?.id && !characterMemoryPending && memoryIndexNeedsBuild
+              activateChar?.id && !characterMemoryPending && shouldSuggestMemoryBuild
                 ? 'highlight'
                 : 'default'
             }
@@ -731,9 +732,9 @@ export function MemoryTab(): ReactElement {
             guidance="当你调整了 embedding 配置、切换了模型，或想一次性修复所有角色时使用。"
             effect="耗时通常比单角色更长，但能保证所有角色索引一致。"
             statusText={
-              allMemoryPending ? '构建中' : memoryIndexNeedsBuild ? '建议执行' : '适合全量更新'
+              allMemoryPending ? '构建中' : shouldSuggestMemoryBuild ? '建议执行' : '适合全量更新'
             }
-            tone={allMemoryPending || memoryIndexNeedsBuild ? 'highlight' : 'default'}
+            tone={allMemoryPending || shouldSuggestMemoryBuild ? 'highlight' : 'default'}
             disabled={characters.length === 0 || allMemoryPending || !vectorModeSelected}
             disabledReason={
               characters.length === 0
