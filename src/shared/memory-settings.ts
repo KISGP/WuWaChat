@@ -147,11 +147,10 @@ export type WorldIndexStatus = {
   scope: 'world'
   availability: IndexAvailability
   runtimeMode: IndexRuntimeMode
-  dataVersion: string
+  updatedAt?: string | null
   entryCount: number
   fingerprint?: EmbeddingFingerprint | null
   builtAt?: string | null
-  message?: string
 }
 
 export type CharacterMemoryIndexStatus = {
@@ -163,7 +162,6 @@ export type CharacterMemoryIndexStatus = {
   indexedCharacterCount: number
   fingerprint?: EmbeddingFingerprint | null
   builtAt?: string | null
-  message?: string
 }
 
 export type MemoryTaskType =

@@ -84,7 +84,6 @@ export function MemoryTab(): ReactElement {
     worldVectorBusy,
     characterMemoryBusy,
     worldIndexNeedsBuild,
-    memoryIndexNeedsBuild,
     shouldSuggestMemoryBuild,
     operationTips
   } = useMemoryTabViewState({
@@ -591,7 +590,7 @@ export function MemoryTab(): ReactElement {
           </div>
           <div className="mt-2 text-xs leading-5 text-white/55">
             {draft.retrievalMode === 'string'
-              ? '你现在没有依赖向量索引，系统会直接使用字符串匹配。即使索引未构建，也不会影响基础检索。'
+              ? '你现在没有依赖向量索引，系统将使用字符串匹配。即使索引未构建，也不会影响基础检索。'
               : '你现在希望使用向量检索。只有当对应索引状态为“可用”且与当前 embedding 配置兼容时，系统才会真正使用向量检索。'}
           </div>
         </div>
@@ -601,8 +600,8 @@ export function MemoryTab(): ReactElement {
             title="世界知识索引"
             index={worldIndex}
             compatibility={worldCompatibility}
-            metadataLabel="知识包版本"
-            metadataValue={worldIndex?.dataVersion}
+            metadataLabel="world 更新时间"
+            metadataValue={new Date(worldIndex?.updatedAt || 0).toLocaleString()}
             emptyHint="如果你想让系统从世界知识库里做语义检索，需要先更新知识包并构建世界知识向量。"
           />
           <StatusCard
@@ -662,9 +661,9 @@ export function MemoryTab(): ReactElement {
           <ActionCard
             icon={Download}
             title="更新世界知识包"
-            summary="从远端下载最新 world 压缩包，并覆盖本地 app-data/world。"
+            summary="从远端下载最新 world 压缩包，并覆盖本地已有数据。"
             guidance="首次缺少 world 内容时会自动准备；之后当远端版本更新时，也可以在这里手动刷新。"
-            effect="它只会更新 world 原始内容，不会自动生成向量索引。完成后如需向量检索，请再执行一次世界知识向量构建。"
+            effect="仅更新 world 原始内容，不会自动生成向量索引。完成后如需向量检索，需再执行一次。"
             statusText={
               worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'
             }
@@ -677,7 +676,7 @@ export function MemoryTab(): ReactElement {
             icon={RefreshCw}
             title="构建世界知识向量"
             summary="把世界知识转换成可供语义检索的向量索引。"
-            guidance="只有在你打算使用向量检索时才需要执行；更新知识包后通常也要再构建一次。"
+            guidance="仅在使用向量检索时才需要执行；更新知识包后需要再构建。"
             effect="完成后，世界知识检索才能真正走向量语义匹配。"
             statusText={
               worldVectorPending ? '构建中' : worldIndexNeedsBuild ? '建议执行' : '可按需重建'

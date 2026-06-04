@@ -29,7 +29,7 @@ import {
   getAppDataRoot,
   getMemoryDatabasePath,
   getMemorySettingsPath,
-  getWorldInfoPath,
+  getWorldMetadataPath,
   getWorldRoot,
   now,
   readOptionalFile,
@@ -55,8 +55,12 @@ type LocalEmbeddingModule = typeof import('./local-embedding')
 
 const WORLD_SCOPE = 'world'
 const MEMORY_SCOPE = 'character-memory'
-const WORLD_BUNDLE_ZIP_URL = 'https://github.com/KISGP/WuWaChatWorld/archive/refs/heads/main.zip'
-const WORLD_BUNDLE_INFO_URL = 'https://raw.githubusercontent.com/KISGP/WuWaChatWorld/main/info.txt'
+const WORLD_BUNDLE_ZIP_URL = 'https://codeload.github.com/KISGP/WuWaChatWorld/zip/refs/heads/main'
+const WORLD_BUNDLE_REPO_URL = 'https://api.github.com/repos/KISGP/WuWaChatWorld'
+
+type WorldBundleMetadata = {
+  updatedAt: string
+}
 
 function createLocalFingerprint(
   model: Pick<
@@ -192,7 +196,7 @@ export class MemoryService {
   private settings = createDefaultMemorySettingsStore()
   private sessions: ConversationSession[] = []
   private worldEntries: MemoryEntry[] = []
-  private worldDataVersion: string | null = null
+  private worldUpdatedAt: string | null = null
   private worldBundleError: string | null = null
   private tasks = new Map<string, MemoryTask>()
   private initialized = false
@@ -228,7 +232,7 @@ export class MemoryService {
     void logger.info('memory', 'initialized', 'Memory service initialized', {
       retrievalMode: this.settings.retrievalMode,
       worldEntryCount: this.worldEntries.length,
-      worldDataVersion: this.worldDataVersion
+      worldUpdatedAt: this.worldUpdatedAt
     })
   }
 
@@ -370,22 +374,17 @@ export class MemoryService {
     const manifest = this.getManifest(WORLD_SCOPE)
     const compatibility = this.getWorldCompatibility()
     const availability = this.getWorldAvailability(manifest, compatibility)
-    const dataVersion = this.worldDataVersion || `${this.worldEntries.length}-chunks`
     return {
       scope: WORLD_SCOPE,
       availability,
       runtimeMode: this.getRuntimeMode(availability),
-      dataVersion,
+      updatedAt: this.worldUpdatedAt,
       entryCount: compatibility.compatible
         ? manifest?.entryCount || this.worldEntries.length
         : this.worldEntries.length,
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null,
-      message:
-        this.worldBundleError ||
-        compatibility.message ||
-        manifest?.message ||
-        this.defaultMessage(availability, 'world')
+
     }
   }
 
@@ -402,8 +401,6 @@ export class MemoryService {
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null,
-      message:
-        compatibility.message || manifest?.message || this.defaultMessage(availability, 'memory')
     }
   }
 
@@ -431,23 +428,23 @@ export class MemoryService {
     return this.runTask('world-bundle-download', 'world', async (taskId, updateTask) => {
       updateTask(taskId, {
         progress: 10,
-        message: 'Checking local world bundle version'
+        message: 'Checking local world update time'
       })
-      const localVersion = await this.getLocalWorldDataVersion()
+      const localUpdatedAt = await this.getLocalWorldUpdatedAt()
 
       updateTask(taskId, {
         progress: 25,
-        message: 'Fetching remote world bundle version'
+        message: 'Fetching remote world update time'
       })
-      const remoteVersion = await this.fetchRemoteWorldDataVersion()
+      const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt()
 
-      if (localVersion && remoteVersion === localVersion) {
-        this.worldDataVersion = localVersion
+      if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
+        this.worldUpdatedAt = localUpdatedAt
         this.worldBundleError = null
         this.worldEntries = await this.loadWorldEntries()
         updateTask(taskId, {
           progress: 100,
-          message: `World bundle is already up to date (${localVersion}).`
+          message: `World bundle is already up to date (${localUpdatedAt}).`
         })
         return
       }
@@ -456,7 +453,7 @@ export class MemoryService {
         progress: 45,
         message: 'Downloading latest world bundle archive'
       })
-      const installedVersion = await this.downloadAndInstallWorldBundle()
+      const installedVersion = await this.downloadAndInstallWorldBundle(remoteUpdatedAt)
 
       updateTask(taskId, {
         progress: 90,
@@ -691,7 +688,7 @@ export class MemoryService {
 
   private async loadWorldEntries(): Promise<MemoryEntry[]> {
     const worldRoot = getWorldRoot()
-    this.worldDataVersion = await this.getLocalWorldDataVersion()
+    this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
     const markdownFiles = await walkMarkdownFiles(worldRoot)
     const entries = await Promise.all(
       markdownFiles.map(async (filePath) => {
@@ -713,35 +710,34 @@ export class MemoryService {
   }
 
   private async ensureWorldBundleReady(): Promise<void> {
-    const infoPath = getWorldInfoPath()
-    if (await pathExists(infoPath)) {
-      this.worldDataVersion = await this.getLocalWorldDataVersion()
+    if (await this.hasWorldBundleContent()) {
+      this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
       this.worldBundleError = null
       return
     }
 
-    await this.downloadAndInstallWorldBundle()
+    const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt()
+    await this.downloadAndInstallWorldBundle(remoteUpdatedAt)
   }
 
-  private async getLocalWorldDataVersion(): Promise<string | null> {
-    return this.readWorldInfoFile(getWorldInfoPath())
+  private async getLocalWorldUpdatedAt(): Promise<string | null> {
+    const metadata = await this.readWorldBundleMetadata()
+    return this.normalizeWorldVersion(metadata?.updatedAt)
   }
 
-  private async fetchRemoteWorldDataVersion(): Promise<string> {
-    const response = await fetch(WORLD_BUNDLE_INFO_URL)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch remote world info (${response.status})`)
+  private async fetchRemoteWorldUpdatedAt(): Promise<string> {
+    const response = await this.fetchWorldResource(WORLD_BUNDLE_REPO_URL, 'fetch world repo metadata')
+    const payload = (await response.json()) as { pushed_at?: unknown }
+    const updatedAt =
+      typeof payload?.pushed_at === 'string' ? this.normalizeWorldVersion(payload.pushed_at) : null
+    if (!updatedAt) {
+      throw new Error(`World repo metadata from ${WORLD_BUNDLE_REPO_URL} is missing pushed_at.`)
     }
 
-    const version = this.normalizeWorldVersion(await response.text())
-    if (!version) {
-      throw new Error('Remote world info.txt is empty.')
-    }
-
-    return version
+    return updatedAt
   }
 
-  private async downloadAndInstallWorldBundle(): Promise<string> {
+  private async downloadAndInstallWorldBundle(updatedAt: string): Promise<string> {
     const tempRoot = join(getAppDataRoot(), 'tmp', `world-bundle-${randomUUID()}`)
     const archivePath = join(tempRoot, 'world.zip')
     const extractRoot = join(tempRoot, 'extracted')
@@ -752,11 +748,7 @@ export class MemoryService {
     await mkdir(extractRoot, { recursive: true })
 
     try {
-      const response = await fetch(WORLD_BUNDLE_ZIP_URL)
-      if (!response.ok) {
-        throw new Error(`Failed to download world bundle (${response.status})`)
-      }
-
+      const response = await this.fetchWorldResource(WORLD_BUNDLE_ZIP_URL, 'download world bundle archive')
       const archiveBuffer = Buffer.from(await response.arrayBuffer())
       await writeFile(archivePath, archiveBuffer)
 
@@ -765,22 +757,16 @@ export class MemoryService {
 
       const bundleRoot = await this.findWorldBundleRoot(extractRoot)
       if (!bundleRoot) {
-        throw new Error('Downloaded world bundle does not contain info.txt.')
+        throw new Error('Downloaded world bundle does not contain recognizable world content.')
       }
 
       await rename(bundleRoot, stagedWorldRoot)
-
-      const stagedInfoPath = join(stagedWorldRoot, 'info.txt')
-      const stagedVersion = await this.readWorldInfoFile(stagedInfoPath)
-      if (!stagedVersion) {
-        throw new Error('Downloaded world bundle info.txt is empty.')
-      }
-
       await this.replaceWorldDirectory(stagedWorldRoot, targetRoot, backupRoot)
+      await this.writeWorldBundleMetadata(updatedAt)
 
-      this.worldDataVersion = stagedVersion
+      this.worldUpdatedAt = updatedAt
       this.worldBundleError = null
-      return stagedVersion
+      return updatedAt
     } catch (error) {
       this.worldBundleError = error instanceof Error ? error.message : String(error)
       throw error
@@ -814,28 +800,75 @@ export class MemoryService {
   }
 
   private async findWorldBundleRoot(rootPath: string): Promise<string | null> {
-    if (await pathExists(join(rootPath, 'info.txt'))) {
+    const entries = await readdir(rootPath, { withFileTypes: true })
+    const hasMarkdownFile = entries.some(
+      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md')
+    )
+    if (hasMarkdownFile) {
       return rootPath
     }
 
-    const entries = await readdir(rootPath, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue
-      }
+    const directoryEntries = entries.filter((entry) => entry.isDirectory())
+    if (entries.length === 1 && directoryEntries.length === 1) {
+      return this.findWorldBundleRoot(join(rootPath, directoryEntries[0].name))
+    }
 
-      const nestedRoot = await this.findWorldBundleRoot(join(rootPath, entry.name))
-      if (nestedRoot) {
-        return nestedRoot
-      }
+    if (directoryEntries.length > 0) {
+      return rootPath
     }
 
     return null
   }
 
-  private async readWorldInfoFile(filePath: string): Promise<string | null> {
-    const content = await readOptionalFile(filePath)
-    return this.normalizeWorldVersion(content)
+  private async hasWorldBundleContent(): Promise<boolean> {
+    const worldRoot = getWorldRoot()
+    if (!(await pathExists(worldRoot))) {
+      return false
+    }
+
+    const markdownFiles = await walkMarkdownFiles(worldRoot)
+    return markdownFiles.length > 0
+  }
+
+  private async readWorldBundleMetadata(): Promise<WorldBundleMetadata | null> {
+    const content = await readOptionalFile(getWorldMetadataPath())
+    if (!content) {
+      return null
+    }
+
+    try {
+      const parsed = JSON.parse(content) as Partial<WorldBundleMetadata>
+      const updatedAt = this.normalizeWorldVersion(parsed.updatedAt)
+      if (!updatedAt) {
+        return null
+      }
+
+      return {
+        updatedAt
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private async writeWorldBundleMetadata(updatedAt: string): Promise<void> {
+    await writeJsonFileAtomic(getWorldMetadataPath(), {
+      updatedAt
+    } satisfies WorldBundleMetadata)
+  }
+
+  private async fetchWorldResource(url: string, action: string): Promise<Response> {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`${action} failed (${response.status} ${response.statusText})`)
+      }
+
+      return response
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(`${action} failed for ${url}: ${reason}`)
+    }
   }
 
   private normalizeWorldVersion(value: string | null | undefined): string | null {
@@ -1009,7 +1042,6 @@ export class MemoryService {
         fingerprintKey: key,
         status: 'ready',
         entryCount: entries.length,
-        dataVersion: this.worldDataVersion || `${entries.length}-chunks`,
         builtAt: now(),
         message: 'World vector index is ready',
         fingerprint
@@ -1024,7 +1056,6 @@ export class MemoryService {
         fingerprintKey: key,
         status: 'failed',
         entryCount: 0,
-        dataVersion: this.worldDataVersion || null,
         builtAt: now(),
         message: error instanceof Error ? error.message : String(error),
         fingerprint
@@ -1171,10 +1202,7 @@ export class MemoryService {
     const manifest = this.getManifest(WORLD_SCOPE)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
-    const dataVersionCurrent = this.isWorldManifestCurrent(manifest)
-    const compatible =
-      this.settings.retrievalMode === 'string' ||
-      (sameFingerprint(active, expected) && dataVersionCurrent)
+    const compatible = this.settings.retrievalMode === 'string' || sameFingerprint(active, expected)
 
     return {
       scope: WORLD_SCOPE,
@@ -1183,9 +1211,7 @@ export class MemoryService {
       activeFingerprint: active,
       message:
         this.settings.retrievalMode !== 'string' && !compatible
-          ? dataVersionCurrent
-            ? 'Current world index does not match the active embedding model and needs to be rebuilt.'
-            : 'World bundle content changed and the world vector index needs to be rebuilt.'
+          ? 'Current world index does not match the active embedding model and needs to be rebuilt.'
           : undefined
     }
   }
@@ -1240,18 +1266,6 @@ export class MemoryService {
     return compatibility.compatible ? 'ready' : 'incompatible'
   }
 
-  private isWorldManifestCurrent(manifest: IndexManifestRecord | null): boolean {
-    if (!manifest) {
-      return false
-    }
-
-    if (!this.worldDataVersion) {
-      return true
-    }
-
-    return manifest.dataVersion === this.worldDataVersion
-  }
-
   private getMemoryAvailability(
     manifest: IndexManifestRecord | null,
     compatibility: EmbeddingCompatibilityStatus
@@ -1289,44 +1303,7 @@ export class MemoryService {
     return availability === 'ready' ? 'vector' : 'degraded'
   }
 
-  private defaultMessage(
-    availability: WorldIndexStatus['availability'] | CharacterMemoryIndexStatus['availability'],
-    type: 'world' | 'memory'
-  ): string {
-    if (availability === 'building') {
-      return type === 'world'
-        ? 'World vector index is currently building.'
-        : 'Character memory vector index is currently building.'
-    }
 
-    if (availability === 'failed') {
-      return type === 'world'
-        ? 'World vector index build failed.'
-        : 'Character memory vector index build failed.'
-    }
-
-    if (availability === 'missing') {
-      return type === 'world'
-        ? 'World vector index has not been built yet.'
-        : 'Character memory vector index has not been built yet.'
-    }
-
-    if (availability === 'incompatible') {
-      return type === 'world'
-        ? 'World vector index is incompatible with the current embedding configuration. Falling back to string retrieval.'
-        : 'Character memory vector index is incompatible with the current embedding configuration. Falling back to string retrieval.'
-    }
-
-    if (this.settings.retrievalMode === 'string') {
-      return type === 'world'
-        ? 'String retrieval is active for world knowledge.'
-        : 'String retrieval is active for character memory.'
-    }
-
-    return type === 'world'
-      ? 'Vector retrieval is active for world knowledge.'
-      : 'Vector retrieval is active for character memory.'
-  }
 
   private countMemoryEntries(characterId: string | null): number {
     if (characterId) {

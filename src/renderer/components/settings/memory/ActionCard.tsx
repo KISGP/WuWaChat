@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import type { LucideIcon } from 'lucide-react'
+import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon } from 'lucide-react'
 import { cn } from '../../../utils'
 
 export function ActionCard({
@@ -61,10 +61,18 @@ export function ActionCard({
         </span>
       </div>
 
-      <div className="mt-3 space-y-2 text-xs leading-5 text-white/55">
-        <div>什么时候用：{guidance}</div>
-        <div>会发生什么：{effect}</div>
-        {disabledReason && <div className="text-amber-200/90">当前不可用：{disabledReason}</div>}
+      <div className="mt-3 h-20 space-y-2 text-xs leading-5 text-white/55">
+        <div className="flex items-center gap-1">
+          <Clock10Icon className="size-4 my-auto" /> <span>{guidance}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <InfoIcon className="size-4 " /> <span>{effect}</span>
+        </div>
+        {disabledReason && (
+          <div className="flex items-center gap-1">
+            <BugIcon className="size-4  text-amber-200/90" /> <span className="text-amber-200/90">{disabledReason}</span>
+          </div>
+        )}
       </div>
 
       <button

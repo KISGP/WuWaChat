@@ -32,6 +32,7 @@ export function StatusCard({
   const availabilityMeta = getAvailabilityMeta(index?.availability, index)
   const runtimeMeta = getRuntimeModeMeta(index?.runtimeMode)
   const derivedEmptyHint = getStatusCardEmptyHint(index, emptyHint)
+  const derivedMetadataLabel = index?.scope === 'world' ? 'world 更新时间' : metadataLabel
   const compatibilityMessage =
     compatibility && (index?.availability === 'ready' || index?.availability === 'incompatible')
       ? compatibility.compatible
@@ -58,7 +59,7 @@ export function StatusCard({
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/60">
         <InfoPill label="当前运行" value={runtimeMeta.label} />
-        <InfoPill label={metadataLabel} value={metadataValue ?? '-'} />
+        <InfoPill label={derivedMetadataLabel} value={metadataValue ?? '-'} />
         <InfoPill label="索引条目" value={index?.entryCount ?? '-'} />
         <InfoPill label="最近构建" value={formatDateTime(index?.builtAt)} />
       </div>
@@ -73,8 +74,6 @@ export function StatusCard({
           {compatibilityMessage}
         </div>
       )}
-
-      {index?.message && <div className="mt-2 text-xs text-white/50">{index.message}</div>}
     </div>
   )
 }

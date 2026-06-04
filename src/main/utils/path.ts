@@ -34,8 +34,8 @@ export function getWorldRoot(): string {
   return join(getAppDataRoot(), 'world')
 }
 
-export function getWorldInfoPath(): string {
-  return join(getWorldRoot(), 'info.txt')
+export function getWorldMetadataPath(): string {
+  return join(getAppDataRoot(), 'world-metadata.json')
 }
 
 export function getLogsRoot(): string {

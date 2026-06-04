@@ -107,7 +107,7 @@ export function getAvailabilityMeta(
             label: '未构建',
             tone: 'border-white/15 bg-white/5 text-white/70',
             description:
-              '当前已有角色记忆内容，但还没有构建向量索引。系统会暂时回退到字符串检索。'
+              '当前已有角色记忆内容，但未构建向量索引，系统将回退到字符串检索。'
           }
         }
 
@@ -115,14 +115,14 @@ export function getAvailabilityMeta(
           label: '未构建',
           tone: 'border-white/15 bg-white/5 text-white/70',
           description:
-            '当前还没有可供索引的角色记忆内容。系统会直接使用字符串检索，先开始聊天后再构建即可。'
+            '当前无可供索引的角色记忆内容。系统将使用字符串检索，先开始聊天后再构建即可。'
         }
       }
 
       return {
         label: '未构建',
         tone: 'border-white/15 bg-white/5 text-white/70',
-        description: '当前还没有可用索引，系统通常会回退到字符串检索。'
+        description: '当前无可用索引，系统将回退到字符串检索。'
       }
   }
 }
@@ -176,7 +176,7 @@ export function getStatusCardEmptyHint(index: IndexStatus, fallbackHint: string)
     return '当前已有角色记忆内容。完成一次当前角色或全部角色重建后，就可以启用向量检索。'
   }
 
-  return '当前还没有产生可索引的角色记忆。先开始聊天，等有记忆内容后再构建向量索引即可。'
+  return '当前无可供索引的角色记忆。先开始聊天，等有记忆内容后再构建向量索引即可。'
 }
 
 export function hasRunningTask(tasks: MemoryTask[], taskType: MemoryTask['taskType']): boolean {
