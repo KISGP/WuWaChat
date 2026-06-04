@@ -298,6 +298,10 @@ export default function AreaRight(): ReactElement {
         {activateChar?.name}
       </span>
 
+      <span className="absolute top-12 left-12 z-20 text-xs font-semibold">
+        {activateChar?.description}
+      </span>
+
       <div className="absolute top-26 right-3 bottom-24 left-4">
         <MessagesList messages={messages} />
       </div>
