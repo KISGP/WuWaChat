@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
+import { is } from '@electron-toolkit/utils'
 import {
   abortRun,
   getMemoryService,
@@ -19,7 +20,7 @@ import { getProfiles, saveProfiles, testProfile } from './settings'
 import type { ChatRunRequest, ModelProfile } from '../shared/ai'
 import type { RendererLogEventPayload } from '../shared/logging'
 import type { ProfilesStore } from '../shared/model-settings'
-import type { MemorySettingsStore } from '../shared/memory-settings'
+import type { MemoryDebugRetrieveRequest, MemorySettingsStore } from '../shared/memory-settings'
 import { logger } from './logger'
 
 function toErrorMessage(error: unknown): string {
@@ -232,6 +233,18 @@ export function registerIpc(): void {
       taskId
     })
   )
+  if (is.dev) {
+    handleLogged(
+      'memory:debugRetrieve',
+      (_event, request: MemoryDebugRetrieveRequest) => memory.debugRetrieve(request),
+      (request: MemoryDebugRetrieveRequest) => ({
+        scope: request.scope,
+        characterId: request.characterId,
+        sessionId: request.sessionId,
+        queryLength: request.query.length
+      })
+    )
+  }
   handleLogged(
     'log:track',
     (_event, payload: RendererLogEventPayload) => logger.trackRendererEvent(payload),

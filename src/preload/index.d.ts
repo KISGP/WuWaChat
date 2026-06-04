@@ -12,6 +12,8 @@ import type {
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '../shared/logging'
 import type {
   CharacterMemoryIndexStatus,
+  MemoryDebugRetrieveRequest,
+  MemoryDebugRetrieveResult,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   LocalEmbeddingCatalogItem,
@@ -76,6 +78,7 @@ declare global {
       startCharacterMemoryBuild: (characterId: string) => Promise<MemoryTask>
       startAllMemoryBuild: () => Promise<MemoryTask>
       cancelTask: (taskId: string) => Promise<boolean>
+      debugRetrieve?: (request: MemoryDebugRetrieveRequest) => Promise<MemoryDebugRetrieveResult>
       onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => () => void
     }
     logs: {

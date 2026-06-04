@@ -143,6 +143,51 @@ export type IndexAvailability = 'missing' | 'ready' | 'building' | 'incompatible
 
 export type IndexRuntimeMode = 'string' | 'vector' | 'degraded'
 
+export type MemoryDebugScope = 'world' | 'character-memory' | 'all'
+
+export type MemoryDebugRetrievalHit = {
+  id: string
+  scope: 'world' | 'character-memory'
+  text: string
+  score: number
+  rank: number
+  retrievalModeUsed: IndexRuntimeMode
+  sourcePath?: string | null
+  sessionId?: string | null
+  characterId?: string | null
+}
+
+export type MemoryDebugRuntimeDetail = {
+  scope: 'world' | 'character-memory'
+  enabled: boolean
+  indexAvailability: IndexAvailability
+  retrievalModeUsed: IndexRuntimeMode
+  resultCount: number
+  fallbackReason?: string
+  targetCharacterId?: string | null
+  targetSessionId?: string | null
+}
+
+export type MemoryDebugRuntimeSummary = {
+  requestedMode: MemoryRetrievalMode
+  world: MemoryDebugRuntimeDetail
+  memory: MemoryDebugRuntimeDetail
+}
+
+export type MemoryDebugRetrieveRequest = {
+  query: string
+  scope: MemoryDebugScope
+  characterId?: string | null
+  sessionId?: string | null
+}
+
+export type MemoryDebugRetrieveResult = {
+  query: string
+  scope: MemoryDebugScope
+  results: MemoryDebugRetrievalHit[]
+  runtimeSummary: MemoryDebugRuntimeSummary
+}
+
 export type WorldIndexStatus = {
   scope: 'world'
   availability: IndexAvailability

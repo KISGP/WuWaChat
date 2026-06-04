@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ChatRunEvent } from '../shared/ai'
 import type { RendererLogEventPayload } from '../shared/logging'
-import type { MemoryTaskEvent } from '../shared/memory-settings'
+import type { MemoryDebugRetrieveRequest, MemoryTaskEvent } from '../shared/memory-settings'
+
+const ENABLE_MEMORY_DEBUG_TOOLS = import.meta.env.DEV
 
 const api = {
   minimize: () => ipcRenderer.send('window:minimize')
@@ -65,6 +67,12 @@ const memory = {
     ipcRenderer.invoke('memory:startCharacterMemoryBuild', characterId),
   startAllMemoryBuild: () => ipcRenderer.invoke('memory:startAllMemoryBuild'),
   cancelTask: (taskId: string) => ipcRenderer.invoke('memory:cancelTask', taskId),
+  ...(ENABLE_MEMORY_DEBUG_TOOLS
+    ? {
+        debugRetrieve: (request: MemoryDebugRetrieveRequest) =>
+          ipcRenderer.invoke('memory:debugRetrieve', request)
+      }
+    : {}),
   onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: MemoryTaskEvent): void => {
       listener(payload)

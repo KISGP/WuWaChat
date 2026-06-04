@@ -7,6 +7,10 @@ import { DatabaseSync } from 'node:sqlite'
 import type { ConversationSession, MemoryEntry } from '../shared/ai'
 import type {
   CharacterMemoryIndexStatus,
+  MemoryDebugRetrieveRequest,
+  MemoryDebugRetrieveResult,
+  MemoryDebugRetrievalHit,
+  MemoryDebugRuntimeDetail,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
@@ -42,7 +46,14 @@ type SearchRow = {
   text: string
   sourcePath?: string | null
   sessionId?: string | null
+  characterId?: string | null
   vectorJson: string
+}
+
+type RetrievalExecution = {
+  hits: MemoryDebugRetrievalHit[]
+  runtimeModeUsed: WorldIndexStatus['runtimeMode']
+  fallbackReason?: string
 }
 
 type EmbeddingProvider = {
@@ -562,40 +573,46 @@ export class MemoryService {
   }
 
   async retrieveWorldContext(query: string): Promise<string[]> {
-    if (!this.settings.worldSearchEnabled) {
-      return []
-    }
-
-    if (this.settings.retrievalMode !== 'string' && this.getWorldCompatibility().compatible) {
-      try {
-        return await this.retrieveWorldVectorContext(query)
-      } catch {
-        return this.retrieveWorldStringContext(query)
-      }
-    }
-
-    return this.retrieveWorldStringContext(query)
+    const result = await this.retrieveWorldDebugHits(query)
+    return result.hits.map((hit) => hit.text)
   }
 
   async retrieveMemoryContext(query: string, session: ConversationSession): Promise<string[]> {
-    if (!this.settings.memorySearchEnabled) {
-      return []
-    }
+    const result = await this.retrieveMemoryDebugHits(query, session)
+    return result.hits.map((hit) => hit.text)
+  }
 
-    if (
-      this.settings.retrievalMode !== 'string' &&
-      this.getMemoryCompatibility(
-        this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-      ).compatible
-    ) {
-      try {
-        return await this.retrieveMemoryVectorContext(query, session)
-      } catch {
-        return this.retrieveMemoryStringContext(query, session)
+  async debugRetrieve(request: MemoryDebugRetrieveRequest): Promise<MemoryDebugRetrieveResult> {
+    const query = request.query.trim()
+    const scope = request.scope
+    const session = this.resolveDebugSession(request.characterId || null, request.sessionId || null)
+    const worldResult =
+      scope === 'character-memory'
+        ? {
+            hits: [],
+            runtimeModeUsed: this.getRuntimeMode(this.getWorldIndexStatus().availability),
+            fallbackReason: 'World retrieval was not requested.'
+          }
+        : await this.retrieveWorldDebugHits(query)
+    const memoryResult =
+      scope === 'world'
+        ? {
+            hits: [],
+            runtimeModeUsed: this.getRuntimeMode(this.getMemoryIndexStatus(session?.characterId || null).availability),
+            fallbackReason: 'Character memory retrieval was not requested.'
+          }
+        : await this.retrieveMemoryDebugHits(query, session)
+
+    return {
+      query,
+      scope,
+      results: [...worldResult.hits, ...memoryResult.hits],
+      runtimeSummary: {
+        requestedMode: this.settings.retrievalMode,
+        world: this.buildWorldRuntimeSummary(worldResult),
+        memory: this.buildMemoryRuntimeSummary(memoryResult, session)
       }
     }
-
-    return this.retrieveMemoryStringContext(query, session)
   }
 
   getRecentMessageCount(): number {
@@ -880,7 +897,7 @@ export class MemoryService {
     return trimmed || null
   }
 
-  private retrieveWorldStringContext(query: string): string[] {
+  private buildWorldStringHits(query: string, runtimeModeUsed: WorldIndexStatus['runtimeMode']): MemoryDebugRetrievalHit[] {
     return this.worldEntries
       .map((entry) => ({
         entry,
@@ -889,13 +906,23 @@ export class MemoryService {
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.worldTopK)
-      .map((item) => item.entry.text)
+      .map((item, index) => ({
+        id: item.entry.id,
+        scope: WORLD_SCOPE,
+        text: item.entry.text,
+        score: item.score,
+        rank: index + 1,
+        retrievalModeUsed: runtimeModeUsed,
+        sourcePath: item.entry.sourcePath || null
+      }))
   }
 
-  private retrieveMemoryStringContext(query: string, session: ConversationSession): string[] {
-    const entries = this.buildCharacterMemoryEntries(session.characterId).filter((entry) =>
-      this.settings.crossSessionCharacterMemory ? true : entry.sessionId === session.id
-    )
+  private buildMemoryStringHits(
+    query: string,
+    session: ConversationSession,
+    runtimeModeUsed: WorldIndexStatus['runtimeMode']
+  ): MemoryDebugRetrievalHit[] {
+    const entries = this.getMemoryEntriesForSession(session)
 
     return entries
       .map((entry) => ({
@@ -905,10 +932,19 @@ export class MemoryService {
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.memoryTopK)
-      .map((item) => item.entry.text)
+      .map((item, index) => ({
+        id: item.entry.id,
+        scope: MEMORY_SCOPE,
+        text: item.entry.text,
+        score: item.score,
+        rank: index + 1,
+        retrievalModeUsed: runtimeModeUsed,
+        sessionId: item.entry.sessionId || null,
+        characterId: item.entry.characterId || null
+      }))
   }
 
-  private async retrieveWorldVectorContext(query: string): Promise<string[]> {
+  private async buildWorldVectorHits(query: string): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
     const queryVector = await provider.embedQuery(query)
     const manifest = this.getManifest(WORLD_SCOPE)
@@ -929,18 +965,28 @@ export class MemoryService {
 
     return rows
       .map((row) => ({
+        id: row.id,
         text: row.text,
+        sourcePath: row.sourcePath || null,
         score: cosineSimilarity(queryVector, parseVector(row.vectorJson))
       }))
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.worldTopK)
-      .map((item) => item.text)
+      .map((item, index) => ({
+        id: item.id,
+        scope: WORLD_SCOPE,
+        text: item.text,
+        score: item.score,
+        rank: index + 1,
+        retrievalModeUsed: 'vector',
+        sourcePath: item.sourcePath
+      }))
   }
 
-  private async retrieveMemoryVectorContext(
+  private async buildMemoryVectorHits(
     query: string,
     session: ConversationSession
-  ): Promise<string[]> {
+  ): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
     const queryVector = await provider.embedQuery(query)
     const targetId = this.settings.crossSessionCharacterMemory ? session.characterId : session.id
@@ -955,7 +1001,7 @@ export class MemoryService {
     const rows = this.getDatabase()
       .prepare(
         `
-          SELECT memory_entries.id AS id, memory_entries.text AS text, memory_entries.session_id AS sessionId, memory_embeddings.vector_json AS vectorJson
+          SELECT memory_entries.id AS id, memory_entries.text AS text, memory_entries.session_id AS sessionId, memory_entries.character_id AS characterId, memory_embeddings.vector_json AS vectorJson
           FROM memory_entries
           INNER JOIN memory_embeddings ON memory_embeddings.entry_id = memory_entries.id
           WHERE memory_embeddings.fingerprint_key = ? AND ${whereClause}
@@ -965,12 +1011,24 @@ export class MemoryService {
 
     return rows
       .map((row) => ({
+        id: row.id,
         text: row.text,
+        sessionId: row.sessionId || null,
+        characterId: row.characterId || null,
         score: cosineSimilarity(queryVector, parseVector(row.vectorJson))
       }))
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.memoryTopK)
-      .map((item) => item.text)
+      .map((item, index) => ({
+        id: item.id,
+        scope: MEMORY_SCOPE,
+        text: item.text,
+        score: item.score,
+        rank: index + 1,
+        retrievalModeUsed: 'vector',
+        sessionId: item.sessionId,
+        characterId: item.characterId
+      }))
   }
 
   private buildCharacterMemoryEntries(characterId: string): MemoryEntry[] {
@@ -1004,6 +1062,12 @@ export class MemoryService {
         }
       ]
     })
+  }
+
+  private getMemoryEntriesForSession(session: ConversationSession): MemoryEntry[] {
+    return this.buildCharacterMemoryEntries(session.characterId).filter((entry) =>
+      this.settings.crossSessionCharacterMemory ? true : entry.sessionId === session.id
+    )
   }
 
   private saveWorldVectors(
@@ -1301,6 +1365,199 @@ export class MemoryService {
     }
 
     return availability === 'ready' ? 'vector' : 'degraded'
+  }
+
+  private async retrieveWorldDebugHits(query: string): Promise<RetrievalExecution> {
+    if (!this.settings.worldSearchEnabled) {
+      return {
+        hits: [],
+        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        fallbackReason: 'World retrieval is disabled in the current memory settings.'
+      }
+    }
+
+    const compatibility = this.getWorldCompatibility()
+    if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
+      try {
+        return {
+          hits: await this.buildWorldVectorHits(query),
+          runtimeModeUsed: 'vector'
+        }
+      } catch (error) {
+        return {
+          hits: this.buildWorldStringHits(query, 'degraded'),
+          runtimeModeUsed: 'degraded',
+          fallbackReason: this.describeVectorFailure(error)
+        }
+      }
+    }
+
+    return {
+      hits: this.buildWorldStringHits(
+        query,
+        this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
+      ),
+      runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+      fallbackReason:
+        this.settings.retrievalMode === 'string'
+          ? undefined
+          : this.getWorldCompatibilityReason(compatibility)
+    }
+  }
+
+  private async retrieveMemoryDebugHits(
+    query: string,
+    session: ConversationSession | null
+  ): Promise<RetrievalExecution> {
+    if (!this.settings.memorySearchEnabled) {
+      return {
+        hits: [],
+        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        fallbackReason: 'Character memory retrieval is disabled in the current memory settings.'
+      }
+    }
+
+    if (!session) {
+      return {
+        hits: [],
+        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        fallbackReason:
+          'No matching session was found for the selected character, so character memory cannot be inspected yet.'
+      }
+    }
+
+    const compatibility = this.getMemoryCompatibility(
+      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
+    )
+    if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
+      try {
+        return {
+          hits: await this.buildMemoryVectorHits(query, session),
+          runtimeModeUsed: 'vector'
+        }
+      } catch (error) {
+        return {
+          hits: this.buildMemoryStringHits(query, session, 'degraded'),
+          runtimeModeUsed: 'degraded',
+          fallbackReason: this.describeVectorFailure(error)
+        }
+      }
+    }
+
+    return {
+      hits: this.buildMemoryStringHits(
+        query,
+        session,
+        this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
+      ),
+      runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+      fallbackReason:
+        this.settings.retrievalMode === 'string'
+          ? undefined
+          : this.getMemoryCompatibilityReason(compatibility, session)
+    }
+  }
+
+  private buildWorldRuntimeSummary(result: RetrievalExecution): MemoryDebugRuntimeDetail {
+    const worldIndex = this.getWorldIndexStatus()
+    return {
+      scope: WORLD_SCOPE,
+      enabled: this.settings.worldSearchEnabled,
+      indexAvailability: worldIndex.availability,
+      retrievalModeUsed: result.runtimeModeUsed,
+      resultCount: result.hits.length,
+      fallbackReason: result.fallbackReason
+    }
+  }
+
+  private buildMemoryRuntimeSummary(
+    result: RetrievalExecution,
+    session: ConversationSession | null
+  ): MemoryDebugRuntimeDetail {
+    const memoryIndex = this.getMemoryIndexStatus(
+      session ? (this.settings.crossSessionCharacterMemory ? session.characterId : session.id) : null
+    )
+    return {
+      scope: MEMORY_SCOPE,
+      enabled: this.settings.memorySearchEnabled,
+      indexAvailability: memoryIndex.availability,
+      retrievalModeUsed: result.runtimeModeUsed,
+      resultCount: result.hits.length,
+      fallbackReason: result.fallbackReason,
+      targetCharacterId: session?.characterId || null,
+      targetSessionId: session?.id || null
+    }
+  }
+
+  private getWorldCompatibilityReason(compatibility: EmbeddingCompatibilityStatus): string {
+    const worldIndex = this.getWorldIndexStatus()
+    if (worldIndex.availability === 'missing') {
+      return 'World vector index is missing, so the query fell back to keyword matching.'
+    }
+
+    if (worldIndex.availability === 'failed') {
+      return 'World vector index is marked as failed, so the query fell back to keyword matching.'
+    }
+
+    if (worldIndex.availability === 'building') {
+      return 'World vector index is still building, so the query fell back to keyword matching.'
+    }
+
+    return (
+      compatibility.message ||
+      'World vector retrieval is unavailable, so the query fell back to keyword matching.'
+    )
+  }
+
+  private getMemoryCompatibilityReason(
+    compatibility: EmbeddingCompatibilityStatus,
+    session: ConversationSession
+  ): string {
+    const memoryIndex = this.getMemoryIndexStatus(
+      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
+    )
+    if (memoryIndex.availability === 'missing') {
+      return 'Character memory index is missing, so the query fell back to keyword matching.'
+    }
+
+    if (memoryIndex.availability === 'failed') {
+      return 'Character memory index is marked as failed, so the query fell back to keyword matching.'
+    }
+
+    if (memoryIndex.availability === 'building') {
+      return 'Character memory index is still building, so the query fell back to keyword matching.'
+    }
+
+    return (
+      compatibility.message ||
+      'Character memory vector retrieval is unavailable, so the query fell back to keyword matching.'
+    )
+  }
+
+  private describeVectorFailure(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Vector retrieval failed at runtime, so the query fell back to keyword matching. ${message}`
+  }
+
+  private resolveDebugSession(
+    characterId: string | null,
+    sessionId: string | null
+  ): ConversationSession | null {
+    if (sessionId) {
+      const session = this.sessions.find((item) => item.id === sessionId)
+      if (session) {
+        return session
+      }
+    }
+
+    if (!characterId) {
+      return null
+    }
+
+    const sessions = this.sessions
+      .filter((item) => item.characterId === characterId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    return sessions[0] || null
   }
 
 
