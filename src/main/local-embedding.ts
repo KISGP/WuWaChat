@@ -22,13 +22,28 @@ type ProgressReporter = (progress: number, message: string) => void
 type InstalledModelManifest = InstalledLocalEmbeddingModel
 type LocalEmbeddingRuntimeSettings = Pick<
   LocalEmbeddingSettings,
-  'useHuggingFaceMirror' | 'huggingFaceMirrorUrl'
+  'useGpu' | 'useHuggingFaceMirror' | 'huggingFaceMirrorUrl'
 >
+type LocalEmbeddingDevice = 'cpu' | 'gpu'
+type LocalEmbeddingRuntimeInfo = {
+  requestedDevice: LocalEmbeddingDevice
+  actualDevice: LocalEmbeddingDevice
+  fallbackToCpu: boolean
+}
+type LoadedFeatureExtractionPipeline = {
+  pipeline: FeatureExtractionPipeline
+  runtime: LocalEmbeddingRuntimeInfo
+}
 
 const DEFAULT_HUGGING_FACE_REMOTE_HOST = 'https://huggingface.co'
 
 let modelCatalogCache: LocalEmbeddingCatalogModel[] | null = null
-const pipelineCache = new Map<string, Promise<FeatureExtractionPipeline>>()
+const pipelineCache = new Map<string, Promise<LoadedFeatureExtractionPipeline>>()
+const createFeatureExtraction = pipeline as (
+  task: 'feature-extraction',
+  model: string,
+  options?: Record<string, unknown>
+) => Promise<FeatureExtractionPipeline>
 
 function createStructuredError(
   title: string,
@@ -266,6 +281,130 @@ function toRepoModelPath(model: InstalledLocalEmbeddingModel | LocalEmbeddingCat
   return model.repoId
 }
 
+function getPreferredDevice(settings: LocalEmbeddingRuntimeSettings): LocalEmbeddingDevice {
+  return settings.useGpu ? 'gpu' : 'cpu'
+}
+
+function getPipelineCacheKey(
+  model: InstalledLocalEmbeddingModel | LocalEmbeddingCatalogModel,
+  allowRemoteModels: boolean,
+  remoteHost: string,
+  settings: LocalEmbeddingRuntimeSettings
+): string {
+  const pipelineKeyBase =
+    'modelPath' in model && model.modelPath
+      ? model.modelPath
+      : getPayloadDirectoryByRepoId(model.repoId)
+  const sourceKey = allowRemoteModels ? remoteHost : 'local-only'
+  const deviceKey = settings.useGpu ? 'gpu' : 'cpu'
+  return `${resolve(pipelineKeyBase)}|${sourceKey}|${deviceKey}`
+}
+
+function createPipelineLoadError(
+  error: unknown,
+  allowRemoteModels: boolean,
+  runtime: LocalEmbeddingRuntimeInfo
+): Error {
+  const suggestions = allowRemoteModels
+    ? [
+        'Please confirm the model repository URL is correct and reachable.',
+        'If the model is private, confirm HF_TOKEN is configured.'
+      ]
+    : [
+        'Please confirm the local model directory is under models/embeddings.',
+        'Please confirm the directory contains config.json, tokenizer.json, tokenizer_config.json, and onnx/model.onnx.'
+      ]
+  const deviceSummary = runtime.fallbackToCpu
+    ? 'GPU initialization failed and CPU fallback also failed.'
+    : runtime.requestedDevice === 'gpu'
+      ? 'GPU initialization failed.'
+      : 'CPU initialization failed.'
+
+  return createStructuredError(
+    '本地模型加载失败',
+    '初始化 Transformers.js',
+    `${deviceSummary}\n${normalizeErrorMessage(error)}`,
+    suggestions
+  )
+}
+
+async function createFeatureExtractionPipeline(
+  repoId: string,
+  modelLabel: string,
+  settings: LocalEmbeddingRuntimeSettings,
+  options: {
+    cacheKey: string
+    allowRemoteModels: boolean
+    onProgress?: ProgressReporter
+  }
+): Promise<LoadedFeatureExtractionPipeline> {
+  const preferredDevice = getPreferredDevice(settings)
+
+  const createForDevice = async (
+    device: LocalEmbeddingDevice
+  ): Promise<LoadedFeatureExtractionPipeline> => {
+    const loadedPipeline = await createFeatureExtraction('feature-extraction', repoId, {
+      device,
+      progress_callback: (event) => {
+        if (!options.onProgress) {
+          return
+        }
+
+        if (event.status === 'download') {
+          options.onProgress(10, `开始下载 ${event.file || modelLabel}`)
+          return
+        }
+
+        if (event.status === 'progress') {
+          const progress = typeof event.progress === 'number' ? Math.round(event.progress) : 0
+          options.onProgress(
+            Math.max(10, Math.min(progress, 95)),
+            `下载 ${event.file || modelLabel}`
+          )
+          return
+        }
+
+        if (event.status === 'done') {
+          options.onProgress(98, `完成 ${event.file || modelLabel}`)
+        }
+      }
+    })
+
+    return {
+      pipeline: loadedPipeline,
+      runtime: {
+        requestedDevice: preferredDevice,
+        actualDevice: device,
+        fallbackToCpu: preferredDevice === 'gpu' && device === 'cpu'
+      }
+    }
+  }
+
+  try {
+    return await createForDevice(preferredDevice)
+  } catch (error) {
+    if (preferredDevice !== 'gpu') {
+      throw createPipelineLoadError(error, options.allowRemoteModels, {
+        requestedDevice: preferredDevice,
+        actualDevice: preferredDevice,
+        fallbackToCpu: false
+      })
+    }
+
+    pipelineCache.delete(options.cacheKey)
+
+    try {
+      return await createForDevice('cpu')
+    } catch (cpuError) {
+      throw createPipelineLoadError(cpuError, options.allowRemoteModels, {
+        requestedDevice: 'gpu',
+        actualDevice: 'cpu',
+        fallbackToCpu: true
+      })
+    }
+  }
+}
+
 async function loadFeatureExtractionPipeline(
   model: InstalledLocalEmbeddingModel | LocalEmbeddingCatalogModel,
   settings: LocalEmbeddingRuntimeSettings,
@@ -273,21 +412,32 @@ async function loadFeatureExtractionPipeline(
     allowRemoteModels?: boolean
     onProgress?: ProgressReporter
   }
-): Promise<FeatureExtractionPipeline> {
+): Promise<LoadedFeatureExtractionPipeline> {
   const modelRoot = getAppModelRoot()
   const allowRemoteModels = options?.allowRemoteModels ?? false
   const onProgress = options?.onProgress
   const remoteHost = setTransformersEnvironment(modelRoot, allowRemoteModels, settings)
-  const pipelineKeyBase =
-    'modelPath' in model && model.modelPath
-      ? model.modelPath
-      : getPayloadDirectoryByRepoId(model.repoId)
-  const cacheKey = `${resolve(pipelineKeyBase)}|${allowRemoteModels ? remoteHost : 'local-only'}`
+  const cacheKey = getPipelineCacheKey(model, allowRemoteModels, remoteHost, settings)
   let pipelinePromise = pipelineCache.get(cacheKey)
 
   if (!pipelinePromise) {
     const repoId = toRepoModelPath(model)
-    pipelinePromise = pipeline('feature-extraction', repoId, {
+    pipelinePromise = createFeatureExtractionPipeline(repoId, model.label, settings, {
+      cacheKey,
+      allowRemoteModels,
+      onProgress
+    }).catch((error) => {
+      pipelineCache.delete(cacheKey)
+      throw error
+    })
+
+    pipelineCache.set(cacheKey, pipelinePromise)
+    return pipelinePromise
+  }
+
+  if (!pipelinePromise) {
+    const repoId = toRepoModelPath(model)
+    pipelinePromise = (pipeline('feature-extraction', repoId, {
       progress_callback: (event) => {
         if (!onProgress) {
           return
@@ -321,7 +471,7 @@ async function loadFeatureExtractionPipeline(
               '请确认模型目录内包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
             ]
       )
-    }) as Promise<FeatureExtractionPipeline>
+    }) as unknown) as Promise<LoadedFeatureExtractionPipeline>
 
     pipelineCache.set(cacheKey, pipelinePromise)
   }
@@ -344,7 +494,7 @@ async function embedText(
     )
   }
 
-  const extractor = await loadFeatureExtractionPipeline(model, settings, {
+  const { pipeline: extractor } = await loadFeatureExtractionPipeline(model, settings, {
     allowRemoteModels: false
   })
   const output = await extractor(text, {
@@ -406,12 +556,34 @@ export function createLocalEmbeddingFingerprint(
 }
 
 export class LocalEmbeddingProvider {
+  private runtimeInfo: LocalEmbeddingRuntimeInfo | null = null
+
   constructor(
     private readonly model: InstalledLocalEmbeddingModel,
     private readonly settings: LocalEmbeddingRuntimeSettings
   ) {}
 
+  private async ensurePipeline(): Promise<FeatureExtractionPipeline> {
+    const loaded = await loadFeatureExtractionPipeline(this.model, this.settings, {
+      allowRemoteModels: false
+    })
+    this.runtimeInfo = loaded.runtime
+    return loaded.pipeline
+  }
+
+  async prepare(): Promise<LocalEmbeddingRuntimeInfo> {
+    await this.ensurePipeline()
+    return (
+      this.runtimeInfo || {
+        requestedDevice: getPreferredDevice(this.settings),
+        actualDevice: this.settings.useGpu ? 'gpu' : 'cpu',
+        fallbackToCpu: false
+      }
+    )
+  }
+
   async embedDocuments(texts: string[]): Promise<number[][]> {
+    await this.ensurePipeline()
     const vectors: number[][] = []
     for (const text of texts) {
       vectors.push(await embedText(this.model, this.settings, text))
@@ -420,6 +592,7 @@ export class LocalEmbeddingProvider {
   }
 
   async embedQuery(text: string): Promise<number[]> {
+    await this.ensurePipeline()
     return embedText(this.model, this.settings, text)
   }
 
@@ -427,6 +600,22 @@ export class LocalEmbeddingProvider {
     const startedAt = Date.now()
     try {
       const vector = await this.embedQuery('ping')
+      const runtime = this.runtimeInfo || {
+        requestedDevice: getPreferredDevice(this.settings),
+        actualDevice: this.settings.useGpu ? 'gpu' : 'cpu',
+        fallbackToCpu: false
+      }
+      const runtimeMessage = runtime.fallbackToCpu
+        ? 'GPU unavailable. Fell back to CPU.'
+        : runtime.actualDevice === 'gpu'
+          ? 'Currently running on GPU.'
+          : 'Currently running on CPU.'
+      return {
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        dimensions: inferDimensions(vector),
+        message: `鏈湴 embedding 妯″瀷鍙敤锛岃繑鍥?${inferDimensions(vector)} 缁村悜閲忋€?\n${runtimeMessage}`
+      }
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -516,9 +705,7 @@ export async function downloadLocalEmbeddingModel(
     onProgress?.(100, `${model.label} 下载完成`)
     return installedModel
   } catch (error) {
-    pipelineCache.delete(
-      `${resolve(getPayloadDirectoryByRepoId(model.repoId))}|${getRemoteHost(settings)}`
-    )
+    pipelineCache.delete(getPipelineCacheKey(model, true, getRemoteHost(settings), settings))
     throw createStructuredError(
       '模型下载失败',
       'Transformers.js 自动下载',

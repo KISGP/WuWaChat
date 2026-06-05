@@ -46,6 +46,7 @@ export function MemoryTab(): ReactElement {
     memoryIndex,
     compatibility,
     embeddingTestResult,
+    hardware,
     localModels,
     localModelUiState,
     tasks,
@@ -142,31 +143,31 @@ export function MemoryTab(): ReactElement {
   const autosaveMeta =
     autosaveState === 'saving'
       ? {
-          icon: LoaderCircle,
-          iconClassName: 'animate-spin text-amber-200',
-          tone: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
-          title: '正在自动保存记忆设置'
-        }
+        icon: LoaderCircle,
+        iconClassName: 'animate-spin text-amber-200',
+        tone: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
+        title: '正在自动保存记忆设置'
+      }
       : autosaveState === 'saved'
         ? {
-            icon: CheckCircle2,
-            iconClassName: 'text-emerald-200',
-            tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
-            title: '记忆设置已自动保存'
-          }
+          icon: CheckCircle2,
+          iconClassName: 'text-emerald-200',
+          tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
+          title: '记忆设置已自动保存'
+        }
         : autosaveState === 'error'
           ? {
-              icon: XCircle,
-              iconClassName: 'text-red-200',
-              tone: 'border-red-400/30 bg-red-500/10 text-red-100',
-              title: '记忆设置保存失败'
-            }
+            icon: XCircle,
+            iconClassName: 'text-red-200',
+            tone: 'border-red-400/30 bg-red-500/10 text-red-100',
+            title: '记忆设置保存失败'
+          }
           : {
-              icon: CheckCircle2,
-              iconClassName: 'text-white/55',
-              tone: 'border-white/10 bg-black/20 text-white/70',
-              title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆设置会自动保存'
-            }
+            icon: CheckCircle2,
+            iconClassName: 'text-white/55',
+            tone: 'border-white/10 bg-black/20 text-white/70',
+            title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆设置会自动保存'
+          }
 
   const AutosaveIcon = autosaveMeta.icon
 
@@ -442,6 +443,34 @@ export function MemoryTab(): ReactElement {
             </>
           ) : (
             <div className="space-y-4">
+              <FieldLabel htmlFor="switch-local-gpu" className="border-none">
+                <Field
+                  orientation="horizontal"
+                  className="h-fit rounded border-0 border-white/10 bg-black/20"
+                >
+                  <FieldContent>
+                    <FieldTitle className="text-sm text-white/80">
+                      使用 GPU 运行本地 embedding
+                    </FieldTitle>
+                    <FieldDescription>
+                      <p>开启后会优先使用 GPU，如果当前环境不支持，则会自动切换到 CPU。</p>
+                      {hardware.gpuName && (
+                        <p>当前 GPU：{hardware.gpuName}</p>
+                      )}
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="switch-local-gpu"
+                    checked={draft.localEmbedding.useGpu}
+                    onCheckedChange={(checked) =>
+                      updateDraft({
+                        localEmbedding: { ...draft.localEmbedding, useGpu: checked }
+                      })
+                    }
+                    className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+                  />
+                </Field>
+              </FieldLabel>
               <FieldGroup className="mt-4 w-full gap-3">
                 <FieldLabel htmlFor="switch-mirror" className="border-none">
                   <Field

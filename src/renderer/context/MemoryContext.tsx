@@ -15,6 +15,7 @@ import type {
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   LocalEmbeddingCatalogItem,
+  MemoryHardwareInfo,
   MemorySettingsStore,
   MemoryStatusSnapshot,
   MemoryTask,
@@ -41,6 +42,7 @@ interface MemoryContextType {
   memoryIndex: CharacterMemoryIndexStatus | null
   compatibility: EmbeddingCompatibilityStatus[]
   embeddingTestResult: EmbeddingConnectionTestResult | null
+  hardware: MemoryHardwareInfo
   localModels: LocalEmbeddingCatalogItem[]
   localModelUiState: Record<string, LocalModelUiState>
   tasks: MemoryTask[]
@@ -131,6 +133,7 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
   const [compatibility, setCompatibility] = useState<EmbeddingCompatibilityStatus[]>([])
   const [embeddingTestResult, setEmbeddingTestResult] =
     useState<EmbeddingConnectionTestResult | null>(null)
+  const [hardware, setHardware] = useState<MemoryHardwareInfo>({ gpuName: null })
   const [localModels, setLocalModels] = useState<LocalEmbeddingCatalogItem[]>([])
   const [localModelUiState, setLocalModelUiState] = useState<Record<string, LocalModelUiState>>({})
   const [tasks, setTasks] = useState<MemoryTask[]>([])
@@ -145,6 +148,7 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
     setWorldIndex(snapshot.worldIndex)
     setMemoryIndex(snapshot.memoryIndex)
     setTasks(snapshot.tasks)
+    setHardware(snapshot.hardware)
   }, [])
 
   const refreshStatus = useCallback(
@@ -384,6 +388,7 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
       memoryIndex,
       compatibility,
       embeddingTestResult,
+      hardware,
       localModels,
       localModelUiState,
       tasks,
@@ -407,6 +412,7 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
       compatibility,
       downloadLocalModel,
       embeddingTestResult,
+      hardware,
       isLoaded,
       localModelUiState,
       localModels,

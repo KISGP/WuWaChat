@@ -54,6 +54,7 @@ export type LocalEmbeddingSettings = {
   model: string
   modelPath?: string
   dimensions?: number | null
+  useGpu: boolean
   useHuggingFaceMirror: boolean
   huggingFaceMirrorUrl: string
 }
@@ -87,6 +88,10 @@ export type LocalEmbeddingCatalogItem = LocalEmbeddingCatalogModel & {
   installedModel?: InstalledLocalEmbeddingModel | null
   isSelected: boolean
   validationMessage?: string
+}
+
+export type MemoryHardwareInfo = {
+  gpuName: string | null
 }
 
 export type MemorySettingsStore = {
@@ -241,6 +246,7 @@ export type MemoryStatusSnapshot = {
   worldIndex: WorldIndexStatus
   memoryIndex: CharacterMemoryIndexStatus
   tasks: MemoryTask[]
+  hardware: MemoryHardwareInfo
 }
 
 export const MEMORY_SETTINGS_VERSION = 1
@@ -270,6 +276,7 @@ export function createDefaultMemorySettingsStore(): MemorySettingsStore {
       model: 'BAAI/bge-small-zh-v1.5',
       modelPath: '',
       dimensions: 512,
+      useGpu: false,
       useHuggingFaceMirror: true,
       huggingFaceMirrorUrl: 'https://hf-mirror.com'
     }
@@ -398,6 +405,10 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
         typeof raw.localEmbedding?.modelPath === 'string'
           ? raw.localEmbedding.modelPath
           : defaults.localEmbedding.modelPath,
+      useGpu:
+        typeof raw.localEmbedding?.useGpu === 'boolean'
+          ? raw.localEmbedding.useGpu
+          : defaults.localEmbedding.useGpu,
       dimensions:
         raw.localEmbedding?.dimensions == null
           ? defaults.localEmbedding.dimensions

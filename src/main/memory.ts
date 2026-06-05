@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
@@ -17,6 +17,7 @@ import type {
   InstalledLocalEmbeddingModel,
   IndexManifestRecord,
   LocalEmbeddingCatalogItem,
+  MemoryHardwareInfo,
   MemorySettingsStore,
   MemoryStatusSnapshot,
   MemoryTask,
@@ -68,6 +69,11 @@ type EmbeddingProvider = {
   embedDocuments: (texts: string[]) => Promise<number[][]>
   embedQuery: (text: string) => Promise<number[]>
   testConnection: () => Promise<EmbeddingConnectionTestResult>
+  prepare?: () => Promise<{
+    requestedDevice: 'cpu' | 'gpu'
+    actualDevice: 'cpu' | 'gpu'
+    fallbackToCpu: boolean
+  }>
 }
 
 type LocalEmbeddingModule = typeof import('./local-embedding')
@@ -92,6 +98,7 @@ export class MemoryService {
   private db: DatabaseSync | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
   private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
+  private hardwareInfoPromise: Promise<MemoryHardwareInfo> | null = null
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -292,13 +299,63 @@ export class MemoryService {
     }
   }
 
-  getStatus(characterId?: string | null): MemoryStatusSnapshot {
+  async getStatus(characterId?: string | null): Promise<MemoryStatusSnapshot> {
     return {
       settings: this.settings,
       worldIndex: this.getWorldIndexStatus(),
       memoryIndex: this.getMemoryIndexStatus(characterId),
-      tasks: this.getTasks()
+      tasks: this.getTasks(),
+      hardware: await this.getHardwareInfo()
     }
+  }
+
+  private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
+    if (!this.hardwareInfoPromise) {
+      this.hardwareInfoPromise = this.readHardwareInfo().catch((error) => {
+        void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return { gpuName: null }
+      })
+    }
+
+    return this.hardwareInfoPromise
+  }
+
+  private async readHardwareInfo(): Promise<MemoryHardwareInfo> {
+    const gpuInfo = await app.getGPUInfo('complete')
+    const devices = Array.isArray((gpuInfo as { gpuDevice?: unknown[] }).gpuDevice)
+      ? ((gpuInfo as { gpuDevice: Array<Record<string, unknown>> }).gpuDevice ?? [])
+      : []
+    const gpuName =
+      devices
+        .map((device) => this.extractGpuName(device))
+        .find((name) => name.length > 0) ?? null
+
+    return { gpuName }
+  }
+
+  private extractGpuName(device: Record<string, unknown>): string {
+    const candidateKeys = [
+      'deviceName',
+      'deviceString',
+      'driverVendor',
+      'vendorString',
+      'vendor'
+    ] as const
+
+    for (const key of candidateKeys) {
+      const value = device[key]
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim()
+      }
+    }
+
+    const stringValue = Object.values(device).find(
+      (value) => typeof value === 'string' && value.trim().length > 0
+    )
+
+    return typeof stringValue === 'string' ? stringValue.trim() : ''
   }
 
   getTasks(): MemoryTask[] {
@@ -356,7 +413,13 @@ export class MemoryService {
       const provider = await this.requireVectorEmbeddingProvider()
       updateTask(taskId, { progress: 10, message: 'Scanning world markdown files' })
       this.worldEntries = await this.loadWorldEntries()
-      updateTask(taskId, { progress: 25, message: 'Generating world embeddings' })
+      const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+      updateTask(taskId, {
+        progress: 25,
+        message: runtimeMessage
+          ? `Generating world embeddings (${runtimeMessage})`
+          : 'Generating world embeddings'
+      })
       const vectors = await provider.embedDocuments(this.worldEntries.map((entry) => entry.text))
       const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
       updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
@@ -377,9 +440,12 @@ export class MemoryService {
           characterId
         })
         const entries = this.buildCharacterMemoryEntries(characterId)
+        const runtimeMessage = await this.describeEmbeddingRuntime(provider)
         updateTask(taskId, {
           progress: 45,
-          message: 'Generating character memory embeddings',
+          message: runtimeMessage
+            ? `Generating character memory embeddings (${runtimeMessage})`
+            : 'Generating character memory embeddings',
           characterId
         })
         const vectors = await provider.embedDocuments(entries.map((entry) => entry.text))
@@ -405,12 +471,15 @@ export class MemoryService {
       const provider = await this.requireVectorEmbeddingProvider()
       const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
       let lastDimensions: number | undefined
+      const runtimeMessage = await this.describeEmbeddingRuntime(provider)
 
       for (let index = 0; index < characterIds.length; index += 1) {
         const characterId = characterIds[index]
         updateTask(taskId, {
           progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
-          message: `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+          message: runtimeMessage
+            ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+            : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
           characterId
         })
         const entries = this.buildCharacterMemoryEntries(characterId)
@@ -491,6 +560,21 @@ export class MemoryService {
 
   getRecentMessageCount(): number {
     return this.settings.recentMessageCount
+  }
+
+  private async describeEmbeddingRuntime(provider: EmbeddingProvider): Promise<string | null> {
+    const runtime = await provider.prepare?.()
+    if (!runtime) {
+      return null
+    }
+
+    if (runtime.fallbackToCpu) {
+      return 'GPU unavailable, falling back to CPU for this build'
+    }
+
+    return runtime.actualDevice === 'gpu'
+      ? 'Using GPU for this build'
+      : 'Using CPU for this build'
   }
 
   private getDatabase(): DatabaseSync {
