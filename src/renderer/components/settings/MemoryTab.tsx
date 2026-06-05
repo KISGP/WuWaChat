@@ -37,7 +37,11 @@ import { TaskPanel } from './memory/TaskPanel'
 import { Switch } from '../switch'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '../field'
 
-export function MemoryTab(): ReactElement {
+type MemoryTabProps = {
+  isActive: boolean
+}
+
+export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const { activateChar, characters } = useCharacter()
   const {
     settings,
@@ -133,6 +137,7 @@ export function MemoryTab(): ReactElement {
   const handleSave = retryAutosave
 
   useMemoryTabLifecycle({
+    isActive,
     activeCharacterId: activateChar?.id || null,
     buildLaunchNotice,
     refreshStatus,

@@ -3,32 +3,79 @@ import SettingIcon from '../../assets/settingIcon.png'
 import CloseIcon from '../close'
 import Tab from '../tab'
 import { BackgroundTab } from './BackgroundTab'
-import { CharacterTab } from './CharacterTab'
 import { LogTab } from './LogTab'
-import { MemoryTab } from './MemoryTab'
 import { ModelTab } from './ModelTab'
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
+const MemoryTab = lazy(() => import('./MemoryTab').then((module) => ({ default: module.MemoryTab })))
+const CharacterTab = lazy(() =>
+  import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
+)
 const DebugTab = ENABLE_DEBUG_TAB ? lazy(() => import('./DebugTab')) : null
 
 const TABS = [
-  { id: 'model', label: '模型', component: ModelTab },
-  { id: 'memory', label: '记忆', component: MemoryTab },
-  { id: 'character', label: '角色', component: CharacterTab },
-  { id: 'bg', label: '背景图像', component: BackgroundTab },
-  { id: 'log', label: '日志', component: LogTab }
+  { id: 'model', label: '模型' },
+  { id: 'memory', label: '记忆' },
+  { id: 'character', label: '角色' },
+  { id: 'bg', label: '背景图像' },
+  { id: 'log', label: '日志' }
 ] as const
 
-const ALL_TABS = DebugTab ? [...TABS, { id: 'debug', label: 'Debug', component: DebugTab }] : TABS
+const ALL_TABS = DebugTab ? [...TABS, { id: 'debug', label: 'Debug' }] : TABS
+
+type SettingsTabId = (typeof ALL_TABS)[number]['id']
+
+function TabLoadingFallback({ label }: { label: string }): ReactElement {
+  return (
+    <div className="flex h-full items-center justify-center px-6 py-4 text-sm text-white/60">
+      Loading {label}...
+    </div>
+  )
+}
 
 export default function Settings({ onClose }: { onClose?: () => void }): ReactElement {
-  const [activeTab, setActiveTab] = useState<string>(ALL_TABS[0].id)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
 
   const handleClose = (): void => {
     if (onClose) {
       onClose()
     } else {
       window.close()
+    }
+  }
+
+  const renderActiveTab = (): ReactElement => {
+    switch (activeTab) {
+      case 'model':
+        return <ModelTab />
+      case 'memory':
+        return (
+          <Suspense fallback={<TabLoadingFallback label="memory settings" />}>
+            <MemoryTab isActive />
+          </Suspense>
+        )
+      case 'character':
+        return (
+          <Suspense fallback={<TabLoadingFallback label="character settings" />}>
+            <CharacterTab />
+          </Suspense>
+        )
+      case 'bg':
+        return <BackgroundTab />
+      case 'log':
+        return <LogTab />
+      case 'debug':
+        return DebugTab ? (
+          <Suspense fallback={<TabLoadingFallback label="debug tools" />}>
+            <DebugTab />
+          </Suspense>
+        ) : (
+          <div className="flex h-full items-center justify-center px-6 py-4 text-sm text-white/60">
+            Debug tools unavailable.
+          </div>
+        )
+      default:
+        return <ModelTab />
     }
   }
 
@@ -51,23 +98,7 @@ export default function Settings({ onClose }: { onClose?: () => void }): ReactEl
       </div>
 
       <div className="h-148 overflow-hidden">
-        {ALL_TABS.map(({ id, component: Component }) => (
-          <div key={id} className={activeTab === id ? 'h-full' : 'hidden h-full'}>
-            {id === 'debug' ? (
-              <Suspense
-                fallback={
-                  <div className="flex h-full items-center justify-center px-6 py-4 text-sm text-white/60">
-                    Loading debug tools...
-                  </div>
-                }
-              >
-                <Component />
-              </Suspense>
-            ) : (
-              <Component />
-            )}
-          </div>
-        ))}
+        <div className="h-full">{renderActiveTab()}</div>
       </div>
     </div>
   )

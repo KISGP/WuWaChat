@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 type UseMemoryTabLifecycleArgs = {
+  isActive: boolean
   activeCharacterId?: string | null
   buildLaunchNotice: unknown
   refreshStatus: (characterId?: string | null) => Promise<void>
@@ -9,6 +10,7 @@ type UseMemoryTabLifecycleArgs = {
 }
 
 export function useMemoryTabLifecycle({
+  isActive,
   activeCharacterId,
   buildLaunchNotice,
   refreshStatus,
@@ -16,12 +18,20 @@ export function useMemoryTabLifecycle({
   clearBuildLaunchNotice
 }: UseMemoryTabLifecycleArgs): void {
   useEffect(() => {
+    if (!isActive) {
+      return
+    }
+
     void refreshStatus(activeCharacterId || null)
-  }, [activeCharacterId, refreshStatus])
+  }, [activeCharacterId, isActive, refreshStatus])
 
   useEffect(() => {
+    if (!isActive) {
+      return
+    }
+
     void refreshLocalModels()
-  }, [refreshLocalModels])
+  }, [isActive, refreshLocalModels])
 
   useEffect(() => {
     if (!buildLaunchNotice) {
