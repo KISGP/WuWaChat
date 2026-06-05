@@ -66,6 +66,10 @@ export function getCharactersRoot(): string {
   return join(getAppDataRoot(), 'chars')
 }
 
+export function getCharactersCachePath(): string {
+  return join(getAppDataRoot(), 'chars-cache.json')
+}
+
 export function getCharacterDirectoryPath(characterId: string): string {
   return join(getCharactersRoot(), characterId)
 }
