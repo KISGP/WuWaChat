@@ -5,9 +5,9 @@ import type {
   MemoryDebugRuntimeDetail,
   MemoryDebugScope
 } from '../../../shared/memory-settings'
-import { useCharacter } from '../../context/CharacterContext'
-import { useSessions } from '../../context/SessionsContext'
 import { trackUiEvent } from '../../logging'
+import { useCharacterStore } from '../../stores/characterStore'
+import { selectSessionById, useSessionStore } from '../../stores/sessionStore'
 import { cardClassName, formatDateTime, inputClassName } from './memory/helpers'
 import { Textarea } from '../textarea'
 
@@ -96,15 +96,15 @@ function HitCard({ hit }: { hit: MemoryDebugRetrievalHit }): ReactElement {
 }
 
 export default function DebugTab(): ReactElement {
-  const { activateChar } = useCharacter()
-  const { currentSessionId, getSession } = useSessions()
+  const activateChar = useCharacterStore((state) => state.activateChar)
+  const currentSessionId = useSessionStore((state) => state.currentSessionId)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<MemoryDebugScope>('all')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [result, setResult] = useState<MemoryDebugRetrieveResult | null>(null)
 
-  const currentSession = getSession(currentSessionId)
+  const currentSession = useSessionStore(selectSessionById(currentSessionId))
   const selectedCharacterId = activateChar?.id || currentSession?.characterId || null
   const selectedSessionId =
     currentSession && (!selectedCharacterId || currentSession.characterId === selectedCharacterId)

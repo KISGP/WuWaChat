@@ -13,12 +13,12 @@ import {
 } from 'lucide-react'
 import type { CloudEmbeddingSettings } from '../../../shared/memory-settings'
 import { HUGGING_FACE_INFERENCE_PROVIDERS } from '../../../shared/memory-settings'
-import { useCharacter } from '../../context/CharacterContext'
-import { useMemory } from '../../context/MemoryContext'
 import { useMemorySettingsDraft } from '../../hooks/useMemorySettingsDraft'
 import { useMemoryTabActions } from '../../hooks/useMemoryTabActions'
 import { useMemoryTabLifecycle } from '../../hooks/useMemoryTabLifecycle'
 import { useMemoryTabViewState } from '../../hooks/useMemoryTabViewState'
+import { useCharacterStore } from '../../stores/characterStore'
+import { useMemoryStore } from '../../stores/memoryStore'
 import { cn } from '../../utils'
 import { ActionCard } from './memory/ActionCard'
 import { CLOUD_PROVIDER_OPTIONS, RETRIEVAL_OPTIONS } from './memory/constants'
@@ -36,13 +36,19 @@ import { StatusCard } from './memory/StatusCard'
 import { TaskPanel } from './memory/TaskPanel'
 import { Switch } from '../switch'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '../field'
+import { useShallow } from 'zustand/react/shallow'
 
 type MemoryTabProps = {
   isActive: boolean
 }
 
 export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
-  const { activateChar, characters } = useCharacter()
+  const { activateChar, characters } = useCharacterStore(
+    useShallow((state) => ({
+      activateChar: state.activateChar,
+      characters: state.characters
+    }))
+  )
   const {
     settings,
     isLoaded,
@@ -66,7 +72,32 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     startWorldVectorBuild,
     startCharacterMemoryBuild,
     startAllMemoryBuild
-  } = useMemory()
+  } = useMemoryStore(
+    useShallow((state) => ({
+      settings: state.settings,
+      isLoaded: state.isLoaded,
+      worldIndex: state.worldIndex,
+      memoryIndex: state.memoryIndex,
+      compatibility: state.compatibility,
+      embeddingTestResult: state.embeddingTestResult,
+      hardware: state.hardware,
+      localModels: state.localModels,
+      localModelUiState: state.localModelUiState,
+      tasks: state.tasks,
+      refreshStatus: state.refreshStatus,
+      refreshLocalModels: state.refreshLocalModels,
+      saveSettings: state.saveSettings,
+      downloadLocalModel: state.downloadLocalModel,
+      selectLocalModel: state.selectLocalModel,
+      removeLocalModel: state.removeLocalModel,
+      clearLocalModelUiState: state.clearLocalModelUiState,
+      testEmbeddingConnection: state.testEmbeddingConnection,
+      startWorldBundleDownload: state.startWorldBundleDownload,
+      startWorldVectorBuild: state.startWorldVectorBuild,
+      startCharacterMemoryBuild: state.startCharacterMemoryBuild,
+      startAllMemoryBuild: state.startAllMemoryBuild
+    }))
+  )
   const {
     draft,
     isDirty,

@@ -1,8 +1,8 @@
 import { Eye, EyeOff, Trash2 } from 'lucide-react'
 import { type ReactElement } from 'react'
 import { PROVIDER_DEFAULTS } from '../../../shared/model-settings'
-import { useSettings } from '../../context/SettingsContext'
 import { useModelTabState } from '../../hooks/useModelTabState'
+import { selectActiveProfile, useSettingsStore } from '../../stores/settingsStore'
 import { cn } from '../../utils'
 import { ModelAdvancedSection } from './model/ModelAdvancedSection'
 import { ModelConnectionSection } from './model/ModelConnectionSection'
@@ -11,18 +11,29 @@ import { ModelProfileList } from './model/ModelProfileList'
 import { ModelProviderField } from './model/ModelProviderField'
 import { ModelSelectorField } from './model/ModelSelectorField'
 import { inputClassName } from './model/helpers'
+import { useShallow } from 'zustand/react/shallow'
 
 export function ModelTab(): ReactElement {
+  const activeProfile = useSettingsStore(selectActiveProfile)
   const {
     store,
     isLoaded,
-    activeProfile,
     setActiveProfileId,
     updateProfile,
     updateProfileProvider,
     addProfile,
     removeProfile
-  } = useSettings()
+  } = useSettingsStore(
+    useShallow((state) => ({
+      store: state.store,
+      isLoaded: state.isLoaded,
+      setActiveProfileId: state.setActiveProfileId,
+      updateProfile: state.updateProfile,
+      updateProfileProvider: state.updateProfileProvider,
+      addProfile: state.addProfile,
+      removeProfile: state.removeProfile
+    }))
+  )
 
   const profiles = store.profiles
   const currentProfile = activeProfile || profiles[0]

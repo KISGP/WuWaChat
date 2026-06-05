@@ -3,10 +3,11 @@ import BG1 from '../assets/1.png'
 import BG2 from '../assets/2.png'
 import BG4 from '../assets/4.png'
 import { cn } from '../utils'
-import { useCharacter } from '../context/CharacterContext'
-import { useSessions } from '../context/SessionsContext'
 import { trackUiEvent } from '../logging'
+import { useCharacterStore } from '../stores/characterStore'
+import { useSessionStore } from '../stores/sessionStore'
 import ConversationItem from './conversation-item'
+import { useShallow } from 'zustand/react/shallow'
 
 function getConversationPreview(session: Session): string {
   const lastMessage = [...session.messages]
@@ -17,11 +18,23 @@ function getConversationPreview(session: Session): string {
 }
 
 export default function CharCard({ char }: { char: Char }): ReactElement {
-  const { activateChar, setActivateChar } = useCharacter()
-  const { currentSessionId, setCurrentSessionId, startNewSession, getSessionsForCharacter } =
-    useSessions()
+  const { activateChar, setActivateChar } = useCharacterStore(
+    useShallow((state) => ({
+      activateChar: state.activateChar,
+      setActivateChar: state.setActivateChar
+    }))
+  )
+  const { currentSessionId, setCurrentSessionId, startNewSession } = useSessionStore(
+    useShallow((state) => ({
+      currentSessionId: state.currentSessionId,
+      setCurrentSessionId: state.setCurrentSessionId,
+      startNewSession: state.startNewSession
+    }))
+  )
+  const sessions = useSessionStore(
+    useShallow((state) => state.sessions.filter((session) => session.characterId === char.id))
+  )
   const isActive = activateChar?.id === char.id
-  const sessions = getSessionsForCharacter(char.id)
   const [isHovering, setIsHovering] = useState(false)
 
   const currentBg = isActive ? BG4 : isHovering ? BG2 : BG1

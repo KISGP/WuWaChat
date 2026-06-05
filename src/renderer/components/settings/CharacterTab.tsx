@@ -5,9 +5,9 @@ import type {
   LocalCharacterEntry,
   RemoteCharacterEntry
 } from '../../../shared/ai'
-import { useCharacter } from '../../context/CharacterContext'
 import { useAsyncAction } from '../../hooks/useAsyncAction'
 import { trackUiEvent } from '../../logging'
+import { useCharacterStore } from '../../stores/characterStore'
 import { cn } from '../../utils'
 
 type CharacterListItemOrigin = 'local-custom' | 'preset-downloaded' | 'remote-only'
@@ -61,7 +61,7 @@ function getStatusText(origin: CharacterListItemOrigin): string {
 }
 
 export function CharacterTab(): ReactElement {
-  const { refreshCharacters } = useCharacter()
+  const refreshCharacters = useCharacterStore((state) => state.refreshCharacters)
   const [selectedCharacterId, setSelectedCharacterId] = useState('')
   const [catalog, setCatalog] = useState<CharacterCatalog>({
     local: [],

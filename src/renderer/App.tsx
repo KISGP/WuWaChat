@@ -3,9 +3,11 @@ import Header from './components/header'
 import AreaLeft from './components/area-left'
 import AreaRight from './components/area-right'
 import Settings from './components/settings'
+import { useRendererStoreBootstrap } from './hooks/useRendererStoreBootstrap'
 
 function App(): ReactElement {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  useRendererStoreBootstrap()
 
   return (
     <div className="relative h-screen w-full overflow-hidden">

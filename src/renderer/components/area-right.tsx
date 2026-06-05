@@ -9,10 +9,10 @@ import {
 import { List, type RowComponentProps, useDynamicRowHeight } from 'react-window'
 import { Send, StopCircle } from 'lucide-react'
 import type { ChatRunEvent } from '../../shared/ai'
-import { useCharacter } from '../context/CharacterContext'
-import { useSessions } from '../context/SessionsContext'
-import { useSettings } from '../context/SettingsContext'
 import { trackUiEvent } from '../logging'
+import { useCharacterStore } from '../stores/characterStore'
+import { selectSessionById, useSessionStore } from '../stores/sessionStore'
+import { selectActiveProfile, useSettingsStore } from '../stores/settingsStore'
 import { cn } from '../utils'
 
 import bgAvatar from '../assets/avatar-bg.png'
@@ -100,7 +100,7 @@ function MessageItem({
 }
 
 function MessagesList({ messages }: { messages: Message[] }): ReactElement {
-  const { activateChar } = useCharacter()
+  const activateChar = useCharacterStore((state) => state.activateChar)
 
   const rowHeight = useDynamicRowHeight({
     defaultRowHeight: 80
@@ -196,13 +196,14 @@ function InputArea({
 }
 
 export default function AreaRight(): ReactElement {
-  const { activateChar } = useCharacter()
-  const { activeProfile } = useSettings()
-  const { currentSessionId, setCurrentSessionId, getSession } = useSessions()
+  const activateChar = useCharacterStore((state) => state.activateChar)
+  const activeProfile = useSettingsStore(selectActiveProfile)
+  const currentSessionId = useSessionStore((state) => state.currentSessionId)
+  const setCurrentSessionId = useSessionStore((state) => state.setCurrentSessionId)
   const [isLoading, setIsLoading] = useState(false)
   const pendingRequestIdRef = useRef<string | null>(null)
 
-  const currentSession = getSession(currentSessionId)
+  const currentSession = useSessionStore(selectSessionById(currentSessionId))
   const messages =
     currentSession && currentSession.characterId === activateChar?.id ? currentSession.messages : []
 

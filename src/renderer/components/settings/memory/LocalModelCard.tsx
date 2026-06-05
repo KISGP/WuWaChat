@@ -1,7 +1,7 @@
 import { Download, Trash2 } from 'lucide-react'
 import type { ReactElement } from 'react'
 import type { LocalEmbeddingCatalogItem } from '../../../../shared/memory-settings'
-import type { LocalModelUiState } from '../../../context/MemoryContext'
+import type { LocalModelUiState } from '../../../stores/memoryStore'
 import { cn } from '../../../utils'
 import { Progress } from '../../progress'
 import { renderStructuredMessage } from './helpers'
