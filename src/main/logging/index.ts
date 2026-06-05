@@ -8,8 +8,8 @@ import type {
   LogSource,
   LogViewerState,
   RendererLogEventPayload
-} from '../shared/logging'
-import { getLogsRoot, pathExists } from './utils'
+} from '../../shared/logging'
+import { getLogsRoot, pathExists } from '../utils'
 
 type LogInput = {
   level: LogLevel

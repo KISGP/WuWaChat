@@ -11,7 +11,7 @@ import type {
   ModelProfile
 } from '../../shared/ai'
 import { getProfiles } from '../settings'
-import { logger } from '../logger'
+import { logger } from '../logging'
 import { createChatModel } from './model-factory'
 import { SessionStore } from './session-store'
 import { MemoryService } from '../memory'

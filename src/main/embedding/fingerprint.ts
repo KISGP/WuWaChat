@@ -1,4 +1,7 @@
-import type { EmbeddingFingerprint, InstalledLocalEmbeddingModel } from '../shared/memory-settings'
+import type {
+  EmbeddingFingerprint,
+  InstalledLocalEmbeddingModel
+} from '../../shared/memory-settings'
 
 /** Builds the fingerprint used to decide whether a local vector index is still compatible. */
 export function createLocalEmbeddingFingerprint(

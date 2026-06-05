@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
+﻿import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { env, type FeatureExtractionPipeline, pipeline } from '@huggingface/transformers'
 import type {
@@ -9,14 +9,14 @@ import type {
   LocalEmbeddingCatalogModel,
   LocalEmbeddingModelStatus,
   LocalEmbeddingSettings
-} from '../shared/memory-settings'
+} from '../../../shared/memory-settings'
 import {
   getBundledEmbeddingCatalogPath,
   getLocalEmbeddingRoot,
   pathExists,
   readOptionalFile,
   writeJsonFileAtomic
-} from './utils'
+} from '../../utils'
 
 type ProgressReporter = (progress: number, message: string) => void
 type InstalledModelManifest = InstalledLocalEmbeddingModel
@@ -127,7 +127,10 @@ async function ensureWritableModelRoot(): Promise<string> {
       '模型目录不可写',
       '准备模型目录',
       `${root}\n${normalizeErrorMessage(error)}`,
-      ['请确认应用数据目录具有写入权限。', '如果是打包版，请检查 userData/app-data 目录是否可写。']
+      [
+        '请确认应用数据目录具有写入权限。',
+        '如果是打包版本，请检查 userData/app-data 目录是否可写。'
+      ]
     )
   }
 
@@ -151,7 +154,7 @@ async function loadCatalogFile(): Promise<LocalEmbeddingCatalogModel[]> {
       normalizeErrorMessage(error),
       [
         '请确认内置资源目录中的 embedding.json 存在且格式正确。',
-        '如果你刚修改过模型清单，请检查 JSON 语法。'
+        '如果刚修改过模型清单，请检查 JSON 语法。'
       ]
     )
   }
@@ -306,19 +309,16 @@ function createPipelineLoadError(
   runtime: LocalEmbeddingRuntimeInfo
 ): Error {
   const suggestions = allowRemoteModels
-    ? [
-        'Please confirm the model repository URL is correct and reachable.',
-        'If the model is private, confirm HF_TOKEN is configured.'
-      ]
+    ? ['请确认模型仓库地址正确且可以访问。', '如果模型是私有仓库，请确认已经配置 HF_TOKEN。']
     : [
-        'Please confirm the local model directory is under models/embeddings.',
-        'Please confirm the directory contains config.json, tokenizer.json, tokenizer_config.json, and onnx/model.onnx.'
+        '请确认本地模型目录位于 models/embeddings 下。',
+        '请确认目录包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
       ]
   const deviceSummary = runtime.fallbackToCpu
-    ? 'GPU initialization failed and CPU fallback also failed.'
+    ? 'GPU 初始化失败，回退 CPU 后也失败。'
     : runtime.requestedDevice === 'gpu'
-      ? 'GPU initialization failed.'
-      : 'CPU initialization failed.'
+      ? 'GPU 初始化失败。'
+      : 'CPU 初始化失败。'
 
   return createStructuredError(
     '本地模型加载失败',
@@ -430,48 +430,6 @@ async function loadFeatureExtractionPipeline(
       pipelineCache.delete(cacheKey)
       throw error
     })
-
-    pipelineCache.set(cacheKey, pipelinePromise)
-    return pipelinePromise
-  }
-
-  if (!pipelinePromise) {
-    const repoId = toRepoModelPath(model)
-    pipelinePromise = pipeline('feature-extraction', repoId, {
-      progress_callback: (event) => {
-        if (!onProgress) {
-          return
-        }
-
-        if (event.status === 'download') {
-          onProgress(10, `开始下载 ${event.file || model.label}`)
-          return
-        }
-
-        if (event.status === 'progress') {
-          const progress = typeof event.progress === 'number' ? Math.round(event.progress) : 0
-          onProgress(Math.max(10, Math.min(progress, 95)), `下载 ${event.file || model.label}`)
-          return
-        }
-
-        if (event.status === 'done') {
-          onProgress(98, `完成 ${event.file || model.label}`)
-        }
-      }
-    }).catch((error) => {
-      pipelineCache.delete(cacheKey)
-      throw createStructuredError(
-        '本地模型加载失败',
-        '初始化 Transformers.js',
-        normalizeErrorMessage(error),
-        allowRemoteModels
-          ? ['请确认模型仓库地址正确且可以访问。', '如果是私有模型，请确认已配置 HF_TOKEN。']
-          : [
-              '请确认本地模型目录位于应用数据目录的 models/embeddings 下。',
-              '请确认模型目录内包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
-            ]
-      )
-    }) as unknown as Promise<LoadedFeatureExtractionPipeline>
 
     pipelineCache.set(cacheKey, pipelinePromise)
   }
@@ -606,21 +564,15 @@ export class LocalEmbeddingProvider {
         fallbackToCpu: false
       }
       const runtimeMessage = runtime.fallbackToCpu
-        ? 'GPU unavailable. Fell back to CPU.'
+        ? 'GPU 不可用，已回退到 CPU。'
         : runtime.actualDevice === 'gpu'
-          ? 'Currently running on GPU.'
-          : 'Currently running on CPU.'
+          ? '当前运行在 GPU。'
+          : '当前运行在 CPU。'
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
         dimensions: inferDimensions(vector),
-        message: `鏈湴 embedding 妯″瀷鍙敤锛岃繑鍥?${inferDimensions(vector)} 缁村悜閲忋€?\n${runtimeMessage}`
-      }
-      return {
-        ok: true,
-        latencyMs: Date.now() - startedAt,
-        dimensions: inferDimensions(vector),
-        message: `本地 embedding 模型可用，返回 ${inferDimensions(vector)} 维向量。`
+        message: `本地 embedding 模型可用，返回 ${inferDimensions(vector)} 维向量。\n${runtimeMessage}`
       }
     } catch (error) {
       return {
@@ -677,7 +629,7 @@ export async function downloadLocalEmbeddingModel(
       '模型不存在',
       '解析模型清单',
       `未在 embedding.json 中找到模型：${modelId}`,
-      ['请刷新模型列表后重试。', '如果你改过 embedding.json，请确认 id 与卡片模型一致。']
+      ['请刷新模型列表后重试。', '如果修改过 embedding.json，请确认 id 与卡片模型一致。']
     )
   }
 

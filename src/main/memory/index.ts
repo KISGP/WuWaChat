@@ -1,10 +1,10 @@
-import { app, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ConversationSession, MemoryEntry } from '../shared/ai'
+import type { ConversationSession, MemoryEntry } from '../../shared/ai'
 import type {
   CharacterMemoryIndexStatus,
   MemoryDebugRetrieveRequest,
@@ -24,20 +24,25 @@ import type {
   MemoryTaskStatus,
   MemoryTaskEvent,
   WorldIndexStatus
-} from '../shared/memory-settings'
+} from '../../shared/memory-settings'
 import {
   createDefaultMemorySettingsStore,
   normalizeMemorySettingsStore
-} from '../shared/memory-settings'
-import { CloudEmbeddingProvider, createCloudEmbeddingFingerprint } from './embedding-provider'
+} from '../../shared/memory-settings'
+import {
+  CloudEmbeddingProvider,
+  createCloudEmbeddingFingerprint
+} from '../embedding/cloud-provider'
 import {
   createLocalEmbeddingFingerprint,
   getEmbeddingFingerprintKey,
   isSameEmbeddingFingerprint
-} from './memory-fingerprint'
-import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './memory-retrieval'
-import { loadWorldMarkdownEntries, walkMarkdownFiles } from './memory-world'
-import { logger } from './logger'
+} from '../embedding/fingerprint'
+import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './retrieval'
+import { readMemoryHardwareInfo } from './hardware'
+import { loadWorldMarkdownEntries, walkMarkdownFiles } from './world'
+import { logger } from '../logging'
+import { runMonitoredTask } from '../observability/monitored-task'
 import {
   getAppDataRoot,
   getMemoryDatabasePath,
@@ -48,7 +53,7 @@ import {
   readOptionalFile,
   pathExists,
   writeJsonFileAtomic
-} from './utils'
+} from '../utils'
 
 type SearchRow = {
   id: string
@@ -76,7 +81,7 @@ type EmbeddingProvider = {
   }>
 }
 
-type LocalEmbeddingModule = typeof import('./local-embedding')
+type LocalEmbeddingModule = typeof import('../embedding/local')
 
 const WORLD_SCOPE = 'world'
 const MEMORY_SCOPE = 'character-memory'
@@ -311,7 +316,7 @@ export class MemoryService {
 
   private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
     if (!this.hardwareInfoPromise) {
-      this.hardwareInfoPromise = this.readHardwareInfo().catch((error) => {
+      this.hardwareInfoPromise = readMemoryHardwareInfo().catch((error) => {
         void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
           error: error instanceof Error ? error.message : String(error)
         })
@@ -320,40 +325,6 @@ export class MemoryService {
     }
 
     return this.hardwareInfoPromise
-  }
-
-  private async readHardwareInfo(): Promise<MemoryHardwareInfo> {
-    const gpuInfo = await app.getGPUInfo('complete')
-    const devices = Array.isArray((gpuInfo as { gpuDevice?: unknown[] }).gpuDevice)
-      ? ((gpuInfo as { gpuDevice: Array<Record<string, unknown>> }).gpuDevice ?? [])
-      : []
-    const gpuName =
-      devices.map((device) => this.extractGpuName(device)).find((name) => name.length > 0) ?? null
-
-    return { gpuName }
-  }
-
-  private extractGpuName(device: Record<string, unknown>): string {
-    const candidateKeys = [
-      'deviceName',
-      'deviceString',
-      'driverVendor',
-      'vendorString',
-      'vendor'
-    ] as const
-
-    for (const key of candidateKeys) {
-      const value = device[key]
-      if (typeof value === 'string' && value.trim().length > 0) {
-        return value.trim()
-      }
-    }
-
-    const stringValue = Object.values(device).find(
-      (value) => typeof value === 'string' && value.trim().length > 0
-    )
-
-    return typeof stringValue === 'string' ? stringValue.trim() : ''
   }
 
   getTasks(): MemoryTask[] {
@@ -1581,7 +1552,7 @@ export class MemoryService {
 
   private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {
     if (!this.localEmbeddingModulePromise) {
-      this.localEmbeddingModulePromise = import('./local-embedding')
+      this.localEmbeddingModulePromise = import('../embedding/local')
     }
 
     return this.localEmbeddingModulePromise
@@ -1717,20 +1688,34 @@ export class MemoryService {
 
     void (async () => {
       try {
-        this.updateTask(task.taskId, {
-          status: 'running',
-          progress: 5,
-          message: this.getTaskStartMessage(taskType)
+        await runMonitoredTask({
+          scope: 'memory',
+          action: 'task-failed',
+          message: 'Memory task failed',
+          code: 'MEMORY_INDEX_ERROR',
+          context: {
+            taskId: task.taskId,
+            taskType,
+            scope,
+            characterId
+          },
+          run: async () => {
+            this.updateTask(task.taskId, {
+              status: 'running',
+              progress: 5,
+              message: this.getTaskStartMessage(taskType)
+            })
+            await callback(task.taskId, (id, patch) => this.updateTask(id, patch))
+            const current = this.tasks.get(task.taskId)
+            if (current?.status !== 'cancelled') {
+              this.updateTask(task.taskId, {
+                status: 'completed',
+                progress: 100,
+                message: current?.message || 'Task completed'
+              })
+            }
+          }
         })
-        await callback(task.taskId, (id, patch) => this.updateTask(id, patch))
-        const current = this.tasks.get(task.taskId)
-        if (current?.status !== 'cancelled') {
-          this.updateTask(task.taskId, {
-            status: 'completed',
-            progress: 100,
-            message: current?.message || 'Task completed'
-          })
-        }
       } catch (error) {
         this.updateTask(task.taskId, {
           status: 'failed',

@@ -1,29 +1,32 @@
 import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
-import { registerAppEvents } from './app-events'
+import { registerAppEvents } from './app/events'
 import { initializeAi } from './ai'
-import { bootstrapAppData } from './bootstrap-data'
+import { bootstrapAppData } from './app/bootstrap-data'
 import { registerIpc } from './ipc'
-import { logger } from './logger'
-import { createMainWindow } from './window'
+import { logger } from './logging'
+import { createMainWindow } from './app/window'
+import { captureError } from './observability/error-monitor'
 
 function registerProcessErrorHandlers(): void {
   process.on('uncaughtException', (error) => {
-    void logger.error('main', 'uncaught-exception', 'Unhandled exception in main process', {
-      error: error.message,
-      stack: error.stack
+    void captureError({
+      scope: 'main',
+      action: 'uncaught-exception',
+      message: 'Unhandled exception in main process',
+      code: 'PROCESS_ERROR',
+      error
     })
   })
 
   process.on('unhandledRejection', (reason) => {
-    void logger.error(
-      'main',
-      'unhandled-rejection',
-      'Unhandled promise rejection in main process',
-      {
-        reason: reason instanceof Error ? reason.message : String(reason)
-      }
-    )
+    void captureError({
+      scope: 'main',
+      action: 'unhandled-rejection',
+      message: 'Unhandled promise rejection in main process',
+      code: 'PROCESS_ERROR',
+      error: reason
+    })
   })
 }
 
@@ -47,8 +50,12 @@ app.whenReady().then(() => {
       void logger.info('main', 'window-create-success', 'Main window created')
     })
     .catch((error) => {
-      void logger.error('main', 'ai-initialize-failed', 'AI initialization failed', {
-        error: error instanceof Error ? error.message : String(error)
+      void captureError({
+        scope: 'main',
+        action: 'ai-initialize-failed',
+        message: 'AI initialization failed',
+        code: 'PROCESS_ERROR',
+        error
       })
       throw error
     })

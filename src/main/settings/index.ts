@@ -1,15 +1,15 @@
 import { safeStorage } from 'electron'
 import { copyFile, readFile } from 'fs/promises'
-import type { ModelProfile } from '../shared/ai'
+import type { ModelProfile } from '../../shared/ai'
 import {
   type OpenAIProfileConnectionTestResult,
   type ProfilesStore,
   createDefaultProfilesStore,
   normalizeModelProfile,
   normalizeProfilesStore
-} from '../shared/model-settings'
-import { getProfilesPath, joinUrl, pathExists, writeJsonFileAtomic } from './utils'
-import { logger } from './logger'
+} from '../../shared/model-settings'
+import { getProfilesPath, joinUrl, pathExists, writeJsonFileAtomic } from '../utils'
+import { logger } from '../logging'
 
 type StoredProfile = Omit<ModelProfile, 'apiKey'> & {
   apiKey?: string

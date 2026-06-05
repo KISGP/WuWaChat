@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { optimizer } from '@electron-toolkit/utils'
-import { logger } from './logger'
+import { logger } from '../logging'
 import { createMainWindow } from './window'
 
 export function registerAppEvents(): void {

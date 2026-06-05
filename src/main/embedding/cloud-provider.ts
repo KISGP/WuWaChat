@@ -5,7 +5,7 @@ import type {
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
   HuggingFaceInferenceProvider
-} from '../shared/memory-settings'
+} from '../../shared/memory-settings'
 
 function requireValue(value: string, label: string): string {
   const trimmed = value.trim()

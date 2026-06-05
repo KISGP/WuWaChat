@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'fs/promises'
 import { join, relative } from 'path'
-import type { MemoryEntry } from '../shared/ai'
-import { now, pathExists } from './utils'
+import type { MemoryEntry } from '../../shared/ai'
+import { now, pathExists } from '../utils'
 
 export function splitMarkdownIntoChunks(content: string): string[] {
   return content

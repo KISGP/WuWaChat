@@ -9,7 +9,7 @@ import {
   getMemorySettingsPath,
   getProfilesPath,
   getSessionsPath
-} from './utils'
+} from '../utils'
 
 export async function bootstrapAppData(): Promise<void> {
   await Promise.all([

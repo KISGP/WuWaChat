@@ -3,11 +3,9 @@ import type {
   CharacterCatalog,
   CharacterInfo,
   CharacterPromptDocument,
-  CharacterSource,
   CharacterSummary,
-  LocalCharacterEntry,
   RemoteCharacterEntry
-} from '../shared/ai'
+} from '../../shared/ai'
 import {
   getCharacterAvatarPath,
   getCharactersCachePath,
@@ -17,94 +15,32 @@ import {
   getCharacterManifestPath,
   getCharacterPromptPath,
   getCharactersRoot,
-  joinUrl,
   pathExists,
   readDirectoryNames,
   readImageDataUrl,
   readOptionalFile,
   writeJsonFileAtomic
-} from './utils'
-
-type LocalCharacterManifest = {
-  source: CharacterSource
-}
-
-type LocalCharacterRecord = LocalCharacterEntry & {
-  prompt: string
-  promptFileName: string
-}
-
-type RemoteCharacterRecord = {
-  id: string
-  info: CharacterInfo
-}
-
-type RemoteCharacterCacheDocument = {
-  updatedAt: string | null
-  characters: RemoteCharacterRecord[]
-}
-
-const PROMPT_FILE_NAME = 'prompt.md'
-const CHARACTER_REPO_API_URL = 'https://api.github.com/repos/KISGP/WuWaChatChars'
-const REMOTE_REPOSITORY_ROOT = 'https://raw.githubusercontent.com/KISGP/WuWaChatChars/main'
+} from '../utils'
+import { PROMPT_FILE_NAME } from './constants'
+import { normalizeCharacterVersion, pickDisplayText } from './mappers'
+import {
+  fetchBuffer,
+  fetchRemoteCharacterInfo,
+  fetchRemoteCharacterList,
+  fetchRemoteCharacterUpdatedAt,
+  fetchText,
+  getRemoteCharacterFileUrl,
+  getRemoteCharacterPromptUrl
+} from './remote-client'
+import type {
+  LocalCharacterManifest,
+  LocalCharacterRecord,
+  RemoteCharacterCacheDocument,
+  RemoteCharacterRecord
+} from './types'
 
 let remoteCatalogCache: RemoteCharacterRecord[] = []
 let remoteCatalogRefreshedAt: string | null = null
-
-function normalizeCharacterVersion(value: string | null | undefined): string | null {
-  if (!value) {
-    return null
-  }
-
-  const normalizedDate = new Date(value)
-  if (Number.isNaN(normalizedDate.getTime())) {
-    return null
-  }
-
-  return normalizedDate.toISOString()
-}
-
-function getRemoteCharacterFileUrl(characterId: string, fileName: string): string {
-  return joinUrl(joinUrl(REMOTE_REPOSITORY_ROOT, encodeURIComponent(characterId)), fileName)
-}
-
-function getRemoteCharacterListUrl(): string {
-  return joinUrl(REMOTE_REPOSITORY_ROOT, 'chars.json')
-}
-
-function pickDisplayText(
-  value: CharacterInfo['name'] | CharacterInfo['description'],
-  fallback = ''
-): string {
-  return value.cn?.trim() || value.en?.trim() || value.jp?.trim() || fallback
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`)
-  }
-
-  return (await response.json()) as T
-}
-
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`)
-  }
-
-  return response.text()
-}
-
-async function fetchBuffer(url: string): Promise<Buffer> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`)
-  }
-
-  return Buffer.from(await response.arrayBuffer())
-}
 
 function setRemoteCatalogCache(records: RemoteCharacterRecord[], updatedAt: string | null): void {
   remoteCatalogCache = records
@@ -221,42 +157,6 @@ async function getLocalCharacterRecords(): Promise<LocalCharacterRecord[]> {
     characterIds.map((characterId) => loadLocalCharacterRecord(characterId))
   )
   return records.filter((record): record is LocalCharacterRecord => Boolean(record))
-}
-
-async function fetchRemoteCharacterInfo(characterId: string): Promise<CharacterInfo> {
-  return fetchJson<CharacterInfo>(getRemoteCharacterFileUrl(characterId, 'info.json'))
-}
-
-async function fetchRemoteCharacterUpdatedAt(): Promise<string> {
-  const response = await fetch(CHARACTER_REPO_API_URL)
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch ${CHARACTER_REPO_API_URL}: ${response.status} ${response.statusText}`
-    )
-  }
-
-  const payload = (await response.json()) as { pushed_at?: unknown }
-  const updatedAt =
-    typeof payload?.pushed_at === 'string' ? normalizeCharacterVersion(payload.pushed_at) : null
-  if (!updatedAt) {
-    throw new Error(`Character repo metadata from ${CHARACTER_REPO_API_URL} is missing pushed_at.`)
-  }
-
-  return updatedAt
-}
-
-async function fetchRemoteCharacterList(): Promise<RemoteCharacterRecord[]> {
-  const ids = await fetchJson<string[]>(getRemoteCharacterListUrl())
-  const uniqueIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
-
-  const records = await Promise.all(
-    uniqueIds.map(async (id) => ({
-      id,
-      info: await fetchRemoteCharacterInfo(id)
-    }))
-  )
-
-  return records.sort((left, right) => left.id.localeCompare(right.id))
 }
 
 async function buildCharacterCatalog(): Promise<CharacterCatalog> {
@@ -401,7 +301,7 @@ export async function refreshRemoteCharacters(): Promise<CharacterCatalog> {
 }
 
 export async function getRemoteCharacterPrompt(characterId: string): Promise<string> {
-  return fetchText(getRemoteCharacterFileUrl(characterId, PROMPT_FILE_NAME))
+  return fetchText(getRemoteCharacterPromptUrl(characterId))
 }
 
 export async function downloadCharacter(characterId: string): Promise<CharacterSummary> {

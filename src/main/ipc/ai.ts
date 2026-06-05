@@ -1,0 +1,45 @@
+import type { ChatRunRequest } from '../../shared/ai'
+import {
+  abortRun,
+  getCharacterPrompt,
+  getCharacters,
+  getSessions,
+  saveCharacterPrompt,
+  sendMessage
+} from '../ai'
+import { handleLogged } from './logged-handler'
+
+export function registerAiIpc(): void {
+  handleLogged('ai:getCharacters', () => getCharacters())
+  handleLogged(
+    'ai:getCharacterPrompt',
+    (_event, characterId: string) => getCharacterPrompt(characterId),
+    (characterId) => ({ characterId })
+  )
+  handleLogged(
+    'ai:saveCharacterPrompt',
+    (_event, characterId: string, promptText: string) =>
+      saveCharacterPrompt(characterId, promptText),
+    (characterId, promptText) => ({
+      characterId,
+      promptLength: promptText.length
+    })
+  )
+  handleLogged('ai:getSessions', () => getSessions())
+  handleLogged(
+    'ai:sendMessage',
+    (_event, request: ChatRunRequest) => sendMessage(request),
+    (request) => ({
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      characterId: request.characterId,
+      profileId: request.profileId,
+      messageLength: request.userMessage.length
+    })
+  )
+  handleLogged(
+    'ai:abortRun',
+    (_event, requestId: string) => abortRun(requestId),
+    (requestId) => ({ requestId })
+  )
+}

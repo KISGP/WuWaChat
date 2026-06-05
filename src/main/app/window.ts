@@ -1,7 +1,7 @@
 import { BrowserWindow, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { PRELOAD_PATH, RENDERER_HTML, WINDOW_SIZE, IconPath } from './constants'
-import { logger } from './logger'
+import { logger } from '../logging'
 
 function loadRenderer(window: BrowserWindow): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
