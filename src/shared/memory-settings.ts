@@ -236,6 +236,13 @@ export type MemoryTaskEvent = {
   task: MemoryTask
 }
 
+export type MemoryStatusSnapshot = {
+  settings: MemorySettingsStore
+  worldIndex: WorldIndexStatus
+  memoryIndex: CharacterMemoryIndexStatus
+  tasks: MemoryTask[]
+}
+
 export const MEMORY_SETTINGS_VERSION = 1
 
 export function createDefaultMemorySettingsStore(): MemorySettingsStore {
@@ -269,12 +276,7 @@ export function createDefaultMemorySettingsStore(): MemorySettingsStore {
   }
 }
 
-function normalizeInteger(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number
-): number {
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) {
     return fallback
@@ -352,7 +354,12 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
       typeof raw.crossSessionCharacterMemory === 'boolean'
         ? raw.crossSessionCharacterMemory
         : defaults.crossSessionCharacterMemory,
-    recentMessageCount: normalizeInteger(raw.recentMessageCount, defaults.recentMessageCount, 2, 50),
+    recentMessageCount: normalizeInteger(
+      raw.recentMessageCount,
+      defaults.recentMessageCount,
+      2,
+      50
+    ),
     worldTopK: normalizeInteger(raw.worldTopK, defaults.worldTopK, 1, 12),
     memoryTopK: normalizeInteger(raw.memoryTopK, defaults.memoryTopK, 1, 12),
     summaryTriggerTurns: normalizeInteger(
@@ -372,7 +379,9 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
         typeof raw.cloudEmbedding?.model === 'string'
           ? raw.cloudEmbedding.model
           : defaults.cloudEmbedding.model,
-      inferenceProvider: normalizeHuggingFaceInferenceProvider(raw.cloudEmbedding?.inferenceProvider),
+      inferenceProvider: normalizeHuggingFaceInferenceProvider(
+        raw.cloudEmbedding?.inferenceProvider
+      ),
       providerApiKeys: normalizedProviderApiKeys,
       dimensions:
         raw.cloudEmbedding?.dimensions == null

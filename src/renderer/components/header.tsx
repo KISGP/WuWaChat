@@ -5,29 +5,29 @@ import CloseIcon from './close'
 import MinIcon from './min'
 import Info from '../assets/T_BtnHelpInfoNor.png'
 import Dialog from './dialog'
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 
-export default function Header({ onOpenSettings }: { onOpenSettings?: () => void }) {
+export default function Header({ onOpenSettings }: { onOpenSettings?: () => void }): ReactElement {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  const openSettings = () => {
+  const openSettings = (): void => {
     if (onOpenSettings) {
       onOpenSettings()
     }
   }
 
-  const openDialog = () => {
+  const openDialog = (): void => {
     setIsDialogOpen(true)
   }
 
-  const handleMinimize = () => {
+  const handleMinimize = (): void => {
     if (window.api?.minimize) {
       window.api.minimize()
       return
     }
   }
 
-  const handleClose = () => {
+  const handleClose = (): void => {
     window.close()
   }
 

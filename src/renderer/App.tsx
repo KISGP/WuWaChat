@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 import Header from './components/header'
 import AreaLeft from './components/area-left'
 import AreaRight from './components/area-right'
 import Settings from './components/settings'
 
-function App() {
+function App(): ReactElement {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   return (

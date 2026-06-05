@@ -3,6 +3,7 @@ import CloseIcon from './close'
 import { cn } from '../utils'
 import BG2 from '../assets/T_CommonPopupBg2.png'
 import Github from '../assets/github.png'
+import { type ReactElement } from 'react'
 
 interface DialogProps {
   isOpen: boolean
@@ -10,7 +11,7 @@ interface DialogProps {
   className?: string
 }
 
-export default function Dialog({ isOpen, onClose, className }: DialogProps) {
+export default function Dialog({ isOpen, onClose, className }: DialogProps): ReactElement {
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogPrimitive.Portal>

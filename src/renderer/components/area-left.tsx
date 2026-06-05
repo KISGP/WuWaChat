@@ -1,9 +1,10 @@
-import bgLeft from "../assets/T_PhoneSystemBg01A.png";
-import CharCard from "./char-card";
-import { useCharacter } from "../context/CharacterContext";
+import { type ReactElement } from 'react'
+import bgLeft from '../assets/T_PhoneSystemBg01A.png'
+import CharCard from './char-card'
+import { useCharacter } from '../context/CharacterContext'
 
-export default function AreaLeft() {
-  const { characters } = useCharacter();
+export default function AreaLeft(): ReactElement {
+  const { characters } = useCharacter()
 
   return (
     <div className="relative h-156 w-78 shrink-0">
@@ -13,11 +14,11 @@ export default function AreaLeft() {
         draggable="false"
       />
 
-      <div className=" absolute flex h-full w-full flex-col gap-1 overflow-y-auto py-4 pr-2 pl-4">
+      <div className="absolute flex h-full w-full flex-col gap-1 overflow-y-auto py-4 pr-2 pl-4">
         {characters.map((char, index) => (
           <CharCard key={char.id || index} char={char} />
         ))}
       </div>
     </div>
-  );
+  )
 }

@@ -16,18 +16,12 @@ import type {
   EmbeddingConnectionTestResult,
   LocalEmbeddingCatalogItem,
   MemorySettingsStore,
+  MemoryStatusSnapshot,
   MemoryTask,
   WorldIndexStatus
 } from '../../shared/memory-settings'
 import { createDefaultMemorySettingsStore } from '../../shared/memory-settings'
 import { trackUiEvent } from '../logging'
-
-type MemoryStatusSnapshot = {
-  settings: MemorySettingsStore
-  worldIndex: WorldIndexStatus
-  memoryIndex: CharacterMemoryIndexStatus
-  tasks: MemoryTask[]
-}
 
 type LocalModelUiPhase = 'idle' | 'downloading' | 'success' | 'error'
 
@@ -68,7 +62,10 @@ interface MemoryContextType {
 const MemoryContext = createContext<MemoryContextType | undefined>(undefined)
 
 function parseTaskError(message: string): { errorCode?: string; errorDetail?: string } {
-  const lines = message.split('\n').map((line) => line.trim()).filter(Boolean)
+  const lines = message
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
   const titleLine = lines.find((line) => line.startsWith('标题：'))
   const reasonLine = lines.find((line) => line.startsWith('原因：'))
 
@@ -78,12 +75,62 @@ function parseTaskError(message: string): { errorCode?: string; errorDetail?: st
   }
 }
 
+function isTaskActive(task: MemoryTask): boolean {
+  return task.status === 'queued' || task.status === 'running'
+}
+
+function reconcileMemoryTasks(current: MemoryTask[], nextTask: MemoryTask): MemoryTask[] {
+  const next = [nextTask, ...current.filter((task) => task.taskId !== nextTask.taskId)]
+  return next.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+function createLocalModelUiStateFromTask(task: MemoryTask): LocalModelUiState | null {
+  if (task.taskType !== 'local-model-download' || !task.characterId) {
+    return null
+  }
+
+  const modelId = task.characterId
+  const base: LocalModelUiState = {
+    modelId,
+    phase: 'idle',
+    progress: task.progress,
+    message: task.message || ''
+  }
+
+  if (isTaskActive(task)) {
+    return {
+      ...base,
+      phase: 'downloading'
+    }
+  }
+
+  if (task.status === 'completed') {
+    return {
+      ...base,
+      phase: 'success'
+    }
+  }
+
+  if (task.status === 'failed') {
+    const parsed = parseTaskError(task.message || '')
+    return {
+      ...base,
+      phase: 'error',
+      errorCode: parsed.errorCode,
+      errorDetail: parsed.errorDetail
+    }
+  }
+
+  return null
+}
+
 export function MemoryProvider({ children }: { children: ReactNode }): ReactElement {
   const [settings, setSettings] = useState<MemorySettingsStore>(createDefaultMemorySettingsStore())
   const [worldIndex, setWorldIndex] = useState<WorldIndexStatus | null>(null)
   const [memoryIndex, setMemoryIndex] = useState<CharacterMemoryIndexStatus | null>(null)
   const [compatibility, setCompatibility] = useState<EmbeddingCompatibilityStatus[]>([])
-  const [embeddingTestResult, setEmbeddingTestResult] = useState<EmbeddingConnectionTestResult | null>(null)
+  const [embeddingTestResult, setEmbeddingTestResult] =
+    useState<EmbeddingConnectionTestResult | null>(null)
   const [localModels, setLocalModels] = useState<LocalEmbeddingCatalogItem[]>([])
   const [localModelUiState, setLocalModelUiState] = useState<Record<string, LocalModelUiState>>({})
   const [tasks, setTasks] = useState<MemoryTask[]>([])
@@ -100,22 +147,25 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
     setTasks(snapshot.tasks)
   }, [])
 
-  const refreshStatus = useCallback(async (characterId?: string | null) => {
-    activeCharacterIdRef.current = characterId ?? null
-    const requestId = refreshRequestIdRef.current + 1
-    refreshRequestIdRef.current = requestId
-    const [snapshot, nextCompatibility] = await Promise.all([
-      window.memory.getStatus(characterId),
-      window.memory.getEmbeddingCompatibility(characterId)
-    ])
+  const refreshStatus = useCallback(
+    async (characterId?: string | null) => {
+      activeCharacterIdRef.current = characterId ?? null
+      const requestId = refreshRequestIdRef.current + 1
+      refreshRequestIdRef.current = requestId
+      const [snapshot, nextCompatibility] = await Promise.all([
+        window.memory.getStatus(characterId),
+        window.memory.getEmbeddingCompatibility(characterId)
+      ])
 
-    if (refreshRequestIdRef.current !== requestId) {
-      return
-    }
+      if (refreshRequestIdRef.current !== requestId) {
+        return
+      }
 
-    applySnapshot(snapshot)
-    setCompatibility(nextCompatibility)
-  }, [applySnapshot])
+      applySnapshot(snapshot)
+      setCompatibility(nextCompatibility)
+    },
+    [applySnapshot]
+  )
 
   const scheduleStatusRefresh = useCallback(
     (delayMs: number, characterId?: string | null): void => {
@@ -165,62 +215,17 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
     }, 0)
 
     const unsubscribe = window.memory.onTaskEvent((event) => {
-      setTasks((current) => {
-        const next = [event.task, ...current.filter((task) => task.taskId !== event.task.taskId)]
-        return next.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      })
+      setTasks((current) => reconcileMemoryTasks(current, event.task))
 
-      if (
-        event.task.taskType === 'local-model-download' &&
-        event.task.characterId
-      ) {
-        setLocalModelUiState((current) => {
-          const modelId = event.task.characterId as string
-          const base: LocalModelUiState = {
-            modelId,
-            phase: 'idle',
-            progress: event.task.progress,
-            message: event.task.message || ''
-          }
-
-          if (event.task.status === 'queued' || event.task.status === 'running') {
-            return {
-              ...current,
-              [modelId]: {
-                ...base,
-                phase: 'downloading'
-              }
-            }
-          }
-
-          if (event.task.status === 'completed') {
-            return {
-              ...current,
-              [modelId]: {
-                ...base,
-                phase: 'success'
-              }
-            }
-          }
-
-          if (event.task.status === 'failed') {
-            const parsed = parseTaskError(event.task.message || '')
-            return {
-              ...current,
-              [modelId]: {
-                ...base,
-                phase: 'error',
-                errorCode: parsed.errorCode,
-                errorDetail: parsed.errorDetail
-              }
-            }
-          }
-
-          return current
-        })
+      const nextLocalModelUiState = createLocalModelUiStateFromTask(event.task)
+      if (nextLocalModelUiState) {
+        setLocalModelUiState((current) => ({
+          ...current,
+          [nextLocalModelUiState.modelId]: nextLocalModelUiState
+        }))
       }
 
-      if (event.task.status === 'queued' || event.task.status === 'running') {
+      if (isTaskActive(event.task)) {
         scheduleStatusRefresh(120)
       } else {
         scheduleStatusRefresh(0)
@@ -242,73 +247,89 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
     }
   }, [refreshLocalModels, refreshStatus, scheduleStatusRefresh])
 
-  const saveSettings = useCallback(async (store: MemorySettingsStore): Promise<void> => {
-    trackUiEvent('memory-settings-save', 'User saved memory settings', {
-      retrievalMode: store.retrievalMode,
-      worldSearchEnabled: store.worldSearchEnabled,
-      memorySearchEnabled: store.memorySearchEnabled
-    })
-    const saved = await window.memory.saveSettings(store)
-    setSettings(saved)
-    await refreshStatus(activeMemoryCharacterId)
-    await refreshLocalModels()
-  }, [activeMemoryCharacterId, refreshLocalModels, refreshStatus])
-
-  const downloadLocalModel = useCallback(async (modelId: string): Promise<void> => {
-    trackUiEvent('memory-local-model-download', 'User started downloading a local embedding model', {
-      modelId
-    })
-    setLocalModelUiState((current) => ({
-      ...current,
-      [modelId]: {
-        modelId,
-        phase: 'downloading',
-        progress: 0,
-        message: '准备下载模型...'
-      }
-    }))
-
-    try {
-      await window.memory.downloadLocalModel(modelId)
+  const saveSettings = useCallback(
+    async (store: MemorySettingsStore): Promise<void> => {
+      trackUiEvent('memory-settings-save', 'User saved memory settings', {
+        retrievalMode: store.retrievalMode,
+        worldSearchEnabled: store.worldSearchEnabled,
+        memorySearchEnabled: store.memorySearchEnabled
+      })
+      const saved = await window.memory.saveSettings(store)
+      setSettings(saved)
       await refreshStatus(activeMemoryCharacterId)
       await refreshLocalModels()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const parsed = parseTaskError(message)
+    },
+    [activeMemoryCharacterId, refreshLocalModels, refreshStatus]
+  )
+
+  const downloadLocalModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      trackUiEvent(
+        'memory-local-model-download',
+        'User started downloading a local embedding model',
+        {
+          modelId
+        }
+      )
       setLocalModelUiState((current) => ({
         ...current,
         [modelId]: {
           modelId,
-          phase: 'error',
-          progress: current[modelId]?.progress || 0,
-          message,
-          errorCode: parsed.errorCode,
-          errorDetail: parsed.errorDetail
+          phase: 'downloading',
+          progress: 0,
+          message: '准备下载模型...'
         }
       }))
-      throw error
-    }
-  }, [activeMemoryCharacterId, refreshLocalModels, refreshStatus])
 
-  const selectLocalModel = useCallback(async (modelId: string): Promise<void> => {
-    trackUiEvent('memory-local-model-select', 'User selected a local embedding model', {
-      modelId
-    })
-    const saved = await window.memory.selectLocalModel(modelId)
-    setSettings(saved)
-    await refreshStatus(activeMemoryCharacterId)
-    await refreshLocalModels()
-  }, [activeMemoryCharacterId, refreshLocalModels, refreshStatus])
+      try {
+        await window.memory.downloadLocalModel(modelId)
+        await refreshStatus(activeMemoryCharacterId)
+        await refreshLocalModels()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const parsed = parseTaskError(message)
+        setLocalModelUiState((current) => ({
+          ...current,
+          [modelId]: {
+            modelId,
+            phase: 'error',
+            progress: current[modelId]?.progress || 0,
+            message,
+            errorCode: parsed.errorCode,
+            errorDetail: parsed.errorDetail
+          }
+        }))
+        throw error
+      }
+    },
+    [activeMemoryCharacterId, refreshLocalModels, refreshStatus]
+  )
 
-  const removeLocalModel = useCallback(async (modelId: string): Promise<void> => {
-    trackUiEvent('memory-local-model-remove', 'User removed a local embedding model', {
-      modelId
-    })
-    await window.memory.removeLocalModel(modelId)
-    clearLocalModelUiState(modelId)
-    await refreshStatus(activeMemoryCharacterId)
-    await refreshLocalModels()
-  }, [activeMemoryCharacterId, clearLocalModelUiState, refreshLocalModels, refreshStatus])
+  const selectLocalModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      trackUiEvent('memory-local-model-select', 'User selected a local embedding model', {
+        modelId
+      })
+      const saved = await window.memory.selectLocalModel(modelId)
+      setSettings(saved)
+      await refreshStatus(activeMemoryCharacterId)
+      await refreshLocalModels()
+    },
+    [activeMemoryCharacterId, refreshLocalModels, refreshStatus]
+  )
+
+  const removeLocalModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      trackUiEvent('memory-local-model-remove', 'User removed a local embedding model', {
+        modelId
+      })
+      await window.memory.removeLocalModel(modelId)
+      clearLocalModelUiState(modelId)
+      await refreshStatus(activeMemoryCharacterId)
+      await refreshLocalModels()
+    },
+    [activeMemoryCharacterId, clearLocalModelUiState, refreshLocalModels, refreshStatus]
+  )
 
   const testEmbeddingConnection = useCallback(async (): Promise<void> => {
     trackUiEvent('memory-embedding-test', 'User started an embedding connection test', {
@@ -331,13 +352,16 @@ export function MemoryProvider({ children }: { children: ReactNode }): ReactElem
     await refreshStatus(activeMemoryCharacterId)
   }, [activeMemoryCharacterId, refreshStatus])
 
-  const startCharacterMemoryBuild = useCallback(async (characterId: string): Promise<void> => {
-    trackUiEvent('memory-character-build', 'User started character memory build', {
-      characterId
-    })
-    await window.memory.startCharacterMemoryBuild(characterId)
-    await refreshStatus(characterId)
-  }, [refreshStatus])
+  const startCharacterMemoryBuild = useCallback(
+    async (characterId: string): Promise<void> => {
+      trackUiEvent('memory-character-build', 'User started character memory build', {
+        characterId
+      })
+      await window.memory.startCharacterMemoryBuild(characterId)
+      await refreshStatus(characterId)
+    },
+    [refreshStatus]
+  )
 
   const startAllMemoryBuild = useCallback(async (): Promise<void> => {
     trackUiEvent('memory-all-build', 'User started rebuilding all character memory')

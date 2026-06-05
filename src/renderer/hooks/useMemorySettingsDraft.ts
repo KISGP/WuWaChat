@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import type { CloudEmbeddingSettings, MemorySettingsStore } from '../../shared/memory-settings'
 
 const AUTOSAVE_DELAY_MS = 600
@@ -24,6 +24,13 @@ function stableSerialize(store: MemorySettingsStore): string {
   return JSON.stringify(store)
 }
 
+function clearAutosaveTimer(timerRef: MutableRefObject<number | null>): void {
+  if (timerRef.current != null) {
+    window.clearTimeout(timerRef.current)
+    timerRef.current = null
+  }
+}
+
 export function useMemorySettingsDraft(
   settings: MemorySettingsStore,
   saveSettings: (store: MemorySettingsStore) => Promise<void>
@@ -47,6 +54,7 @@ export function useMemorySettingsDraft(
   const draftRef = useRef(draft)
   const saveTimerRef = useRef<number | null>(null)
   const inFlightSaveRef = useRef<Promise<void> | null>(null)
+  const flushPendingChangesRef = useRef<(() => Promise<void>) | null>(null)
   const isSavingRef = useRef(false)
   const shouldSaveAgainRef = useRef(false)
   const hasPendingChangesRef = useRef(false)
@@ -66,20 +74,16 @@ export function useMemorySettingsDraft(
 
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current)
-      }
+      clearAutosaveTimer(saveTimerRef)
     }
   }, [])
 
   const scheduleAutosave = useCallback((): void => {
-    if (saveTimerRef.current != null) {
-      window.clearTimeout(saveTimerRef.current)
-    }
+    clearAutosaveTimer(saveTimerRef)
 
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null
-      void flushPendingChanges()
+      void flushPendingChangesRef.current?.()
     }, AUTOSAVE_DELAY_MS)
   }, [])
 
@@ -106,10 +110,7 @@ export function useMemorySettingsDraft(
   )
 
   const flushPendingChanges = useCallback(async (): Promise<void> => {
-    if (saveTimerRef.current != null) {
-      window.clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-    }
+    clearAutosaveTimer(saveTimerRef)
 
     if (isSavingRef.current) {
       shouldSaveAgainRef.current = shouldSaveAgainRef.current || hasPendingChangesRef.current
@@ -173,6 +174,10 @@ export function useMemorySettingsDraft(
     inFlightSaveRef.current = savePromise
     await savePromise
   }, [saveSettings])
+
+  useEffect(() => {
+    flushPendingChangesRef.current = flushPendingChanges
+  }, [flushPendingChanges])
 
   const updateDraft = useCallback(
     (patch: Partial<MemorySettingsStore>): void => {

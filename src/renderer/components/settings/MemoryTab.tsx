@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect } from 'react'
+import { type ReactElement } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -17,6 +17,7 @@ import { useCharacter } from '../../context/CharacterContext'
 import { useMemory } from '../../context/MemoryContext'
 import { useMemorySettingsDraft } from '../../hooks/useMemorySettingsDraft'
 import { useMemoryTabActions } from '../../hooks/useMemoryTabActions'
+import { useMemoryTabLifecycle } from '../../hooks/useMemoryTabLifecycle'
 import { useMemoryTabViewState } from '../../hooks/useMemoryTabViewState'
 import { cn } from '../../utils'
 import { ActionCard } from './memory/ActionCard'
@@ -130,27 +131,13 @@ export function MemoryTab(): ReactElement {
   const isSaving = autosaveState === 'saving'
   const handleSave = retryAutosave
 
-  useEffect(() => {
-    void refreshStatus(activateChar?.id || null)
-  }, [activateChar?.id, refreshStatus])
-
-  useEffect(() => {
-    void refreshLocalModels()
-  }, [refreshLocalModels])
-
-  useEffect(() => {
-    if (!buildLaunchNotice) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      clearBuildLaunchNotice()
-    }, 10000)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [buildLaunchNotice, clearBuildLaunchNotice])
+  useMemoryTabLifecycle({
+    activeCharacterId: activateChar?.id || null,
+    buildLaunchNotice,
+    refreshStatus,
+    refreshLocalModels,
+    clearBuildLaunchNotice
+  })
 
   const autosaveMeta =
     autosaveState === 'saving'

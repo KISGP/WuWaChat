@@ -18,6 +18,7 @@ import type {
   EmbeddingConnectionTestResult,
   LocalEmbeddingCatalogItem,
   MemorySettingsStore,
+  MemoryStatusSnapshot,
   MemoryTask,
   MemoryTaskEvent,
   WorldIndexStatus
@@ -57,12 +58,7 @@ declare global {
     memory: {
       getSettings: () => Promise<MemorySettingsStore>
       saveSettings: (store: MemorySettingsStore) => Promise<MemorySettingsStore>
-      getStatus: (characterId?: string | null) => Promise<{
-        settings: MemorySettingsStore
-        worldIndex: WorldIndexStatus
-        memoryIndex: CharacterMemoryIndexStatus
-        tasks: MemoryTask[]
-      }>
+      getStatus: (characterId?: string | null) => Promise<MemoryStatusSnapshot>
       listLocalModels: () => Promise<LocalEmbeddingCatalogItem[]>
       downloadLocalModel: (modelId: string) => Promise<MemoryTask>
       selectLocalModel: (modelId: string) => Promise<MemorySettingsStore>

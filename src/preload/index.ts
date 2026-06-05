@@ -1,8 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ChatRunEvent } from '../shared/ai'
+import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '../shared/ai'
 import type { RendererLogEventPayload } from '../shared/logging'
-import type { MemoryDebugRetrieveRequest, MemoryTaskEvent } from '../shared/memory-settings'
+import type {
+  MemoryDebugRetrieveRequest,
+  MemorySettingsStore,
+  MemoryTaskEvent
+} from '../shared/memory-settings'
+import type { ProfilesStore } from '../shared/model-settings'
 
 const ENABLE_MEMORY_DEBUG_TOOLS = import.meta.env.DEV
 
@@ -17,7 +22,7 @@ const ai = {
   saveCharacterPrompt: (characterId: string, promptText: string) =>
     ipcRenderer.invoke('ai:saveCharacterPrompt', characterId, promptText),
   getSessions: () => ipcRenderer.invoke('ai:getSessions'),
-  sendMessage: (request: unknown) => ipcRenderer.invoke('ai:sendMessage', request),
+  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('ai:sendMessage', request),
   abortRun: (requestId: string) => ipcRenderer.invoke('ai:abortRun', requestId),
   onRunEvent: (listener: (event: ChatRunEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: ChatRunEvent): void => {
@@ -43,13 +48,13 @@ const characters = {
 
 const settings = {
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
-  saveProfiles: (data: unknown) => ipcRenderer.invoke('settings:saveProfiles', data),
-  testProfile: (profile: unknown) => ipcRenderer.invoke('settings:testProfile', profile)
+  saveProfiles: (data: ProfilesStore) => ipcRenderer.invoke('settings:saveProfiles', data),
+  testProfile: (profile: ModelProfile) => ipcRenderer.invoke('settings:testProfile', profile)
 }
 
 const memory = {
   getSettings: () => ipcRenderer.invoke('memory:getSettings'),
-  saveSettings: (data: unknown) => ipcRenderer.invoke('memory:saveSettings', data),
+  saveSettings: (data: MemorySettingsStore) => ipcRenderer.invoke('memory:saveSettings', data),
   getStatus: (characterId?: string | null) => ipcRenderer.invoke('memory:getStatus', characterId),
   listLocalModels: () => ipcRenderer.invoke('memory:listLocalModels'),
   downloadLocalModel: (modelId: string) => ipcRenderer.invoke('memory:downloadLocalModel', modelId),
@@ -93,31 +98,24 @@ const logs = {
   clearLogs: () => ipcRenderer.invoke('log:clearLogs')
 }
 
+const exposedApis = {
+  electron: electronAPI,
+  api,
+  ai,
+  characters,
+  settings,
+  memory,
+  logs
+}
+
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-    contextBridge.exposeInMainWorld('ai', ai)
-    contextBridge.exposeInMainWorld('characters', characters)
-    contextBridge.exposeInMainWorld('settings', settings)
-    contextBridge.exposeInMainWorld('memory', memory)
-    contextBridge.exposeInMainWorld('logs', logs)
+    Object.entries(exposedApis).forEach(([name, value]) => {
+      contextBridge.exposeInMainWorld(name, value)
+    })
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
-  // @ts-ignore (define in dts)
-  window.ai = ai
-  // @ts-ignore (define in dts)
-  window.characters = characters
-  // @ts-ignore (define in dts)
-  window.settings = settings
-  // @ts-ignore (define in dts)
-  window.memory = memory
-  // @ts-ignore (define in dts)
-  window.logs = logs
+  Object.assign(window, exposedApis)
 }

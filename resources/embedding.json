@@ -8,31 +8,32 @@
     "sizeMb": 130,
     "speedTier": "fast",
     "recommended": true,
-    "description": "中文优先，适合作为默认本地检索模型。",
+    "description": "轻量超速。适合对加载速度、内存及并发性能有极致要求的场景。",
     "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
   },
   {
-    "id": "intfloat/multilingual-e5-small",
-    "label": "Multilingual E5 Small",
-    "repoId": "Xenova/multilingual-e5-small",
-    "dimensions": 384,
-    "languages": ["zh", "en", "ja", "ko", "multilingual"],
-    "sizeMb": 120,
-    "speedTier": "balanced",
-    "recommended": false,
-    "description": "多语言兼容性更好，适合中英混合内容。",
-    "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
-  },
-  {
-    "id": "BAAI/bge-m3",
-    "label": "BGE M3",
-    "repoId": "Xenova/BAAI-bge-m3",
-    "dimensions": 1024,
-    "languages": ["zh", "en", "multilingual"],
-    "sizeMb": 460,
+    "id": "Xenova/bge-base-zh-v1.5",
+    "label": "BGE Base ZH v1.5",
+    "repoId": "Xenova/bge-base-zh-v1.5",
+    "dimensions": 768,
+    "languages": ["zh"],
+    "sizeMb": 230,
     "speedTier": "quality",
     "recommended": false,
-    "description": "质量更高，但下载和推理都更重。",
+    "description": "高性价比。平衡了检索精度与推理速度，是纯中文本地知识库最通用的高质选择。",
+    "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
+  },
+  {
+    "id": "Xenova/bge-large-zh-v1.5",
+    "label": "BGE Large ZH v1.5",
+    "repoId": "Xenova/bge-large-zh-v1.5",
+    "dimensions": 1024,
+    "languages": ["zh"],
+    "sizeMb": 650,
+    "speedTier": "heavy",
+    "recommended": false,
+    "description": "极致精度。用于纯中文长文本及复杂语义匹配，虽然体积较大，但检索准确率最高。",
     "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
   }
 ]
+

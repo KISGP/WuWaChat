@@ -1,18 +1,18 @@
-import * as React from "react"
-import * as ProgressPrimitive from "@radix-ui/react-progress"
+import * as React from 'react'
+import * as ProgressPrimitive from '@radix-ui/react-progress'
 
-import { cn } from "../utils"
+import { cn } from '../utils'
 
 function Progress({
   className,
   value,
   ...props
-}: React.ComponentProps<typeof ProgressPrimitive.Root>) {
+}: React.ComponentProps<typeof ProgressPrimitive.Root>): React.ReactElement {
   return (
     <ProgressPrimitive.Root
       data-slot="progress"
       className={cn(
-        "relative flex h-2 w-full items-center overflow-x-hidden rounded-full border border-white/10 bg-white/8",
+        'relative flex h-2 w-full items-center overflow-x-hidden rounded-full border border-white/10 bg-white/8',
         className
       )}
       {...props}

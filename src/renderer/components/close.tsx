@@ -1,9 +1,22 @@
-import Close from "../assets/close.png";
-import { cn } from "../utils";
+import Close from '../assets/close.png'
+import { cn } from '../utils'
+import { type ReactElement } from 'react'
 
-export default function CloseIcon({ className, onClick }: { className?: string, onClick?: () => void }) {
+export default function CloseIcon({
+  className,
+  onClick
+}: {
+  className?: string
+  onClick?: () => void
+}): ReactElement {
   return (
-    <div className={cn("group z-10 size-10 cursor-pointer scale-90 no-drag pointer-events-auto", className)} onClick={onClick}>
+    <div
+      className={cn(
+        'group no-drag pointer-events-auto z-10 size-10 scale-90 cursor-pointer',
+        className
+      )}
+      onClick={onClick}
+    >
       <div className="relative size-full">
         <img
           src={Close}
@@ -27,5 +40,5 @@ export default function CloseIcon({ className, onClick }: { className?: string, 
         />
       </div>
     </div>
-  );
+  )
 }
