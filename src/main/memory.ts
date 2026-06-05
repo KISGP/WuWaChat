@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
-import { join, relative } from 'path'
+import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
 import type { ConversationSession, MemoryEntry } from '../shared/ai'
 import type {
@@ -18,6 +18,7 @@ import type {
   IndexManifestRecord,
   LocalEmbeddingCatalogItem,
   MemorySettingsStore,
+  MemoryStatusSnapshot,
   MemoryTask,
   MemoryTaskStatus,
   MemoryTaskEvent,
@@ -28,6 +29,13 @@ import {
   normalizeMemorySettingsStore
 } from '../shared/memory-settings'
 import { CloudEmbeddingProvider, createCloudEmbeddingFingerprint } from './embedding-provider'
+import {
+  createLocalEmbeddingFingerprint,
+  getEmbeddingFingerprintKey,
+  isSameEmbeddingFingerprint
+} from './memory-fingerprint'
+import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './memory-retrieval'
+import { loadWorldMarkdownEntries, walkMarkdownFiles } from './memory-world'
 import { logger } from './logger'
 import {
   getAppDataRoot,
@@ -71,136 +79,6 @@ const WORLD_BUNDLE_REPO_URL = 'https://api.github.com/repos/KISGP/WuWaChatWorld'
 
 type WorldBundleMetadata = {
   updatedAt: string
-}
-
-function createLocalFingerprint(
-  model: Pick<
-    InstalledLocalEmbeddingModel,
-    'id' | 'repoId' | 'dimensions' | 'runtime' | 'installedAt'
-  >
-): EmbeddingFingerprint {
-  return {
-    mode: 'local',
-    provider: model.runtime,
-    model: model.id,
-    dimensions: model.dimensions,
-    implementationVersion: `transformers-js-v1:${model.repoId}`,
-    createdAt: model.installedAt
-  }
-}
-
-async function walkMarkdownFiles(rootPath: string): Promise<string[]> {
-  if (!(await pathExists(rootPath))) {
-    return []
-  }
-
-  const entries = await readdir(rootPath, { withFileTypes: true })
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const target = join(rootPath, entry.name)
-      if (entry.isDirectory()) {
-        return walkMarkdownFiles(target)
-      }
-
-      return entry.isFile() && target.toLowerCase().endsWith('.md') ? [target] : []
-    })
-  )
-
-  return files.flat()
-}
-
-function splitMarkdownIntoChunks(content: string): string[] {
-  return content
-    .split(/\n\s*\n/g)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function scoreMatch(query: string, target: string): number {
-  const normalizedQuery = normalizeText(query)
-  const normalizedTarget = normalizeText(target)
-
-  if (!normalizedQuery || !normalizedTarget) {
-    return 0
-  }
-
-  if (normalizedTarget.includes(normalizedQuery)) {
-    return normalizedQuery.length * 10
-  }
-
-  return normalizedQuery
-    .split(' ')
-    .filter(Boolean)
-    .reduce((score, token) => score + (normalizedTarget.includes(token) ? token.length * 2 : 0), 0)
-}
-
-function cosineSimilarity(left: number[], right: number[]): number {
-  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
-    return 0
-  }
-
-  let dot = 0
-  let leftNorm = 0
-  let rightNorm = 0
-
-  for (let index = 0; index < left.length; index += 1) {
-    dot += left[index] * right[index]
-    leftNorm += left[index] * left[index]
-    rightNorm += right[index] * right[index]
-  }
-
-  if (leftNorm === 0 || rightNorm === 0) {
-    return 0
-  }
-
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
-}
-
-function fingerprintKey(fingerprint: EmbeddingFingerprint | null | undefined): string {
-  if (!fingerprint) {
-    return ''
-  }
-
-  return [
-    fingerprint.mode,
-    fingerprint.provider,
-    fingerprint.model,
-    fingerprint.dimensions ?? 'auto',
-    fingerprint.implementationVersion
-  ].join('|')
-}
-
-function sameFingerprint(
-  left: EmbeddingFingerprint | null | undefined,
-  right: EmbeddingFingerprint | null | undefined
-): boolean {
-  if (!left || !right) {
-    return false
-  }
-
-  if (
-    left.mode !== right.mode ||
-    left.provider !== right.provider ||
-    left.model !== right.model ||
-    left.implementationVersion !== right.implementationVersion
-  ) {
-    return false
-  }
-
-  if (left.dimensions == null || right.dimensions == null) {
-    return true
-  }
-
-  return left.dimensions === right.dimensions
-}
-
-function parseVector(vectorJson: string): number[] {
-  const parsed = JSON.parse(vectorJson) as number[]
-  return Array.isArray(parsed) ? parsed.map((value) => Number(value)) : []
 }
 
 export class MemoryService {
@@ -394,8 +272,7 @@ export class MemoryService {
         ? manifest?.entryCount || this.worldEntries.length
         : this.worldEntries.length,
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      builtAt: manifest?.builtAt || null,
-
+      builtAt: manifest?.builtAt || null
     }
   }
 
@@ -411,16 +288,11 @@ export class MemoryService {
       entryCount: manifest?.entryCount || this.countMemoryEntries(characterId || null),
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      builtAt: manifest?.builtAt || null,
+      builtAt: manifest?.builtAt || null
     }
   }
 
-  getStatus(characterId?: string | null): {
-    settings: MemorySettingsStore
-    worldIndex: WorldIndexStatus
-    memoryIndex: CharacterMemoryIndexStatus
-    tasks: MemoryTask[]
-  } {
+  getStatus(characterId?: string | null): MemoryStatusSnapshot {
     return {
       settings: this.settings,
       worldIndex: this.getWorldIndexStatus(),
@@ -598,7 +470,9 @@ export class MemoryService {
       scope === 'world'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(this.getMemoryIndexStatus(session?.characterId || null).availability),
+            runtimeModeUsed: this.getRuntimeMode(
+              this.getMemoryIndexStatus(session?.characterId || null).availability
+            ),
             fallbackReason: 'Character memory retrieval was not requested.'
           }
         : await this.retrieveMemoryDebugHits(query, session)
@@ -673,12 +547,14 @@ export class MemoryService {
       );
     `)
 
-    const manifestColumns = db
-      .prepare('PRAGMA table_info(index_manifests)')
-      .all() as { name: string }[]
+    const manifestColumns = db.prepare('PRAGMA table_info(index_manifests)').all() as {
+      name: string
+    }[]
     if (!manifestColumns.some((column) => column.name === 'data_version')) {
       db.exec('ALTER TABLE index_manifests ADD COLUMN data_version TEXT')
     }
+
+    this.normalizeLegacyManifestRows()
   }
 
   private async loadSettings(): Promise<MemorySettingsStore> {
@@ -706,24 +582,7 @@ export class MemoryService {
   private async loadWorldEntries(): Promise<MemoryEntry[]> {
     const worldRoot = getWorldRoot()
     this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
-    const markdownFiles = await walkMarkdownFiles(worldRoot)
-    const entries = await Promise.all(
-      markdownFiles.map(async (filePath) => {
-        const content = await readFile(filePath, 'utf-8')
-        return splitMarkdownIntoChunks(content).map((text, chunkIndex) => ({
-          id: `world:${relative(worldRoot, filePath)}:${chunkIndex}`,
-          text,
-          sourceType: 'world' as const,
-          sourcePath: relative(worldRoot, filePath).replace(/\\/g, '/'),
-          chunkIndex,
-          createdAt: now(),
-          updatedAt: now(),
-          visibility: 'shared' as const
-        }))
-      })
-    )
-
-    return entries.flat()
+    return loadWorldMarkdownEntries(worldRoot)
   }
 
   private async ensureWorldBundleReady(): Promise<void> {
@@ -743,7 +602,10 @@ export class MemoryService {
   }
 
   private async fetchRemoteWorldUpdatedAt(): Promise<string> {
-    const response = await this.fetchWorldResource(WORLD_BUNDLE_REPO_URL, 'fetch world repo metadata')
+    const response = await this.fetchWorldResource(
+      WORLD_BUNDLE_REPO_URL,
+      'fetch world repo metadata'
+    )
     const payload = (await response.json()) as { pushed_at?: unknown }
     const updatedAt =
       typeof payload?.pushed_at === 'string' ? this.normalizeWorldVersion(payload.pushed_at) : null
@@ -765,7 +627,10 @@ export class MemoryService {
     await mkdir(extractRoot, { recursive: true })
 
     try {
-      const response = await this.fetchWorldResource(WORLD_BUNDLE_ZIP_URL, 'download world bundle archive')
+      const response = await this.fetchWorldResource(
+        WORLD_BUNDLE_ZIP_URL,
+        'download world bundle archive'
+      )
       const archiveBuffer = Buffer.from(await response.arrayBuffer())
       await writeFile(archivePath, archiveBuffer)
 
@@ -897,11 +762,14 @@ export class MemoryService {
     return trimmed || null
   }
 
-  private buildWorldStringHits(query: string, runtimeModeUsed: WorldIndexStatus['runtimeMode']): MemoryDebugRetrievalHit[] {
+  private buildWorldStringHits(
+    query: string,
+    runtimeModeUsed: WorldIndexStatus['runtimeMode']
+  ): MemoryDebugRetrievalHit[] {
     return this.worldEntries
       .map((entry) => ({
         entry,
-        score: scoreMatch(query, `${entry.sourcePath || ''}\n${entry.text}`)
+        score: scoreTextMatch(query, `${entry.sourcePath || ''}\n${entry.text}`)
       }))
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
@@ -927,7 +795,7 @@ export class MemoryService {
     return entries
       .map((entry) => ({
         entry,
-        score: scoreMatch(query, entry.text)
+        score: scoreTextMatch(query, entry.text)
       }))
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
@@ -968,7 +836,7 @@ export class MemoryService {
         id: row.id,
         text: row.text,
         sourcePath: row.sourcePath || null,
-        score: cosineSimilarity(queryVector, parseVector(row.vectorJson))
+        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
       }))
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.worldTopK)
@@ -1015,7 +883,7 @@ export class MemoryService {
         text: row.text,
         sessionId: row.sessionId || null,
         characterId: row.characterId || null,
-        score: cosineSimilarity(queryVector, parseVector(row.vectorJson))
+        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
       }))
       .sort((left, right) => right.score - left.score)
       .slice(0, this.settings.memoryTopK)
@@ -1076,7 +944,7 @@ export class MemoryService {
     fingerprint: EmbeddingFingerprint
   ): void {
     const db = this.getDatabase()
-    const key = fingerprintKey(fingerprint)
+    const key = getEmbeddingFingerprintKey(fingerprint)
     const insertChunk = db.prepare(
       'INSERT OR REPLACE INTO world_chunks (id, source_path, chunk_index, text, updated_at) VALUES (?, ?, ?, ?, ?)'
     )
@@ -1135,7 +1003,7 @@ export class MemoryService {
     fingerprint: EmbeddingFingerprint
   ): void {
     const db = this.getDatabase()
-    const key = fingerprintKey(fingerprint)
+    const key = getEmbeddingFingerprintKey(fingerprint)
     const insertEntry = db.prepare(
       'INSERT OR REPLACE INTO memory_entries (id, character_id, session_id, source_type, text, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
     )
@@ -1196,25 +1064,28 @@ export class MemoryService {
   }
 
   private saveManifest(input: IndexManifestRecord & { fingerprint: EmbeddingFingerprint }): void {
-    this.getDatabase()
-      .prepare(
-        `
-          INSERT OR REPLACE INTO index_manifests
-          (scope, target_id, fingerprint_key, fingerprint_json, status, entry_count, data_version, built_at, message)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `
-      )
-      .run(
-        input.scope,
-        input.targetId || null,
-        input.fingerprintKey,
-        JSON.stringify(input.fingerprint),
-        input.status,
-        input.entryCount,
-        input.dataVersion || null,
-        input.builtAt || null,
-        input.message || null
-      )
+    const db = this.getDatabase()
+    db.prepare('DELETE FROM index_manifests WHERE scope = ? AND target_id IS ?').run(
+      input.scope,
+      input.targetId || null
+    )
+    db.prepare(
+      `
+        INSERT INTO index_manifests
+        (scope, target_id, fingerprint_key, fingerprint_json, status, entry_count, data_version, built_at, message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      input.scope,
+      input.targetId || null,
+      input.fingerprintKey,
+      JSON.stringify(input.fingerprint),
+      input.status,
+      input.entryCount,
+      input.dataVersion || null,
+      input.builtAt || null,
+      input.message || null
+    )
   }
 
   private getManifest(
@@ -1223,7 +1094,21 @@ export class MemoryService {
   ): IndexManifestRecord | null {
     const row = this.getDatabase()
       .prepare(
-        'SELECT scope, target_id AS targetId, fingerprint_key AS fingerprintKey, status, entry_count AS entryCount, data_version AS dataVersion, built_at AS builtAt, message FROM index_manifests WHERE scope = ? AND target_id IS ?'
+        `
+          SELECT
+            scope,
+            target_id AS targetId,
+            fingerprint_key AS fingerprintKey,
+            status,
+            entry_count AS entryCount,
+            data_version AS dataVersion,
+            built_at AS builtAt,
+            message
+          FROM index_manifests
+          WHERE scope = ? AND target_id IS ?
+          ORDER BY built_at DESC, rowid DESC
+          LIMIT 1
+        `
       )
       .get(scope, targetId || null) as
       | (IndexManifestRecord & { targetId?: string | null })
@@ -1237,11 +1122,37 @@ export class MemoryService {
   ): EmbeddingFingerprint | null {
     const row = this.getDatabase()
       .prepare(
-        'SELECT fingerprint_json AS fingerprintJson FROM index_manifests WHERE scope = ? AND target_id IS ?'
+        `
+          SELECT fingerprint_json AS fingerprintJson
+          FROM index_manifests
+          WHERE scope = ? AND target_id IS ?
+          ORDER BY built_at DESC, rowid DESC
+          LIMIT 1
+        `
       )
       .get(manifest.scope, manifest.targetId || null) as { fingerprintJson: string } | undefined
 
     return row ? (JSON.parse(row.fingerprintJson) as EmbeddingFingerprint) : null
+  }
+
+  private normalizeLegacyManifestRows(): void {
+    const db = this.getDatabase()
+    db.exec(`
+      DELETE FROM index_manifests
+      WHERE rowid NOT IN (
+        SELECT rowid
+        FROM (
+          SELECT
+            rowid,
+            ROW_NUMBER() OVER (
+              PARTITION BY scope, target_id
+              ORDER BY built_at DESC, rowid DESC
+            ) AS row_number
+          FROM index_manifests
+        )
+        WHERE row_number = 1
+      )
+    `)
   }
 
   private getExpectedFingerprint(): EmbeddingFingerprint | null {
@@ -1250,12 +1161,12 @@ export class MemoryService {
     }
 
     if (this.settings.retrievalMode === 'vector-local' && this.settings.localEmbedding.modelPath) {
-      return createLocalFingerprint({
+      return createLocalEmbeddingFingerprint({
         id: this.settings.localEmbedding.model,
         repoId: this.settings.localEmbedding.model,
         installedAt: now(),
         dimensions: this.settings.localEmbedding.dimensions || 0,
-        runtime: 'transformers-js',
+        runtime: 'transformers-js'
       })
     }
 
@@ -1266,7 +1177,8 @@ export class MemoryService {
     const manifest = this.getManifest(WORLD_SCOPE)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
-    const compatible = this.settings.retrievalMode === 'string' || sameFingerprint(active, expected)
+    const compatible =
+      this.settings.retrievalMode === 'string' || isSameEmbeddingFingerprint(active, expected)
 
     return {
       scope: WORLD_SCOPE,
@@ -1285,7 +1197,8 @@ export class MemoryService {
     const manifest = this.getManifest(MEMORY_SCOPE, targetId)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
-    const compatible = this.settings.retrievalMode === 'string' || sameFingerprint(active, expected)
+    const compatible =
+      this.settings.retrievalMode === 'string' || isSameEmbeddingFingerprint(active, expected)
 
     return {
       scope: MEMORY_SCOPE,
@@ -1475,7 +1388,11 @@ export class MemoryService {
     session: ConversationSession | null
   ): MemoryDebugRuntimeDetail {
     const memoryIndex = this.getMemoryIndexStatus(
-      session ? (this.settings.crossSessionCharacterMemory ? session.characterId : session.id) : null
+      session
+        ? this.settings.crossSessionCharacterMemory
+          ? session.characterId
+          : session.id
+        : null
     )
     return {
       scope: MEMORY_SCOPE,
@@ -1560,8 +1477,6 @@ export class MemoryService {
     return sessions[0] || null
   }
 
-
-
   private countMemoryEntries(characterId: string | null): number {
     if (characterId) {
       const field = this.settings.crossSessionCharacterMemory ? 'character_id' : 'session_id'
@@ -1636,7 +1551,7 @@ export class MemoryService {
     }
 
     const installedModel = await this.requireInstalledLocalModel()
-    return createLocalFingerprint({
+    return createLocalEmbeddingFingerprint({
       id: installedModel.id,
       repoId: installedModel.repoId,
       installedAt: now(),
