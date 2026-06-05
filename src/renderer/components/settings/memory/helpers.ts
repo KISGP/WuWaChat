@@ -106,8 +106,7 @@ export function getAvailabilityMeta(
           return {
             label: '未构建',
             tone: 'border-white/15 bg-white/5 text-white/70',
-            description:
-              '当前已有角色记忆内容，但未构建向量索引，系统将回退到字符串检索。'
+            description: '当前已有角色记忆内容，但未构建向量索引，系统将回退到字符串检索。'
           }
         }
 

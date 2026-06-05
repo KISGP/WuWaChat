@@ -66,7 +66,7 @@ export function ModelTab(): ReactElement {
         onSelectProfile={setActiveProfileId}
       />
 
-      <div className="flex flex-1  flex-col gap-4 overflow-y-auto p-6">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
         {!isLoaded && (
           <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">
             正在读取模型配置...

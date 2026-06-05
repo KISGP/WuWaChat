@@ -46,7 +46,7 @@ export function ModelConnectionSection({
       </div>
 
       {hasModelOptions && (
-        <div className="mt-3 max-h-20  overflow-y-auto rounded bg-black/25 p-2 text-xs text-white/55">
+        <div className="mt-3 max-h-20 overflow-y-auto rounded bg-black/25 p-2 text-xs text-white/55">
           {modelOptions.slice(0, 24).join(' / ')}
           {modelOptions.length > 24 ? ` / 还有 ${modelOptions.length - 24} 个` : ''}
         </div>

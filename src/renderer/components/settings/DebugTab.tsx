@@ -33,7 +33,13 @@ function formatScore(score: number): string {
   return Number.isInteger(score) ? String(score) : score.toFixed(4)
 }
 
-function RuntimeCard({ detail, title }: { detail: MemoryDebugRuntimeDetail; title: string }): ReactElement {
+function RuntimeCard({
+  detail,
+  title
+}: {
+  detail: MemoryDebugRuntimeDetail
+  title: string
+}): ReactElement {
   return (
     <div className="rounded border border-white/10 bg-black/20 p-3">
       <div className="flex items-start justify-between gap-3">
@@ -52,7 +58,9 @@ function RuntimeCard({ detail, title }: { detail: MemoryDebugRuntimeDetail; titl
         <div>启用状态: {detail.enabled ? '已启用' : '未启用'}</div>
         {detail.targetCharacterId && <div>角色: {detail.targetCharacterId}</div>}
         {detail.targetSessionId && <div>会话: {detail.targetSessionId}</div>}
-        {detail.fallbackReason && <div className="text-amber-200/90">说明: {detail.fallbackReason}</div>}
+        {detail.fallbackReason && (
+          <div className="text-amber-200/90">说明: {detail.fallbackReason}</div>
+        )}
       </div>
     </div>
   )
@@ -76,7 +84,7 @@ function HitCard({ hit }: { hit: MemoryDebugRetrievalHit }): ReactElement {
         </span>
       </div>
 
-      <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/85">{hit.text}</div>
+      <div className="mt-3 text-sm leading-6 whitespace-pre-wrap text-white/85">{hit.text}</div>
 
       <div className="mt-3 space-y-1 text-xs text-white/45">
         {hit.sourcePath && <div>来源文件: {hit.sourcePath}</div>}
@@ -254,7 +262,8 @@ export default function DebugTab(): ReactElement {
               <div>
                 <h3 className="text-sm font-medium text-white/90">命中结果</h3>
                 <p className="mt-1 text-xs text-white/45">
-                  query: <span className="font-mono text-white/70">{result.query || '(empty)'}</span>
+                  query:{' '}
+                  <span className="font-mono text-white/70">{result.query || '(empty)'}</span>
                 </p>
               </div>
             </div>

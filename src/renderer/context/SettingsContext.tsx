@@ -132,36 +132,39 @@ export function SettingsProvider({ children }: { children: ReactNode }): ReactEl
     return id
   }, [])
 
-  const updateProfileProvider = useCallback((profileId: string, provider: ModelProfile['provider']): void => {
-    setStore((current) =>
-      normalizeProfilesStore({
-        ...current,
-        profiles: current.profiles.map((profile) => {
-          if (profile.id !== profileId) {
-            return profile
-          }
+  const updateProfileProvider = useCallback(
+    (profileId: string, provider: ModelProfile['provider']): void => {
+      setStore((current) =>
+        normalizeProfilesStore({
+          ...current,
+          profiles: current.profiles.map((profile) => {
+            if (profile.id !== profileId) {
+              return profile
+            }
 
-          const defaults = PROVIDER_DEFAULTS[provider]
-          const nextName =
-            profile.name === PROVIDER_LABELS[profile.provider] ||
-            profile.name.startsWith('OpenAI ') ||
-            profile.name.startsWith('DeepSeek ')
-              ? PROVIDER_LABELS[provider]
-              : profile.name
+            const defaults = PROVIDER_DEFAULTS[provider]
+            const nextName =
+              profile.name === PROVIDER_LABELS[profile.provider] ||
+              profile.name.startsWith('OpenAI ') ||
+              profile.name.startsWith('DeepSeek ')
+                ? PROVIDER_LABELS[provider]
+                : profile.name
 
-          return {
-            ...profile,
-            provider,
-            name: nextName,
-            baseUrl: defaults.baseUrl,
-            model: defaults.model,
-            temperature: defaults.temperature,
-            maxTokens: defaults.maxTokens
-          }
+            return {
+              ...profile,
+              provider,
+              name: nextName,
+              baseUrl: defaults.baseUrl,
+              model: defaults.model,
+              temperature: defaults.temperature,
+              maxTokens: defaults.maxTokens
+            }
+          })
         })
-      })
-    )
-  }, [])
+      )
+    },
+    []
+  )
 
   const removeProfile = useCallback((profileId: string): void => {
     trackUiEvent('model-profile-removed', 'User removed a model profile', {
@@ -169,11 +172,10 @@ export function SettingsProvider({ children }: { children: ReactNode }): ReactEl
     })
     setStore((current) => {
       const remainingProfiles = current.profiles.filter((profile) => profile.id !== profileId)
-      const nextProfiles = remainingProfiles.length > 0 ? remainingProfiles : [createDefaultProfile()]
+      const nextProfiles =
+        remainingProfiles.length > 0 ? remainingProfiles : [createDefaultProfile()]
       const nextActiveProfileId =
-        current.activeProfileId === profileId
-          ? nextProfiles[0].id
-          : current.activeProfileId
+        current.activeProfileId === profileId ? nextProfiles[0].id : current.activeProfileId
 
       return normalizeProfilesStore({
         ...current,

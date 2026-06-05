@@ -39,10 +39,18 @@ export function LocalModelCard({
           </div>
           <div className="mt-1 text-xs text-white/45">{model.description}</div>
           <div className="mt-2 flex flex-wrap">
-            <Badge variant="secondary" className='bg-secondary/20 scale-90'>{model.dimensions} 维</Badge>
-            <Badge variant="secondary" className='bg-secondary/20 scale-90'>{model.sizeMb} MB</Badge>
-            <Badge variant="secondary" className='bg-secondary/20 scale-90'>{model.speedTier}</Badge>
-            <Badge variant="secondary" className='bg-secondary/20 scale-90'>{model.languages.join(', ')}</Badge>
+            <Badge variant="secondary" className="bg-secondary/20 scale-90">
+              {model.dimensions} 维
+            </Badge>
+            <Badge variant="secondary" className="bg-secondary/20 scale-90">
+              {model.sizeMb} MB
+            </Badge>
+            <Badge variant="secondary" className="bg-secondary/20 scale-90">
+              {model.speedTier}
+            </Badge>
+            <Badge variant="secondary" className="bg-secondary/20 scale-90">
+              {model.languages.join(', ')}
+            </Badge>
           </div>
 
           {model.validationMessage && !isDownloadError && (

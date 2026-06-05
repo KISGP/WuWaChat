@@ -1,5 +1,3 @@
-
-
 import { mkdir, readdir, readFile, rename, writeFile } from 'fs/promises'
 import { dirname, extname } from 'path'
 import { pathExists } from './path'
@@ -29,7 +27,7 @@ export async function readDirectoryNames(path: string): Promise<string[]> {
  * @param path 文件路径
  * @returns 文件内容字符串，或 null 如果文件不存在
  * @remarks 该函数会尝试以 UTF-8 编码读取文件内容，如果文件存在但无法读取（例如权限问题），将抛出错误。仅当文件完全不存在时才返回 null。
-*/
+ */
 export async function readFileNames(path: string): Promise<string[]> {
   if (!(await pathExists(path))) {
     return []
@@ -44,7 +42,7 @@ export async function readFileNames(path: string): Promise<string[]> {
  * @param path 文件路径
  * @returns 文件内容字符串，或 null 如果文件不存在
  * @remarks 该函数会尝试以 UTF-8 编码读取文件内容，如果文件存在但无法读取（例如权限问题），将抛出错误。仅当文件完全不存在时才返回 null。
-*/
+ */
 export async function readOptionalFile(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf-8')
@@ -58,7 +56,7 @@ export async function readOptionalFile(path: string): Promise<string | null> {
  * @param path 文件路径
  * @returns 文件内容字符串，或 null 如果文件不存在
  * @remarks 该函数会尝试以 UTF-8 编码读取文件内容，如果文件存在但无法读取（例如权限问题），将抛出错误。仅当文件完全不存在时才返回 null。
-*/
+ */
 export function joinUrl(baseUrl: string, path: string): string {
   const trimmedBase = baseUrl.replace(/\/+$/, '')
   const trimmedPath = path.replace(/^\/+/, '')
@@ -78,7 +76,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
  * @param path 图像文件的路径
  * @returns 图像的 Data URL 字符串，例如 "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
  * @remarks 该函数会根据文件扩展名自动推断 MIME 类型，并以 Base64 编码返回图像数据。如果文件不存在或无法读取，将抛出错误。
-*/
+ */
 export async function readImageDataUrl(path: string): Promise<string> {
   const extension = extname(path).toLowerCase()
   const mime = MIME_BY_EXTENSION[extension] || 'application/octet-stream'
@@ -92,7 +90,7 @@ export async function readImageDataUrl(path: string): Promise<string> {
  * @param value 要写入的 JavaScript 对象，将被转换为 JSON 字符串
  * @returns 一个 Promise，表示写入操作完成
  * @remarks 该函数会确保在写入过程中不会留下不完整的文件。如果目标文件所在的目录不存在，会自动创建。写入的 JSON 字符串会使用 2 个空格进行缩进以提高可读性。
-*/
+ */
 export async function writeJsonFileAtomic(path: string, value: unknown): Promise<void> {
   const tempPath = `${path}.tmp`
 
@@ -100,6 +98,5 @@ export async function writeJsonFileAtomic(path: string, value: unknown): Promise
   await writeFile(tempPath, JSON.stringify(value, null, 2), 'utf-8')
   await rename(tempPath, path)
 }
-
 
 export * from './path'

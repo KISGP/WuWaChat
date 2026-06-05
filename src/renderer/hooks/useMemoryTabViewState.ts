@@ -7,10 +7,7 @@ import type {
   WorldIndexStatus
 } from '../../shared/memory-settings'
 import { CLOUD_PROVIDER_OPTIONS } from '../components/settings/memory/constants'
-import {
-  hasRunningMemoryBuildTask,
-  hasRunningTask
-} from '../components/settings/memory/helpers'
+import { hasRunningMemoryBuildTask, hasRunningTask } from '../components/settings/memory/helpers'
 
 type UseMemoryTabViewStateArgs = {
   draft: MemorySettingsStore
@@ -84,13 +81,9 @@ export function useMemoryTabViewState({
       memoryIndex.availability === 'incompatible')
 
   const memoryIndexMissingWithEntries =
-    vectorModeSelected &&
-    memoryIndex?.availability === 'missing' &&
-    memoryIndex.entryCount > 0
+    vectorModeSelected && memoryIndex?.availability === 'missing' && memoryIndex.entryCount > 0
   const memoryIndexMissingWithoutEntries =
-    vectorModeSelected &&
-    memoryIndex?.availability === 'missing' &&
-    memoryIndex.entryCount === 0
+    vectorModeSelected && memoryIndex?.availability === 'missing' && memoryIndex.entryCount === 0
   const shouldSuggestMemoryBuild =
     vectorModeSelected &&
     (memoryIndex?.availability === 'incompatible' ||

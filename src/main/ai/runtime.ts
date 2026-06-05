@@ -100,7 +100,11 @@ function toLoggableMessages(messages: BaseMessage[]): Array<{
   }))
 }
 
-function toModelMessages(prompt: string, history: ConversationMessage[], retrievalContext: string[]): BaseMessage[] {
+function toModelMessages(
+  prompt: string,
+  history: ConversationMessage[],
+  retrievalContext: string[]
+): BaseMessage[] {
   const systemSections = [prompt.trim()]
 
   if (retrievalContext.length > 0) {
@@ -348,12 +352,14 @@ export class AiRuntime {
         return { prompt: promptDocument.prompt }
       })
       .addNode('prepareHistory', (state) => ({
-        history: state.session.messages.filter(
-          (message) =>
-            message.id !== state.assistantMessageId &&
-            Boolean(message.content.trim()) &&
-            (message.role === 'user' || message.status !== 'pending')
-        ).slice(-this.memoryService.getRecentMessageCount())
+        history: state.session.messages
+          .filter(
+            (message) =>
+              message.id !== state.assistantMessageId &&
+              Boolean(message.content.trim()) &&
+              (message.role === 'user' || message.status !== 'pending')
+          )
+          .slice(-this.memoryService.getRecentMessageCount())
       }))
       .addNode('retrieveContext', async (state) => ({
         retrievalContext: [

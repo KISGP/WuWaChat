@@ -51,7 +51,7 @@ export function createCloudEmbeddingFingerprint(
         ? `huggingface-inference-v1:${getHuggingFaceInferenceProvider(settings)}`
         : settings.provider === 'volcengine-ark'
           ? `volcengine-ark-v1:${getVolcengineArkBaseUrl(settings)}`
-        : 'openai-compatible-v1',
+          : 'openai-compatible-v1',
     createdAt: new Date().toISOString()
   }
 }
@@ -215,7 +215,7 @@ export class CloudEmbeddingProvider {
         ? new HuggingFaceInferenceAdapter(settings)
         : settings.provider === 'volcengine-ark'
           ? new VolcengineArkAdapter(settings)
-        : new OpenAICompatibleAdapter(settings)
+          : new OpenAICompatibleAdapter(settings)
   }
 
   async embedDocuments(texts: string[]): Promise<number[][]> {
@@ -240,7 +240,7 @@ export class CloudEmbeddingProvider {
             ? `Hugging Face embedding connection succeeded via ${getHuggingFaceInferenceProvider(this.settings)}. Returned ${vector.length} dimensions.`
             : this.settings.provider === 'volcengine-ark'
               ? `Volcengine Ark embedding connection succeeded. Returned ${vector.length} dimensions.`
-            : `Embedding connection succeeded. Returned ${vector.length} dimensions.`
+              : `Embedding connection succeeded. Returned ${vector.length} dimensions.`
       }
     } catch (error) {
       return {

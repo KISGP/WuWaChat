@@ -60,7 +60,7 @@ export function ModelSelectorField({
         {hasModelOptions && modelDropdownOpen && (
           <div className="absolute top-10 right-0 left-0 z-10 max-h-44 overflow-hidden rounded border border-white/15 bg-[#171717] shadow-xl">
             {visibleModelOptions.length > 0 ? (
-              <div className="max-h-44  overflow-y-auto py-1">
+              <div className="max-h-44 overflow-y-auto py-1">
                 {visibleModelOptions.map((option) => (
                   <button
                     key={option}

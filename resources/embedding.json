@@ -36,4 +36,3 @@
     "files": ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model.onnx"]
   }
 ]
-

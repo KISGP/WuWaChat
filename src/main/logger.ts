@@ -99,7 +99,9 @@ function sanitizeContext(context?: LogContext): LogContext | undefined {
   }
 
   return Object.fromEntries(
-    Object.entries(context).slice(0, 50).map(([key, value]) => [key, sanitizeByKey(key, value)])
+    Object.entries(context)
+      .slice(0, 50)
+      .map(([key, value]) => [key, sanitizeByKey(key, value)])
   ) as LogContext
 }
 

@@ -7,7 +7,9 @@ import { LogTab } from './LogTab'
 import { ModelTab } from './ModelTab'
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
-const MemoryTab = lazy(() => import('./MemoryTab').then((module) => ({ default: module.MemoryTab })))
+const MemoryTab = lazy(() =>
+  import('./MemoryTab').then((module) => ({ default: module.MemoryTab }))
+)
 const CharacterTab = lazy(() =>
   import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
 )
@@ -33,16 +35,8 @@ function TabLoadingFallback({ label }: { label: string }): ReactElement {
   )
 }
 
-export default function Settings({ onClose }: { onClose?: () => void }): ReactElement {
+export default function Settings({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
-
-  const handleClose = (): void => {
-    if (onClose) {
-      onClose()
-    } else {
-      window.close()
-    }
-  }
 
   const renderActiveTab = (): ReactElement => {
     switch (activeTab) {
@@ -86,7 +80,7 @@ export default function Settings({ onClose }: { onClose?: () => void }): ReactEl
           <img src={SettingIcon} className="size-8 object-contain" alt="" />
           <span className="tracking-wider text-white">设置</span>
         </div>
-        <CloseIcon className="absolute right-6 bottom-2" onClick={handleClose} />
+        <CloseIcon className="absolute right-6 bottom-2" onClick={onClose} />
       </div>
 
       <div className="mx-8 mt-2 flex gap-2 border-b border-white/20 pb-2">

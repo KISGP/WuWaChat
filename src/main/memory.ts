@@ -328,9 +328,7 @@ export class MemoryService {
       ? ((gpuInfo as { gpuDevice: Array<Record<string, unknown>> }).gpuDevice ?? [])
       : []
     const gpuName =
-      devices
-        .map((device) => this.extractGpuName(device))
-        .find((name) => name.length > 0) ?? null
+      devices.map((device) => this.extractGpuName(device)).find((name) => name.length > 0) ?? null
 
     return { gpuName }
   }
@@ -572,9 +570,7 @@ export class MemoryService {
       return 'GPU unavailable, falling back to CPU for this build'
     }
 
-    return runtime.actualDevice === 'gpu'
-      ? 'Using GPU for this build'
-      : 'Using CPU for this build'
+    return runtime.actualDevice === 'gpu' ? 'Using GPU for this build' : 'Using CPU for this build'
   }
 
   private getDatabase(): DatabaseSync {

@@ -1,6 +1,6 @@
-@import "tailwindcss";
-@plugin "tailwindcss-animate";
-@import "tailwind.css";
+@import 'tailwindcss';
+@plugin 'tailwindcss-animate';
+@import 'tailwind.css';
 
 html,
 body {
@@ -9,7 +9,7 @@ body {
 
 [data-drag-region] {
   user-select: none;
-  -webkit-user-select: none; 
+  -webkit-user-select: none;
   -webkit-app-region: drag;
 }
 
@@ -21,13 +21,13 @@ body {
   user-select: none;
 }
 
-.scrollbar-thin{
+.scrollbar-thin {
   overflow-y: scroll !important;
 }
 
 /* 极细滚动条样式 */
 ::-webkit-scrollbar {
-  width:  4px;
+  width: 4px;
   height: 4px;
 }
 
@@ -38,19 +38,19 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #B1B4B5 !important;
+  background: #b1b4b5 !important;
   /* 轨道透明 */
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #0F0F11 !important;
+  background-color: #0f0f11 !important;
   /* 滚动条颜色 (对应 Tailwind gray-200) */
   border-radius: 9999px !important;
   /* 圆角 */
 }
 
 @custom-variant dark (&:is(.dark *));
- 
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -92,7 +92,7 @@ body {
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 }
- 
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -127,7 +127,7 @@ body {
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 }
- 
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -161,7 +161,7 @@ body {
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
- 
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

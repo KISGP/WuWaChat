@@ -437,7 +437,7 @@ async function loadFeatureExtractionPipeline(
 
   if (!pipelinePromise) {
     const repoId = toRepoModelPath(model)
-    pipelinePromise = (pipeline('feature-extraction', repoId, {
+    pipelinePromise = pipeline('feature-extraction', repoId, {
       progress_callback: (event) => {
         if (!onProgress) {
           return
@@ -471,7 +471,7 @@ async function loadFeatureExtractionPipeline(
               '请确认模型目录内包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
             ]
       )
-    }) as unknown) as Promise<LoadedFeatureExtractionPipeline>
+    }) as unknown as Promise<LoadedFeatureExtractionPipeline>
 
     pipelineCache.set(cacheKey, pipelinePromise)
   }

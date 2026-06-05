@@ -19,13 +19,18 @@ function formatLogLine(entry: LogEntry): string {
   }
 
   const context =
-    entry.context && Object.keys(entry.context).length > 0 ? ` ${JSON.stringify(entry.context)}` : ''
+    entry.context && Object.keys(entry.context).length > 0
+      ? ` ${JSON.stringify(entry.context)}`
+      : ''
   return `[${entry.level.toUpperCase()}] ${entry.timestamp} ${entry.source}:${entry.event} ${entry.message}${context}`
 }
 
 function LogRow({ index, style, lines }: RowComponentProps<RowData>): ReactElement {
   return (
-    <div style={style} className="border-b border-white/5 px-3 text-xs leading-[25px] text-white/80">
+    <div
+      style={style}
+      className="border-b border-white/5 px-3 text-xs leading-[25px] text-white/80"
+    >
       <span className="block truncate font-mono">{lines[index]}</span>
     </div>
   )
@@ -141,12 +146,7 @@ export function LogTab(): ReactElement {
         ) : lines.length === 0 && !loading ? (
           <div className="p-4 text-sm text-white/50">No logs yet</div>
         ) : (
-          <List
-            rowComponent={LogRow}
-            rowCount={lines.length}
-            rowHeight={25}
-            rowProps={{ lines }}
-          />
+          <List rowComponent={LogRow} rowCount={lines.length} rowHeight={25} rowProps={{ lines }} />
         )}
       </div>
     </div>

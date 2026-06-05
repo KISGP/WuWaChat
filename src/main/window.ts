@@ -38,7 +38,7 @@ export function createMainWindow(): BrowserWindow {
     maximizable: false,
     fullscreenable: false,
     // only on windows
-    backgroundMaterial: "acrylic",
+    backgroundMaterial: 'acrylic',
     icon: IconPath,
     webPreferences: {
       preload: PRELOAD_PATH,

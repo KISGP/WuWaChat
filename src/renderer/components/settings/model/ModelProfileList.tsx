@@ -31,7 +31,7 @@ export function ModelProfileList({
         </button>
       </div>
 
-      <div className="flex flex-1  flex-col gap-1 overflow-y-auto pr-1">
+      <div className="flex flex-1 flex-col gap-1 overflow-y-auto pr-1">
         {profiles.map((profile) => {
           const result = testResults[profile.id]
 

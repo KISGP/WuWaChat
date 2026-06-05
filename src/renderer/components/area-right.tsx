@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement
+} from 'react'
 import { List, type RowComponentProps, useDynamicRowHeight } from 'react-window'
 import { Send, StopCircle } from 'lucide-react'
 import type { ChatRunEvent } from '../../shared/ai'
@@ -73,7 +80,8 @@ function MessageItem({
                 : 'rounded-tr-md rounded-br-xl rounded-bl-md bg-white text-[#333]'
             )}
           >
-            {(message.status === 'pending' || message.status === 'streaming') && !message.content ? (
+            {(message.status === 'pending' || message.status === 'streaming') &&
+            !message.content ? (
               <div className="flex h-6 items-center gap-1 px-1">
                 <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
                 <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />

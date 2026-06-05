@@ -63,14 +63,15 @@ export function ActionCard({
 
       <div className="mt-3 h-20 space-y-2 text-xs leading-5 text-white/55">
         <div className="flex items-center gap-1">
-          <Clock10Icon className="size-4 my-auto" /> <span>{guidance}</span>
+          <Clock10Icon className="my-auto size-4" /> <span>{guidance}</span>
         </div>
         <div className="flex items-center gap-1">
-          <InfoIcon className="size-4 " /> <span>{effect}</span>
+          <InfoIcon className="size-4" /> <span>{effect}</span>
         </div>
         {disabledReason && (
           <div className="flex items-center gap-1">
-            <BugIcon className="size-4  text-amber-200/90" /> <span className="text-amber-200/90">{disabledReason}</span>
+            <BugIcon className="size-4 text-amber-200/90" />{' '}
+            <span className="text-amber-200/90">{disabledReason}</span>
           </div>
         )}
       </div>

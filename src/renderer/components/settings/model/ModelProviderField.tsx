@@ -30,7 +30,7 @@ export function ModelProviderField({
           value={PROVIDER_LABELS[profile.provider]}
           onFocus={onOpenDropdown}
           onBlur={() => window.setTimeout(onCloseDropdown, 120)}
-          className="h-9 w-full rounded border border-white/15 bg-black/35 px-3 pr-10 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-[#e8c690]"
+          className="h-9 w-full rounded border border-white/15 bg-black/35 px-3 pr-10 text-sm text-white transition-colors outline-none placeholder:text-white/30 focus:border-[#e8c690]"
         />
         <button
           type="button"

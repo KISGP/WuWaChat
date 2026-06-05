@@ -77,7 +77,8 @@ export function useModelTabState({
 
   const hasModelOptions = currentModelOptions.length > 0
   const baseUrlInvalid = currentProfile ? !isValidUrl(currentProfile.baseUrl) : false
-  const canTest = Boolean(currentProfile) && !baseUrlInvalid && testingProfile !== currentProfile?.id
+  const canTest =
+    Boolean(currentProfile) && !baseUrlInvalid && testingProfile !== currentProfile?.id
 
   const clearProfileConnectionState = (profileId: string): void => {
     setTestResults((current) => {
