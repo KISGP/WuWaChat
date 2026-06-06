@@ -20,9 +20,11 @@ type MemoryTabActionDependencies = {
   selectLocalModel: (modelId: string) => Promise<void>
   removeLocalModel: (modelId: string) => Promise<void>
   testEmbeddingConnection: () => Promise<void>
+  startWorldBundleDownload: () => Promise<void>
   startWorldVectorBuild: () => Promise<void>
   startCharacterMemoryBuild: (characterId: string) => Promise<void>
   startAllMemoryBuild: () => Promise<void>
+  cancelTask: (taskId: string) => Promise<void>
 }
 
 type BuildLaunchNotice = {
@@ -85,18 +87,22 @@ export function useMemoryTabActions({
   selectLocalModel,
   removeLocalModel,
   testEmbeddingConnection,
+  startWorldBundleDownload,
   startWorldVectorBuild,
   startCharacterMemoryBuild,
-  startAllMemoryBuild
+  startAllMemoryBuild,
+  cancelTask
 }: MemoryTabActionDependencies): {
   isTestingEmbedding: boolean
   pendingBuildTaskType: MemoryTask['taskType'] | null
   buildLaunchNotice: BuildLaunchNotice
   clearBuildLaunchNotice: () => void
   handleTestEmbedding: () => Promise<void>
+  handleStartWorldBundleDownload: () => Promise<void>
   handleStartWorldVectorBuild: () => Promise<void>
   handleStartCharacterMemoryBuild: () => Promise<void>
   handleStartAllMemoryBuild: () => Promise<void>
+  handleCancelTask: (taskId: string) => Promise<void>
   handleCloudProviderChange: (provider: CloudEmbeddingSettings['provider']) => void
   handleDownloadLocalModel: (modelId: string) => Promise<void>
   handleSelectLocalModel: (modelId: string) => Promise<void>
@@ -147,6 +153,14 @@ export function useMemoryTabActions({
       setIsTestingEmbedding(false)
     }
   }, [flushPendingChanges, testEmbeddingConnection])
+
+  const handleStartWorldBundleDownload = useCallback(async (): Promise<void> => {
+    await withBuildPreparation(
+      'world-bundle-download',
+      () => startWorldBundleDownload(),
+      '更新世界知识包失败'
+    )
+  }, [startWorldBundleDownload, withBuildPreparation])
 
   const handleStartWorldVectorBuild = useCallback(async (): Promise<void> => {
     await withBuildPreparation(
@@ -218,15 +232,24 @@ export function useMemoryTabActions({
     [removeLocalModel]
   )
 
+  const handleCancelTask = useCallback(
+    async (taskId: string): Promise<void> => {
+      await cancelTask(taskId)
+    },
+    [cancelTask]
+  )
+
   return {
     isTestingEmbedding,
     pendingBuildTaskType,
     buildLaunchNotice,
     clearBuildLaunchNotice,
     handleTestEmbedding,
+    handleStartWorldBundleDownload,
     handleStartWorldVectorBuild,
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
+    handleCancelTask,
     handleCloudProviderChange,
     handleDownloadLocalModel,
     handleSelectLocalModel,

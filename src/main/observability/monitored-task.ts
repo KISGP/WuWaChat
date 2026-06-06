@@ -8,6 +8,7 @@ type MonitoredTaskInput<Result> = {
   message: string
   code?: AppErrorCode
   context?: Record<string, unknown>
+  shouldCaptureError?: (error: unknown) => boolean
   run: () => Promise<Result>
 }
 
@@ -21,6 +22,9 @@ export async function runMonitoredTask<Result>(input: MonitoredTaskInput<Result>
   try {
     return await input.run()
   } catch (error) {
+    if (input.shouldCaptureError && !input.shouldCaptureError(error)) {
+      throw error
+    }
     await captureError({
       scope: input.scope,
       action: input.action,

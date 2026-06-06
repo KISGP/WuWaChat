@@ -38,6 +38,10 @@ type UseMemoryTabViewStateResult = {
   worldBundleBusy: boolean
   worldVectorBusy: boolean
   characterMemoryBusy: boolean
+  activeWorldBundleTaskId: string | null
+  activeWorldVectorTaskId: string | null
+  activeCharacterMemoryTaskId: string | null
+  activeAllMemoryTaskId: string | null
   worldIndexNeedsBuild: boolean
   memoryIndexNeedsBuild: boolean
   memoryIndexMissingWithEntries: boolean
@@ -66,6 +70,30 @@ export function useMemoryTabViewState({
   const isHuggingFace = draft.cloudEmbedding.provider === 'huggingface-inference'
   const isVolcengineArk = draft.cloudEmbedding.provider === 'volcengine-ark'
   const vectorModeSelected = draft.retrievalMode !== 'string'
+  const activeWorldBundleTaskId =
+    tasks.find(
+      (task) =>
+        task.taskType === 'world-bundle-download' &&
+        (task.status === 'queued' || task.status === 'running')
+    )?.taskId || null
+  const activeWorldVectorTaskId =
+    tasks.find(
+      (task) =>
+        task.taskType === 'world-vector-build' &&
+        (task.status === 'queued' || task.status === 'running')
+    )?.taskId || null
+  const activeCharacterMemoryTaskId =
+    tasks.find(
+      (task) =>
+        task.taskType === 'character-memory-build' &&
+        (task.status === 'queued' || task.status === 'running')
+    )?.taskId || null
+  const activeAllMemoryTaskId =
+    tasks.find(
+      (task) =>
+        task.taskType === 'all-memory-build' &&
+        (task.status === 'queued' || task.status === 'running')
+    )?.taskId || null
   const worldBundleBusy = hasRunningTask(tasks, 'world-bundle-download')
   const worldVectorBusy = hasRunningTask(tasks, 'world-vector-build')
   const characterMemoryBusy = hasRunningMemoryBuildTask(tasks)
@@ -142,6 +170,10 @@ export function useMemoryTabViewState({
     worldBundleBusy,
     worldVectorBusy,
     characterMemoryBusy,
+    activeWorldBundleTaskId,
+    activeWorldVectorTaskId,
+    activeCharacterMemoryTaskId,
+    activeAllMemoryTaskId,
     worldIndexNeedsBuild,
     memoryIndexNeedsBuild,
     memoryIndexMissingWithEntries,

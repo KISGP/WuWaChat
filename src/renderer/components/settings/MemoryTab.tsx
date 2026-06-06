@@ -71,7 +71,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     startWorldBundleDownload,
     startWorldVectorBuild,
     startCharacterMemoryBuild,
-    startAllMemoryBuild
+    startAllMemoryBuild,
+    cancelTask
   } = useMemoryStore(
     useShallow((state) => ({
       settings: state.settings,
@@ -95,7 +96,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       startWorldBundleDownload: state.startWorldBundleDownload,
       startWorldVectorBuild: state.startWorldVectorBuild,
       startCharacterMemoryBuild: state.startCharacterMemoryBuild,
-      startAllMemoryBuild: state.startAllMemoryBuild
+      startAllMemoryBuild: state.startAllMemoryBuild,
+      cancelTask: state.cancelTask
     }))
   )
   const {
@@ -120,6 +122,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     worldBundleBusy,
     worldVectorBusy,
     characterMemoryBusy,
+    activeWorldBundleTaskId,
+    activeWorldVectorTaskId,
+    activeCharacterMemoryTaskId,
+    activeAllMemoryTaskId,
     worldIndexNeedsBuild,
     shouldSuggestMemoryBuild,
     operationTips
@@ -137,9 +143,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     buildLaunchNotice,
     clearBuildLaunchNotice,
     handleTestEmbedding,
+    handleStartWorldBundleDownload,
     handleStartWorldVectorBuild,
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
+    handleCancelTask,
     handleCloudProviderChange,
     handleDownloadLocalModel,
     handleSelectLocalModel,
@@ -155,9 +163,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     selectLocalModel,
     removeLocalModel,
     testEmbeddingConnection,
+    startWorldBundleDownload,
     startWorldVectorBuild,
     startCharacterMemoryBuild,
-    startAllMemoryBuild
+    startAllMemoryBuild,
+    cancelTask
   })
 
   const worldVectorPending = pendingBuildTaskType === 'world-vector-build' || worldVectorBusy
@@ -722,7 +732,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
         <div className="grid grid-cols-2 gap-3">
           <ActionCard
-            icon={Download}
+            icon={worldBundleBusy ? XCircle : Download}
             title="更新世界知识包"
             summary="从远端下载最新 world 压缩包，并覆盖本地已有数据。"
             guidance="首次缺少 world 内容时会自动准备；之后当远端版本更新时，也可以在这里手动刷新。"
@@ -731,12 +741,16 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'
             }
             tone={worldBundleBusy || worldIndexNeedsBuild ? 'highlight' : 'default'}
-            disabled={worldBundleBusy}
+            disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
             disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
-            onClick={startWorldBundleDownload}
+            onClick={
+              worldBundleBusy && activeWorldBundleTaskId
+                ? () => handleCancelTask(activeWorldBundleTaskId)
+                : handleStartWorldBundleDownload
+            }
           />
           <ActionCard
-            icon={RefreshCw}
+            icon={worldVectorPending ? XCircle : RefreshCw}
             title="构建世界知识向量"
             summary="把世界知识转换成可供语义检索的向量索引。"
             guidance="仅在使用向量检索时才需要执行；更新知识包后需要再构建。"
@@ -745,7 +759,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               worldVectorPending ? '构建中' : worldIndexNeedsBuild ? '建议执行' : '可按需重建'
             }
             tone={worldVectorPending || worldIndexNeedsBuild ? 'highlight' : 'default'}
-            disabled={worldVectorPending || !vectorModeSelected}
+            disabled={
+              (worldVectorPending && !activeWorldVectorTaskId) ||
+              (!worldVectorPending && !vectorModeSelected)
+            }
             disabledReason={
               worldVectorPending
                 ? '当前已有世界知识向量构建任务在运行。'
@@ -753,10 +770,14 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                   ? '你当前使用的是字符串检索模式，暂时不需要构建向量索引。'
                   : undefined
             }
-            onClick={handleStartWorldVectorBuild}
+            onClick={
+              worldVectorPending && activeWorldVectorTaskId
+                ? () => handleCancelTask(activeWorldVectorTaskId)
+                : handleStartWorldVectorBuild
+            }
           />
           <ActionCard
-            icon={RefreshCw}
+            icon={characterMemoryPending && activeCharacterMemoryTaskId ? XCircle : RefreshCw}
             title="重建当前角色记忆"
             summary="只为当前选中的角色重新整理历史会话记忆。"
             guidance="当你只想修复或更新当前角色的长期记忆检索时，用它最快。"
@@ -775,7 +796,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                 ? 'highlight'
                 : 'default'
             }
-            disabled={!activateChar?.id || characterMemoryPending || !vectorModeSelected}
+            disabled={
+              !activateChar?.id ||
+              !vectorModeSelected ||
+              (characterMemoryPending && !activeCharacterMemoryTaskId)
+            }
             disabledReason={
               !activateChar?.id
                 ? '当前没有选中角色，无法只重建单个角色记忆。'
@@ -785,10 +810,14 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                     ? '你当前使用的是字符串检索模式，暂时不需要构建记忆向量。'
                     : undefined
             }
-            onClick={handleStartCharacterMemoryBuild}
+            onClick={
+              characterMemoryPending && activeCharacterMemoryTaskId
+                ? () => handleCancelTask(activeCharacterMemoryTaskId)
+                : handleStartCharacterMemoryBuild
+            }
           />
           <ActionCard
-            icon={RefreshCw}
+            icon={allMemoryPending && activeAllMemoryTaskId ? XCircle : RefreshCw}
             title="重建全部角色记忆"
             summary="为所有角色统一重建长期记忆向量索引。"
             guidance="当你调整了 embedding 配置、切换了模型，或想一次性修复所有角色时使用。"
@@ -797,7 +826,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               allMemoryPending ? '构建中' : shouldSuggestMemoryBuild ? '建议执行' : '适合全量更新'
             }
             tone={allMemoryPending || shouldSuggestMemoryBuild ? 'highlight' : 'default'}
-            disabled={characters.length === 0 || allMemoryPending || !vectorModeSelected}
+            disabled={
+              characters.length === 0 ||
+              !vectorModeSelected ||
+              (allMemoryPending && !activeAllMemoryTaskId)
+            }
             disabledReason={
               characters.length === 0
                 ? '当前没有可用角色。'
@@ -807,7 +840,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                     ? '你当前使用的是字符串检索模式，暂时不需要构建记忆向量。'
                     : undefined
             }
-            onClick={handleStartAllMemoryBuild}
+            onClick={
+              allMemoryPending && activeAllMemoryTaskId
+                ? () => handleCancelTask(activeAllMemoryTaskId)
+                : handleStartAllMemoryBuild
+            }
           />
         </div>
       </section>
