@@ -16,22 +16,22 @@ const api = {
 }
 
 const ai = {
-  getCharacters: () => ipcRenderer.invoke('ai:getCharacters'),
+  getCharacters: () => ipcRenderer.invoke('chat:getCharacters'),
   getCharacterPrompt: (characterId: string) =>
-    ipcRenderer.invoke('ai:getCharacterPrompt', characterId),
+    ipcRenderer.invoke('chat:getCharacterPrompt', characterId),
   saveCharacterPrompt: (characterId: string, promptText: string) =>
-    ipcRenderer.invoke('ai:saveCharacterPrompt', characterId, promptText),
-  getSessions: () => ipcRenderer.invoke('ai:getSessions'),
-  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('ai:sendMessage', request),
-  abortRun: (requestId: string) => ipcRenderer.invoke('ai:abortRun', requestId),
+    ipcRenderer.invoke('chat:saveCharacterPrompt', characterId, promptText),
+  getSessions: () => ipcRenderer.invoke('chat:getSessions'),
+  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('chat:sendMessage', request),
+  abortRun: (requestId: string) => ipcRenderer.invoke('chat:abortRun', requestId),
   onRunEvent: (listener: (event: ChatRunEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: ChatRunEvent): void => {
       listener(payload)
     }
 
-    ipcRenderer.on('ai:run:event', wrappedListener)
+    ipcRenderer.on('chat:run:event', wrappedListener)
     return () => {
-      ipcRenderer.removeListener('ai:run:event', wrappedListener)
+      ipcRenderer.removeListener('chat:run:event', wrappedListener)
     }
   }
 }
