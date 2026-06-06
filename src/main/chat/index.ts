@@ -1,4 +1,4 @@
-import type { ChatRunAccepted, ChatRunRequest, ConversationSession } from '@shared/ai'
+import type { ChatRunAccepted, ChatRunRequest, ConversationSession } from '@shared/chat'
 import {
   getCharacterPrompt,
   getCharacterSummaryById,
@@ -6,16 +6,23 @@ import {
   saveCharacterPrompt
 } from '@main/characters'
 import { MemoryService } from '@main/memory'
-import { AiRuntime } from './runtime'
+import { getProfiles } from '@main/settings'
+import { ChatRuntime } from './runtime'
 
 const memoryService = new MemoryService()
 
-const runtime = new AiRuntime(
+const runtime = new ChatRuntime(
   {
     getCharacter: async (characterId) => getCharacterSummaryById(characterId),
-    getCharacterPrompt: async (characterId) => getCharacterPrompt(characterId)
+    getCharacterPrompt: async (characterId) => getCharacterPrompt(characterId),
+    getProfiles
   },
-  memoryService
+  {
+    getRecentMessageCount: () => memoryService.getRecentMessageCount(),
+    retrieveWorldContext: (query) => memoryService.retrieveWorldContext(query),
+    retrieveMemoryContext: (query, session) => memoryService.retrieveMemoryContext(query, session),
+    syncSessions: (sessions) => memoryService.syncSessions(sessions)
+  }
 )
 
 export { getCharacters, getCharacterPrompt, saveCharacterPrompt }

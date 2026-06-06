@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'fs/promises'
 import { join, relative } from 'path'
-import type { MemoryEntry } from '@shared/ai'
+import type { MemoryEntry } from '@shared/chat'
 import { now, pathExists } from '@main/utils'
 import { markdownParagraphChunker } from './chunking'
 

@@ -1,4 +1,4 @@
-import type { ModelProfile, ProviderKind } from './ai'
+import type { ModelProfile, ProviderKind } from './chat'
 
 export type ProfilesStore = {
   version: 1
