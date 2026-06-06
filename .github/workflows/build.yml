@@ -41,12 +41,12 @@ jobs:
           if gh api "repos/${{ github.repository }}/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release tag already exists: $RELEASE_TAG"
             exit 1
-          }
+          fi
 
           if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
             echo "Release already exists: $RELEASE_TAG"
             exit 1
-          }
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
