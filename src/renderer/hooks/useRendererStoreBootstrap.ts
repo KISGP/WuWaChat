@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import type { ChatRunEvent } from '@shared/ai'
+import type { ChatRunEvent } from '@shared/chat'
 import {
   clearScheduledMemoryStatusRefresh,
   isTaskActive,

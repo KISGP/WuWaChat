@@ -8,7 +8,7 @@ import type {
   CharacterSummary,
   ConversationSession,
   ModelProfile
-} from '@shared/ai'
+} from '@shared/chat'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type {
   CharacterMemoryIndexStatus,

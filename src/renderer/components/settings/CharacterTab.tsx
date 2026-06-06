@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import { Download, RefreshCw, RotateCcw, Save } from 'lucide-react'
-import type { CharacterCatalog, LocalCharacterEntry, RemoteCharacterEntry } from '@shared/ai'
+import type { CharacterCatalog, LocalCharacterEntry, RemoteCharacterEntry } from '@shared/chat'
 import { useAsyncAction } from '@renderer/hooks/useAsyncAction'
 import { trackUiEvent } from '@renderer/logging'
 import { useCharacterStore } from '@renderer/stores/characterStore'
