@@ -3,6 +3,9 @@ import type {
   LocalEmbeddingCatalogModel,
   InstalledLocalEmbeddingModel
 } from '@shared/memory-settings'
+import { logger } from '@main/logging'
+import { getAppModelRoot, getPayloadDirectoryByRepoId } from './catalog'
+import { createStructuredError, normalizeErrorMessage } from './errors'
 import type {
   CatalogModelLike,
   LoadedFeatureExtractionPipeline,
@@ -10,18 +13,32 @@ import type {
   LocalEmbeddingRuntimeSettings,
   ProgressReporter
 } from './types'
-import { createStructuredError, normalizeErrorMessage } from './errors'
-import { getAppModelRoot, getPayloadDirectoryByRepoId } from './catalog'
 
 const DEFAULT_HUGGING_FACE_REMOTE_HOST = 'https://huggingface.co'
+const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
-const pipelineCache = new Map<string, Promise<LoadedFeatureExtractionPipeline>>()
+type CachedPipelineEntry = {
+  promise: Promise<LoadedFeatureExtractionPipeline>
+  lastUsedAt: number
+  cleanupTimer: ReturnType<typeof setTimeout> | null
+}
+
+type DisposableFeatureExtractionPipeline = FeatureExtractionPipeline & {
+  dispose?: () => void | Promise<void>
+}
+
+const pipelineCache = new Map<string, CachedPipelineEntry>()
 const createFeatureExtraction = pipeline as (
   task: 'feature-extraction',
   model: string,
   options?: Record<string, unknown>
 ) => Promise<FeatureExtractionPipeline>
 
+/**
+ * @description 在允许远程模型访问的情况下，解析 Transformers.js 使用的远程主机地址。
+ * @param settings 当前的本地 embedding 运行时设置。
+ * @returns 生效的远程主机 URL。
+ */
 export function getRemoteHost(settings: LocalEmbeddingRuntimeSettings): string {
   if (settings.useHuggingFaceMirror && settings.huggingFaceMirrorUrl.trim()) {
     return settings.huggingFaceMirrorUrl.trim()
@@ -49,6 +66,11 @@ function toRepoModelPath(model: CatalogModelLike): string {
   return model.repoId
 }
 
+/**
+ * @description 计算本地 embedding 请求的首选执行设备。
+ * @param settings 当前的本地 embedding 运行时设置。
+ * @returns 请求使用的本地 embedding 设备（'gpu' 或 'cpu'）。
+ */
 export function getPreferredDevice(settings: LocalEmbeddingRuntimeSettings): LocalEmbeddingDevice {
   return settings.useGpu ? 'gpu' : 'cpu'
 }
@@ -74,16 +96,19 @@ function createPipelineLoadError(
   device: LocalEmbeddingDevice
 ): Error {
   const suggestions = allowRemoteModels
-    ? ['请确认模型仓库地址正确且可以访问。', '如果模型是私有仓库，请确认已经配置 HF_TOKEN。']
+    ? [
+        'Check whether the configured repository URL is reachable.',
+        'If the model is private or restricted, configure HF_TOKEN before retrying.'
+      ]
     : [
-        '请确认本地模型目录位于 models/embeddings 下。',
-        '请确认目录包含 config.json、tokenizer.json、tokenizer_config.json 和 onnx/model.onnx。'
+        'Check whether the local model directory exists under models/embeddings.',
+        'Confirm the directory contains config.json, tokenizer files, and onnx/model.onnx.'
       ]
 
   return createStructuredError(
-    '本地模型加载失败',
-    '初始化 Transformers.js',
-    `${device === 'gpu' ? 'GPU 初始化失败。' : 'CPU 初始化失败。'}\n${normalizeErrorMessage(error)}`,
+    'Local model load failed',
+    'Initialize Transformers.js',
+    `${device === 'gpu' ? 'GPU initialization failed.' : 'CPU initialization failed.'}\n${normalizeErrorMessage(error)}`,
     suggestions
   )
 }
@@ -108,7 +133,7 @@ async function createFeatureExtractionPipeline(
         }
 
         if (event.status === 'download') {
-          options.onProgress(10, `开始下载 ${event.file || modelLabel}`)
+          options.onProgress(10, `Start downloading ${event.file || modelLabel}`)
           return
         }
 
@@ -116,13 +141,13 @@ async function createFeatureExtractionPipeline(
           const progress = typeof event.progress === 'number' ? Math.round(event.progress) : 0
           options.onProgress(
             Math.max(10, Math.min(progress, 95)),
-            `下载 ${event.file || modelLabel}`
+            `Downloading ${event.file || modelLabel}`
           )
           return
         }
 
         if (event.status === 'done') {
-          options.onProgress(98, `完成 ${event.file || modelLabel}`)
+          options.onProgress(98, `Finished ${event.file || modelLabel}`)
         }
       }
     })
@@ -140,6 +165,94 @@ async function createFeatureExtractionPipeline(
   }
 }
 
+async function disposeLoadedPipeline(loaded: LoadedFeatureExtractionPipeline): Promise<void> {
+  const disposablePipeline = loaded.pipeline as DisposableFeatureExtractionPipeline
+  await Promise.resolve(disposablePipeline.dispose?.())
+}
+
+function touchPipelineCacheEntry(cacheKey: string, entry: CachedPipelineEntry): void {
+  entry.lastUsedAt = Date.now()
+
+  if (entry.cleanupTimer) {
+    clearTimeout(entry.cleanupTimer)
+  }
+
+  entry.cleanupTimer = setTimeout(() => {
+    const current = pipelineCache.get(cacheKey)
+    if (!current || current !== entry) {
+      return
+    }
+
+    const idleMs = Date.now() - entry.lastUsedAt
+    if (idleMs < PIPELINE_IDLE_TIMEOUT_MS) {
+      touchPipelineCacheEntry(cacheKey, entry)
+      return
+    }
+
+    evictPipelineCacheEntry(cacheKey, entry, 'idle-timeout')
+  }, PIPELINE_IDLE_TIMEOUT_MS)
+}
+
+async function disposePipelineCacheEntry(
+  cacheKey: string,
+  entry: CachedPipelineEntry,
+  reason: 'idle-timeout' | 'manual-clear'
+): Promise<void> {
+  if (entry.cleanupTimer) {
+    clearTimeout(entry.cleanupTimer)
+    entry.cleanupTimer = null
+  }
+
+  if (pipelineCache.get(cacheKey) === entry) {
+    pipelineCache.delete(cacheKey)
+  }
+
+  try {
+    const loaded = await entry.promise
+    await disposeLoadedPipeline(loaded)
+    void logger.info('memory', 'embedding-pipeline-disposed', 'Disposed local embedding pipeline', {
+      cacheKey,
+      reason
+    })
+  } catch (error) {
+    void logger.warn(
+      'memory',
+      'embedding-pipeline-dispose-failed',
+      'Failed to dispose local embedding pipeline',
+      {
+        cacheKey,
+        reason,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    )
+  }
+}
+
+function evictPipelineCacheEntry(
+  cacheKey: string,
+  entry: CachedPipelineEntry,
+  reason: 'idle-timeout' | 'manual-clear'
+): void {
+  void disposePipelineCacheEntry(cacheKey, entry, reason)
+}
+
+function clearPipelineEntries(
+  predicate: (cacheKey: string, entry: CachedPipelineEntry) => boolean
+): void {
+  for (const [cacheKey, entry] of pipelineCache.entries()) {
+    if (predicate(cacheKey, entry)) {
+      evictPipelineCacheEntry(cacheKey, entry, 'manual-clear')
+    }
+  }
+}
+
+/**
+ * @description 加载或重用本地特征提取 pipeline，并为缓存条目安排空闲清理。
+ * @param model 要加载的本地 embedding 模型。
+ * @param settings 当前的本地 embedding 运行时设置。
+ * @param options 可选的远程下载与进度设置。
+ * @returns 已加载或缓存的特征提取 pipeline 及其运行时元数据。
+ */
 export async function loadFeatureExtractionPipeline(
   model: InstalledLocalEmbeddingModel | LocalEmbeddingCatalogModel,
   settings: LocalEmbeddingRuntimeSettings,
@@ -153,37 +266,74 @@ export async function loadFeatureExtractionPipeline(
   const onProgress = options?.onProgress
   const remoteHost = setTransformersEnvironment(modelRoot, allowRemoteModels, settings)
   const cacheKey = getPipelineCacheKey(model, allowRemoteModels, remoteHost, settings)
-  let pipelinePromise = pipelineCache.get(cacheKey)
+  const cachedEntry = pipelineCache.get(cacheKey)
 
-  if (!pipelinePromise) {
-    const repoId = toRepoModelPath(model)
-    pipelinePromise = createFeatureExtractionPipeline(repoId, model.label, settings, {
-      allowRemoteModels,
-      onProgress
-    }).catch((error) => {
-      pipelineCache.delete(cacheKey)
+  if (cachedEntry) {
+    touchPipelineCacheEntry(cacheKey, cachedEntry)
+    return cachedEntry.promise
+  }
+
+  const repoId = toRepoModelPath(model)
+  const entry: CachedPipelineEntry = {
+    lastUsedAt: Date.now(),
+    cleanupTimer: null,
+    promise: Promise.resolve(null as never)
+  }
+
+  entry.promise = createFeatureExtractionPipeline(repoId, model.label, settings, {
+    allowRemoteModels,
+    onProgress
+  })
+    .then((loaded) => {
+      void logger.info('memory', 'embedding-pipeline-loaded', 'Loaded local embedding pipeline', {
+        cacheKey,
+        repoId,
+        requestedDevice: loaded.runtime.requestedDevice,
+        actualDevice: loaded.runtime.actualDevice,
+        allowRemoteModels
+      })
+      return loaded
+    })
+    .catch((error) => {
+      const current = pipelineCache.get(cacheKey)
+      if (current === entry) {
+        pipelineCache.delete(cacheKey)
+      }
       throw error
     })
 
-    pipelineCache.set(cacheKey, pipelinePromise)
-  }
-
-  return pipelinePromise
+  pipelineCache.set(cacheKey, entry)
+  touchPipelineCacheEntry(cacheKey, entry)
+  return entry.promise
 }
 
+/**
+ * @description 清除缓存中以指定前缀开头的本地 embedding pipeline 条目。
+ * @param prefix 要匹配的缓存键前缀。
+ */
 export function clearPipelineCacheByPrefix(prefix: string): void {
-  for (const cacheKey of pipelineCache.keys()) {
-    if (cacheKey.startsWith(prefix)) {
-      pipelineCache.delete(cacheKey)
-    }
-  }
+  clearPipelineEntries((cacheKey) => cacheKey.startsWith(prefix))
 }
 
+/**
+ * @description 清除为给定模型与运行时设置创建的本地 embedding pipeline 缓存条目。
+ * @param model 目标模型。
+ * @param allowRemoteModels 缓存条目是否在启用远程访问时创建。
+ * @param settings 用于构建缓存键的运行时设置。
+ */
 export function clearPipelineCacheForModel(
   model: InstalledLocalEmbeddingModel | LocalEmbeddingCatalogModel,
   allowRemoteModels: boolean,
   settings: LocalEmbeddingRuntimeSettings
 ): void {
   const remoteHost = getRemoteHost(settings)
-  pipelineCache.delete(getPipelineCacheKey(model, allowRemoteModels, remoteHost, settings))
+  const targetKey = getPipelineCacheKey(model, allowRemoteModels, remoteHost, settings)
+  clearPipelineEntries((cacheKey) => cacheKey === targetKey)
+}
+
+/**
+ * @description 清除当前进程中所有的本地 embedding pipeline 缓存。
+ */
+export function clearAllPipelineCaches(): void {
+  clearPipelineEntries(() => true)
 }

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerAppEvents } from '@main/app/events'
-import { initializeAi } from '@main/chat'
+import { initializeChat } from '@main/chat'
 import { bootstrapAppData } from '@main/app/bootstrap-data'
 import { registerIpc } from '@main/ipc'
 import { logger } from '@main/logging'
@@ -38,11 +38,15 @@ app.whenReady().then(() => {
     .then(() => {
       void logger.info('main', 'app-ready', 'Electron app is ready')
       registerAppEvents()
-      void logger.info('main', 'ai-initialize-start', 'Starting AI initialization')
-      return initializeAi()
+      void logger.info('main', 'chat-bootstrap-start', 'Starting lightweight chat bootstrap')
+      return initializeChat()
     })
     .then(() => {
-      void logger.info('main', 'ai-initialize-success', 'AI initialization completed')
+      void logger.info(
+        'main',
+        'chat-bootstrap-success',
+        'Lightweight chat bootstrap completed'
+      )
       registerIpc()
       void logger.info('main', 'ipc-registered', 'IPC handlers registered')
       void logger.info('main', 'window-create-start', 'Creating main window')
@@ -52,8 +56,8 @@ app.whenReady().then(() => {
     .catch((error) => {
       void captureError({
         scope: 'main',
-        action: 'ai-initialize-failed',
-        message: 'AI initialization failed',
+        action: 'chat-bootstrap-failed',
+        message: 'Lightweight chat bootstrap failed',
         code: 'PROCESS_ERROR',
         error
       })

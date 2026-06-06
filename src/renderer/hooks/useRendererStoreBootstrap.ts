@@ -10,6 +10,9 @@ import { useCharacterStore } from '@renderer/stores/characterStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
 
+/**
+ * @description 在渲染进程启动时引导相关 store：加载设置、刷新角色与会话，并订阅运行事件与内存任务事件以保持状态同步。
+ */
 export function useRendererStoreBootstrap(): void {
   useEffect(() => {
     void useSettingsStore.getState().hydrateProfiles()
@@ -29,19 +32,6 @@ export function useRendererStoreBootstrap(): void {
       .catch((error) => {
         console.error('Failed to load session snapshot', error)
       })
-
-    const memoryBootstrapTimeout = window.setTimeout(() => {
-      Promise.all([
-        useMemoryStore.getState().refreshStatus(null),
-        useMemoryStore.getState().refreshLocalModels()
-      ])
-        .catch((error) => {
-          console.error('Failed to load memory status', error)
-        })
-        .finally(() => {
-          useMemoryStore.getState().setIsLoaded(true)
-        })
-    }, 0)
 
     const unsubscribeRunEvent = window.ai?.onRunEvent?.((event: ChatRunEvent) => {
       useSessionStore.getState().mergeRunEventSession(event)
@@ -66,7 +56,6 @@ export function useRendererStoreBootstrap(): void {
     })
 
     return () => {
-      window.clearTimeout(memoryBootstrapTimeout)
       clearScheduledMemoryStatusRefresh()
       unsubscribeRunEvent?.()
       unsubscribeMemoryTaskEvent()
