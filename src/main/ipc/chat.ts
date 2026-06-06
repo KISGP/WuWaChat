@@ -6,18 +6,18 @@ import {
   getSessions,
   saveCharacterPrompt,
   sendMessage
-} from '../chat'
+} from '@main/chat'
 import { handleLogged } from './logged-handler'
 
-export function registerAiIpc(): void {
-  handleLogged('ai:getCharacters', () => getCharacters())
+export function registerChatIpc(): void {
+  handleLogged('chat:getCharacters', () => getCharacters())
   handleLogged(
-    'ai:getCharacterPrompt',
+    'chat:getCharacterPrompt',
     (_event, characterId: string) => getCharacterPrompt(characterId),
     (characterId) => ({ characterId })
   )
   handleLogged(
-    'ai:saveCharacterPrompt',
+    'chat:saveCharacterPrompt',
     (_event, characterId: string, promptText: string) =>
       saveCharacterPrompt(characterId, promptText),
     (characterId, promptText) => ({
@@ -25,9 +25,9 @@ export function registerAiIpc(): void {
       promptLength: promptText.length
     })
   )
-  handleLogged('ai:getSessions', () => getSessions())
+  handleLogged('chat:getSessions', () => getSessions())
   handleLogged(
-    'ai:sendMessage',
+    'chat:sendMessage',
     (_event, request: ChatRunRequest) => sendMessage(request),
     (request) => ({
       requestId: request.requestId,
@@ -38,7 +38,7 @@ export function registerAiIpc(): void {
     })
   )
   handleLogged(
-    'ai:abortRun',
+    'chat:abortRun',
     (_event, requestId: string) => abortRun(requestId),
     (requestId) => ({ requestId })
   )
