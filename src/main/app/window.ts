@@ -42,7 +42,8 @@ export function createMainWindow(): BrowserWindow {
     icon: IconPath,
     webPreferences: {
       preload: PRELOAD_PATH,
-      sandbox: false
+      sandbox: false,
+      spellcheck: false
     }
   })
 
