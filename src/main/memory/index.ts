@@ -33,6 +33,7 @@ import {
   CloudEmbeddingProvider,
   createCloudEmbeddingFingerprint
 } from '@main/embedding/cloud-provider'
+import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
 import {
   createLocalEmbeddingFingerprint,
   getEmbeddingFingerprintKey,
@@ -68,17 +69,6 @@ type RetrievalExecution = {
   hits: MemoryDebugRetrievalHit[]
   runtimeModeUsed: WorldIndexStatus['runtimeMode']
   fallbackReason?: string
-}
-
-type EmbeddingProvider = {
-  embedDocuments: (texts: string[]) => Promise<number[][]>
-  embedQuery: (text: string) => Promise<number[]>
-  testConnection: () => Promise<EmbeddingConnectionTestResult>
-  prepare?: () => Promise<{
-    requestedDevice: 'cpu' | 'gpu'
-    actualDevice: 'cpu' | 'gpu'
-    fallbackToCpu: boolean
-  }>
 }
 
 type LocalEmbeddingModule = typeof import('../embedding/local')
@@ -389,7 +379,19 @@ export class MemoryService {
           ? `Generating world embeddings (${runtimeMessage})`
           : 'Generating world embeddings'
       })
-      const vectors = await provider.embedDocuments(this.worldEntries.map((entry) => entry.text))
+      const vectors = await provider.embedDocuments(
+        this.worldEntries.map((entry) => entry.text),
+        {
+          onProgress: (progress) => {
+            updateTask(taskId, {
+              progress: this.mapEmbeddingProgress(progress, 25, 70),
+              message: runtimeMessage
+                ? `Generating world embeddings (${runtimeMessage})`
+                : 'Generating world embeddings'
+            })
+          }
+        }
+      )
       const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
       updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
       this.saveWorldVectors(this.worldEntries, vectors, fingerprint)
@@ -417,7 +419,20 @@ export class MemoryService {
             : 'Generating character memory embeddings',
           characterId
         })
-        const vectors = await provider.embedDocuments(entries.map((entry) => entry.text))
+        const vectors = await provider.embedDocuments(
+          entries.map((entry) => entry.text),
+          {
+            onProgress: (progress) => {
+              updateTask(taskId, {
+                progress: this.mapEmbeddingProgress(progress, 45, 80),
+                message: runtimeMessage
+                  ? `Generating character memory embeddings (${runtimeMessage})`
+                  : 'Generating character memory embeddings',
+                characterId
+              })
+            }
+          }
+        )
         const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
         updateTask(taskId, {
           progress: 80,
@@ -452,7 +467,22 @@ export class MemoryService {
           characterId
         })
         const entries = this.buildCharacterMemoryEntries(characterId)
-        const vectors = await provider.embedDocuments(entries.map((entry) => entry.text))
+        const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
+        const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
+        const vectors = await provider.embedDocuments(
+          entries.map((entry) => entry.text),
+          {
+            onProgress: (progress) => {
+              updateTask(taskId, {
+                progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
+                message: runtimeMessage
+                  ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+                  : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+                characterId
+              })
+            }
+          }
+        )
         lastDimensions = vectors[0]?.length || lastDimensions
         const fingerprint = await this.createActiveEmbeddingFingerprint(lastDimensions)
         this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
@@ -529,6 +559,22 @@ export class MemoryService {
 
   getRecentMessageCount(): number {
     return this.settings.recentMessageCount
+  }
+
+  private mapEmbeddingProgress(
+    progress: EmbeddingBatchProgress,
+    stageStart: number,
+    stageEnd: number
+  ): number {
+    if (progress.total <= 0) {
+      return stageEnd
+    }
+
+    const ratio = Math.max(0, Math.min(progress.completed / progress.total, 1))
+    return Math.max(
+      stageStart,
+      Math.min(stageEnd, Math.round(stageStart + (stageEnd - stageStart) * ratio))
+    )
   }
 
   private async describeEmbeddingRuntime(provider: EmbeddingProvider): Promise<string | null> {

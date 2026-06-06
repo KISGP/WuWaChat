@@ -6,6 +6,7 @@ import type {
   EmbeddingFingerprint,
   HuggingFaceInferenceProvider
 } from '@shared/memory-settings'
+import type { EmbedDocumentsOptions } from './types'
 
 function requireValue(value: string, label: string): string {
   const trimmed = value.trim()
@@ -57,7 +58,7 @@ export function createCloudEmbeddingFingerprint(
 }
 
 type EmbeddingAdapter = {
-  embedDocuments: (texts: string[]) => Promise<number[][]>
+  embedDocuments: (texts: string[], options?: EmbedDocumentsOptions) => Promise<number[][]>
   embedQuery: (text: string) => Promise<number[]>
 }
 
@@ -218,8 +219,8 @@ export class CloudEmbeddingProvider {
           : new OpenAICompatibleAdapter(settings)
   }
 
-  async embedDocuments(texts: string[]): Promise<number[][]> {
-    return this.adapter.embedDocuments(texts)
+  async embedDocuments(texts: string[], options?: EmbedDocumentsOptions): Promise<number[][]> {
+    return this.adapter.embedDocuments(texts, options)
   }
 
   async embedQuery(text: string): Promise<number[]> {
