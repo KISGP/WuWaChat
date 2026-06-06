@@ -117,7 +117,7 @@ function MessagesList({ messages }: { messages: Message[] }): ReactElement {
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-gray-400">
-        开始新的一轮对话@renderer/.
+        开始新的一轮对话...
       </div>
     )
   }
@@ -167,7 +167,7 @@ function InputArea({
       <input
         ref={inputRef}
         type="text"
-        placeholder="发送消息@renderer/."
+        placeholder="发送消息..."
         value={input}
         onChange={(event) => setInput(event.target.value)}
         onKeyUp={handleKeyPress}
