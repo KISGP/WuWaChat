@@ -4,14 +4,6 @@ out
 .DS_Store
 .eslintcache
 *.log*
-resources/models
-resources/world
-resources/logs
-resources/memory-settings.json
-resources/memory.db
-resources/sessions.json
-resources/settings.json
 .VSCodeCounter
 .vscode
-AGENTS.md
 raw-img
