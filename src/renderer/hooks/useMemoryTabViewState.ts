@@ -5,9 +5,12 @@ import type {
   MemorySettingsStore,
   MemoryTask,
   WorldIndexStatus
-} from '../../shared/memory-settings'
-import { CLOUD_PROVIDER_OPTIONS } from '../components/settings/memory/constants'
-import { hasRunningMemoryBuildTask, hasRunningTask } from '../components/settings/memory/helpers'
+} from '@shared/memory-settings'
+import { CLOUD_PROVIDER_OPTIONS } from '@renderer/components/settings/memory/constants'
+import {
+  hasRunningMemoryBuildTask,
+  hasRunningTask
+} from '@renderer/components/settings/memory/helpers'
 
 type UseMemoryTabViewStateArgs = {
   draft: MemorySettingsStore

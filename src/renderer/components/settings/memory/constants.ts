@@ -1,7 +1,4 @@
-import type {
-  CloudEmbeddingSettings,
-  MemoryRetrievalMode
-} from '../../../../shared/memory-settings'
+import type { CloudEmbeddingSettings, MemoryRetrievalMode } from '@shared/memory-settings'
 
 export const RETRIEVAL_OPTIONS: {
   value: MemoryRetrievalMode

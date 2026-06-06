@@ -1,11 +1,11 @@
-import type { ChatRunAccepted, ChatRunRequest, ConversationSession } from '../../shared/ai'
+import type { ChatRunAccepted, ChatRunRequest, ConversationSession } from '@shared/ai'
 import {
   getCharacterPrompt,
   getCharacterSummaryById,
   getCharacters,
   saveCharacterPrompt
-} from '../characters'
-import { MemoryService } from '../memory'
+} from '@main/characters'
+import { MemoryService } from '@main/memory'
 import { AiRuntime } from './runtime'
 
 const memoryService = new MemoryService()

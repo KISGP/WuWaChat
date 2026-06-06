@@ -1,4 +1,4 @@
-import type { ChatRunRequest } from '../../shared/ai'
+import type { ChatRunRequest } from '@shared/ai'
 import {
   abortRun,
   getCharacterPrompt,

@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { optimizer } from '@electron-toolkit/utils'
-import { logger } from '../logging'
-import { createMainWindow } from './window'
+import { logger } from '@main/logging'
+import { createMainWindow } from '@main/app/window'
 
 export function registerAppEvents(): void {
   app.on('browser-window-created', (_, window) => {

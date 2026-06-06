@@ -1,5 +1,5 @@
-import BG1 from '../../assets/T_PhoneSystemPanelS.png'
-import BG1Pre from '../../assets/T_PhoneSystemIconBg00Small.png'
+import BG1 from '@renderer/assets/T_PhoneSystemPanelS.png'
+import BG1Pre from '@renderer/assets/T_PhoneSystemIconBg00Small.png'
 import { type ReactElement } from 'react'
 
 export function BackgroundTab(): ReactElement {

@@ -1,12 +1,12 @@
 import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
-import { registerAppEvents } from './app/events'
-import { initializeAi } from './ai'
-import { bootstrapAppData } from './app/bootstrap-data'
-import { registerIpc } from './ipc'
-import { logger } from './logging'
-import { createMainWindow } from './app/window'
-import { captureError } from './observability/error-monitor'
+import { registerAppEvents } from '@main/app/events'
+import { initializeAi } from '@main/ai'
+import { bootstrapAppData } from '@main/app/bootstrap-data'
+import { registerIpc } from '@main/ipc'
+import { logger } from '@main/logging'
+import { createMainWindow } from '@main/app/window'
+import { captureError } from '@main/observability/error-monitor'
 
 function registerProcessErrorHandlers(): void {
   process.on('uncaughtException', (error) => {

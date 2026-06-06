@@ -1,7 +1,7 @@
 import { CheckCircle2, Clock3, LoaderCircle, XCircle } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { MemoryTask } from '../../../../shared/memory-settings'
-import { cn } from '../../../utils'
+import type { MemoryTask } from '@shared/memory-settings'
+import { cn } from '@renderer/utils'
 import {
   formatDateTime,
   getMemoryTaskScopeLabel,

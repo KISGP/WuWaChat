@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
-import type { ChatRunEvent } from '../../shared/ai'
+import type { ChatRunEvent } from '@shared/ai'
 import {
   clearScheduledMemoryStatusRefresh,
   isTaskActive,
   scheduleMemoryStatusRefresh,
   useMemoryStore
-} from '../stores/memoryStore'
-import { useCharacterStore } from '../stores/characterStore'
-import { useSessionStore } from '../stores/sessionStore'
-import { useSettingsStore } from '../stores/settingsStore'
+} from '@renderer/stores/memoryStore'
+import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useSessionStore } from '@renderer/stores/sessionStore'
+import { useSettingsStore } from '@renderer/stores/settingsStore'
 
 export function useRendererStoreBootstrap(): void {
   useEffect(() => {
@@ -73,4 +73,3 @@ export function useRendererStoreBootstrap(): void {
     }
   }, [])
 }
-

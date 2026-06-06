@@ -1,4 +1,4 @@
-import type { CharacterInfo, CharacterSource, LocalCharacterEntry } from '../../shared/ai'
+import type { CharacterInfo, CharacterSource, LocalCharacterEntry } from '@shared/ai'
 
 export type LocalCharacterManifest = {
   source: CharacterSource

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { ModelProfile } from '../../../../shared/ai'
+import type { ModelProfile } from '@shared/ai'
 import { PARAMETER_FIELDS, inputClassName } from './helpers'
 
 export function ModelAdvancedSection({

@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import type { MemoryHardwareInfo } from '../../shared/memory-settings'
+import type { MemoryHardwareInfo } from '@shared/memory-settings'
 
 function extractGpuName(device: Record<string, unknown>): string {
   const candidateKeys = [

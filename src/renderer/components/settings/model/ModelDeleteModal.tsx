@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { ModelProfile } from '../../../../shared/ai'
-import { PROVIDER_LABELS } from '../../../../shared/model-settings'
+import type { ModelProfile } from '@shared/ai'
+import { PROVIDER_LABELS } from '@shared/model-settings'
 
 export function ModelDeleteModal({
   target,

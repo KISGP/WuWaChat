@@ -1,8 +1,8 @@
 import { ChevronDown } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { ModelProfile } from '../../../../shared/ai'
-import { PROVIDER_LABELS } from '../../../../shared/model-settings'
-import { cn } from '../../../utils'
+import type { ModelProfile } from '@shared/ai'
+import { PROVIDER_LABELS } from '@shared/model-settings'
+import { cn } from '@renderer/utils'
 import { PROVIDER_OPTIONS } from './helpers'
 
 export function ModelProviderField({

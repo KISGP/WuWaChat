@@ -8,9 +8,9 @@ import type {
   MemoryStatusSnapshot,
   MemoryTask,
   WorldIndexStatus
-} from '../../shared/memory-settings'
-import { createDefaultMemorySettingsStore } from '../../shared/memory-settings'
-import { trackUiEvent } from '../logging'
+} from '@shared/memory-settings'
+import { createDefaultMemorySettingsStore } from '@shared/memory-settings'
+import { trackUiEvent } from '@renderer/logging'
 import { create } from 'zustand'
 
 type LocalModelUiPhase = 'idle' | 'downloading' | 'success' | 'error'
@@ -223,9 +223,13 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     await get().refreshLocalModels()
   },
   downloadLocalModel: async (modelId) => {
-    trackUiEvent('memory-local-model-download', 'User started downloading a local embedding model', {
-      modelId
-    })
+    trackUiEvent(
+      'memory-local-model-download',
+      'User started downloading a local embedding model',
+      {
+        modelId
+      }
+    )
     set((current) => ({
       localModelUiState: {
         ...current.localModelUiState,
@@ -318,4 +322,3 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 }))
 
 export { isTaskActive }
-

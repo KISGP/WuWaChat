@@ -4,7 +4,7 @@ import type {
   MemoryRetrievalMode,
   MemoryTask,
   WorldIndexStatus
-} from '../../../../shared/memory-settings'
+} from '@shared/memory-settings'
 
 type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
 

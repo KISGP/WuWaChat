@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
-import type { EmbeddingConnectionTestResult } from '../../../../shared/memory-settings'
-import { cn } from '../../../utils'
+import type { EmbeddingConnectionTestResult } from '@shared/memory-settings'
+import { cn } from '@renderer/utils'
 import { renderStructuredMessage } from './helpers'
 
 export function EmbeddingTestResultBanner({

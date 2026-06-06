@@ -1,9 +1,9 @@
-import BgHeader from '../assets/T_PhoneSystemModel02.png'
-import Icon1 from '../assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_1.png'
-import Icon2 from '../assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_2.png'
+import BgHeader from '@renderer/assets/T_PhoneSystemModel02.png'
+import Icon1 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_1.png'
+import Icon2 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_2.png'
 import CloseIcon from './close'
 import MinIcon from './min'
-import Info from '../assets/T_BtnHelpInfoNor.png'
+import Info from '@renderer/assets/T_BtnHelpInfoNor.png'
 import Dialog from './dialog'
 import { useState, type ReactElement } from 'react'
 

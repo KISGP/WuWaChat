@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import { logger } from '../logging'
+import { logger } from '@main/logging'
 import { getSenderContext } from './logged-handler'
 
 export function registerWindowIpc(): void {

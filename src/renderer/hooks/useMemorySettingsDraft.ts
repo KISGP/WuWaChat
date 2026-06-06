@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
-import type { CloudEmbeddingSettings, MemorySettingsStore } from '../../shared/memory-settings'
+import type { CloudEmbeddingSettings, MemorySettingsStore } from '@shared/memory-settings'
 
 const AUTOSAVE_DELAY_MS = 600
 

@@ -1,5 +1,5 @@
-import type { ModelProfile } from '../../../../shared/ai'
-import { cn } from '../../../utils'
+import type { ModelProfile } from '@shared/ai'
+import { cn } from '@renderer/utils'
 
 export const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },

@@ -9,12 +9,12 @@ import type {
   ConversationMessage,
   ConversationSession,
   ModelProfile
-} from '../../shared/ai'
-import { getProfiles } from '../settings'
-import { logger } from '../logging'
+} from '@shared/ai'
+import { getProfiles } from '@main/settings'
+import { logger } from '@main/logging'
 import { createChatModel } from './model-factory'
 import { SessionStore } from './session-store'
-import { MemoryService } from '../memory'
+import { MemoryService } from '@main/memory'
 
 type CharacterPromptRecord = {
   characterId: string

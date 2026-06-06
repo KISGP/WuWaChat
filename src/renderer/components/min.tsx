@@ -1,5 +1,5 @@
-import Close from '../assets/close.png'
-import { cn } from '../utils'
+import Close from '@renderer/assets/close.png'
+import { cn } from '@renderer/utils'
 import { type ReactElement } from 'react'
 
 export default function MinIcon({

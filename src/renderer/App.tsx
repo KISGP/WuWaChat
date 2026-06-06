@@ -1,9 +1,9 @@
 import { useState, type ReactElement } from 'react'
-import Header from './components/header'
-import AreaLeft from './components/area-left'
-import AreaRight from './components/area-right'
-import Settings from './components/settings'
-import { useRendererStoreBootstrap } from './hooks/useRendererStoreBootstrap'
+import Header from '@renderer/components/header'
+import AreaLeft from '@renderer/components/area-left'
+import AreaRight from '@renderer/components/area-right'
+import Settings from '@renderer/components/settings'
+import { useRendererStoreBootstrap } from '@renderer/hooks/useRendererStoreBootstrap'
 
 function App(): ReactElement {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)

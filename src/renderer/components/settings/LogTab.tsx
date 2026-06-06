@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { List, type RowComponentProps } from 'react-window'
-import type { LogEntry, LogViewerState } from '../../../shared/logging'
-import { trackUiEvent } from '../../logging'
+import type { LogEntry, LogViewerState } from '@shared/logging'
+import { trackUiEvent } from '@renderer/logging'
 
 type RowData = {
   lines: string[]

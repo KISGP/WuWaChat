@@ -1,6 +1,6 @@
-import type { ModelProfile } from '../../shared/ai'
-import type { ProfilesStore } from '../../shared/model-settings'
-import { getProfiles, saveProfiles, testProfile } from '../settings'
+import type { ModelProfile } from '@shared/ai'
+import type { ProfilesStore } from '@shared/model-settings'
+import { getProfiles, saveProfiles, testProfile } from '@main/settings'
 import { handleLogged } from './logged-handler'
 
 export function registerSettingsIpc(): void {

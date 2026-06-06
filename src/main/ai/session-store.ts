@@ -5,8 +5,8 @@ import type {
   ConversationSession,
   MessageStatus,
   SessionStatus
-} from '../../shared/ai'
-import { getSessionsPath, pathExists, writeJsonFileAtomic } from '../utils'
+} from '@shared/ai'
+import { getSessionsPath, pathExists, writeJsonFileAtomic } from '@main/utils'
 
 function now(): string {
   return new Date().toISOString()

@@ -1,6 +1,6 @@
-import deactivateTab from '../assets/settingTab1.png'
-import activateTab from '../assets/settingTab2.png'
-import { cn } from '../utils'
+import deactivateTab from '@renderer/assets/settingTab1.png'
+import activateTab from '@renderer/assets/settingTab2.png'
+import { cn } from '@renderer/utils'
 import { type ReactElement } from 'react'
 
 export default function Tab({

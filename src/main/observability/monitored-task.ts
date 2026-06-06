@@ -1,6 +1,6 @@
 import { captureError } from './error-monitor'
-import type { AppErrorCode } from '../errors'
-import type { LogSource } from '../../shared/logging'
+import type { AppErrorCode } from '@main/errors'
+import type { LogSource } from '@shared/logging'
 
 type MonitoredTaskInput<Result> = {
   scope: LogSource

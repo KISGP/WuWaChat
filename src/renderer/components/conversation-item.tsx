@@ -1,9 +1,9 @@
 import { useState, type ReactElement } from 'react'
-import { cn } from '../utils'
-import MessageIcon from '../assets/message.png'
-import CharBgActived from '../assets/char_bg.png'
-import CharBgUnfocused from '../assets/char_bg_2.png'
-import CharBgHovering from '../assets/char_bg_3.png'
+import { cn } from '@renderer/utils'
+import MessageIcon from '@renderer/assets/message.png'
+import CharBgActived from '@renderer/assets/char_bg.png'
+import CharBgUnfocused from '@renderer/assets/char_bg_2.png'
+import CharBgHovering from '@renderer/assets/char_bg_3.png'
 import { Plus } from 'lucide-react'
 
 type ConversationItemProps = {

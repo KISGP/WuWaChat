@@ -1,4 +1,4 @@
-import type { RendererLogEventPayload } from '../shared/logging'
+import type { RendererLogEventPayload } from '@shared/logging'
 
 export function trackUiEvent(
   event: string,

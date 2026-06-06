@@ -3,8 +3,11 @@ import type {
   CloudEmbeddingSettings,
   MemorySettingsStore,
   MemoryTask
-} from '../../shared/memory-settings'
-import { getDefaultCloudBaseUrl, getDefaultCloudModel } from '../components/settings/memory/helpers'
+} from '@shared/memory-settings'
+import {
+  getDefaultCloudBaseUrl,
+  getDefaultCloudModel
+} from '@renderer/components/settings/memory/helpers'
 
 type MemoryTabActionDependencies = {
   draft: MemorySettingsStore

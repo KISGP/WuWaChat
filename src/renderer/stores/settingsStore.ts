@@ -1,4 +1,4 @@
-import type { ModelProfile } from '../../shared/ai'
+import type { ModelProfile } from '@shared/ai'
 import {
   type ProfilesStore,
   createDefaultProfile,
@@ -6,8 +6,8 @@ import {
   normalizeProfilesStore,
   PROVIDER_DEFAULTS,
   PROVIDER_LABELS
-} from '../../shared/model-settings'
-import { trackUiEvent } from '../logging'
+} from '@shared/model-settings'
+import { trackUiEvent } from '@renderer/logging'
 import { create } from 'zustand'
 
 type SettingsStore = {
@@ -143,9 +143,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const remainingProfiles = currentStore.profiles.filter((profile) => profile.id !== profileId)
     const nextProfiles = remainingProfiles.length > 0 ? remainingProfiles : [createDefaultProfile()]
     const nextActiveProfileId =
-      currentStore.activeProfileId === profileId
-        ? nextProfiles[0].id
-        : currentStore.activeProfileId
+      currentStore.activeProfileId === profileId ? nextProfiles[0].id : currentStore.activeProfileId
 
     commitProfilesStore(set, {
       ...currentStore,
@@ -161,4 +159,3 @@ export function selectActiveProfile(state: SettingsStore): ModelProfile {
     state.store.profiles[0]
   )
 }
-

@@ -8,8 +8,8 @@ import type {
   CharacterSummary,
   ConversationSession,
   ModelProfile
-} from '../shared/ai'
-import type { LogEntry, LogViewerState, RendererLogEventPayload } from '../shared/logging'
+} from '@shared/ai'
+import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type {
   CharacterMemoryIndexStatus,
   MemoryDebugRetrieveRequest,
@@ -22,8 +22,8 @@ import type {
   MemoryTask,
   MemoryTaskEvent,
   WorldIndexStatus
-} from '../shared/memory-settings'
-import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '../shared/model-settings'
+} from '@shared/memory-settings'
+import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
 
 declare global {
   interface Window {

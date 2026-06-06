@@ -1,5 +1,5 @@
-import type { RendererLogEventPayload } from '../../shared/logging'
-import { logger } from '../logging'
+import type { RendererLogEventPayload } from '@shared/logging'
+import { logger } from '@main/logging'
 import { handleLogged } from './logged-handler'
 
 export function registerLogIpc(): void {

@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon } from 'lucide-react'
-import { cn } from '../../../utils'
+import { cn } from '@renderer/utils'
 
 export function ActionCard({
   icon: Icon,

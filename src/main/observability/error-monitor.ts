@@ -1,7 +1,7 @@
-import { logger } from '../logging'
-import { serializeError } from '../errors'
-import type { AppErrorCode } from '../errors'
-import type { LogSource } from '../../shared/logging'
+import { logger } from '@main/logging'
+import { serializeError } from '@main/errors'
+import type { AppErrorCode } from '@main/errors'
+import type { LogSource } from '@shared/logging'
 
 type ErrorMonitorInput = {
   scope: LogSource

@@ -1,7 +1,7 @@
 import { Loader2, Wifi } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { OpenAIProfileConnectionTestResult } from '../../../../shared/model-settings'
-import { cn } from '../../../utils'
+import type { OpenAIProfileConnectionTestResult } from '@shared/model-settings'
+import { cn } from '@renderer/utils'
 
 export function ModelConnectionSection({
   canTest,

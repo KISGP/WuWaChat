@@ -4,12 +4,12 @@ import type {
   MemoryDebugRetrievalHit,
   MemoryDebugRuntimeDetail,
   MemoryDebugScope
-} from '../../../shared/memory-settings'
-import { trackUiEvent } from '../../logging'
-import { useCharacterStore } from '../../stores/characterStore'
-import { selectSessionById, useSessionStore } from '../../stores/sessionStore'
+} from '@shared/memory-settings'
+import { trackUiEvent } from '@renderer/logging'
+import { useCharacterStore } from '@renderer/stores/characterStore'
+import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
 import { cardClassName, formatDateTime, inputClassName } from './memory/helpers'
-import { Textarea } from '../textarea'
+import { Textarea } from '@renderer/components/textarea'
 
 const SCOPE_OPTIONS: Array<{ value: MemoryDebugScope; label: string; description: string }> = [
   {

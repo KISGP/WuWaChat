@@ -1,8 +1,8 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import CloseIcon from './close'
-import { cn } from '../utils'
-import BG2 from '../assets/T_CommonPopupBg2.png'
-import Github from '../assets/github.png'
+import { cn } from '@renderer/utils'
+import BG2 from '@renderer/assets/T_CommonPopupBg2.png'
+import Github from '@renderer/assets/github.png'
 import { type ReactElement } from 'react'
 
 interface DialogProps {

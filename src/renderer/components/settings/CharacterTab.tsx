@@ -1,14 +1,10 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import { Download, RefreshCw, RotateCcw, Save } from 'lucide-react'
-import type {
-  CharacterCatalog,
-  LocalCharacterEntry,
-  RemoteCharacterEntry
-} from '../../../shared/ai'
-import { useAsyncAction } from '../../hooks/useAsyncAction'
-import { trackUiEvent } from '../../logging'
-import { useCharacterStore } from '../../stores/characterStore'
-import { cn } from '../../utils'
+import type { CharacterCatalog, LocalCharacterEntry, RemoteCharacterEntry } from '@shared/ai'
+import { useAsyncAction } from '@renderer/hooks/useAsyncAction'
+import { trackUiEvent } from '@renderer/logging'
+import { useCharacterStore } from '@renderer/stores/characterStore'
+import { cn } from '@renderer/utils'
 
 type CharacterListItemOrigin = 'local-custom' | 'preset-downloaded' | 'remote-only'
 

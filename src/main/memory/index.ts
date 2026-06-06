@@ -4,7 +4,7 @@ import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ConversationSession, MemoryEntry } from '../../shared/ai'
+import type { ConversationSession, MemoryEntry } from '@shared/ai'
 import type {
   CharacterMemoryIndexStatus,
   MemoryDebugRetrieveRequest,
@@ -24,25 +24,25 @@ import type {
   MemoryTaskStatus,
   MemoryTaskEvent,
   WorldIndexStatus
-} from '../../shared/memory-settings'
+} from '@shared/memory-settings'
 import {
   createDefaultMemorySettingsStore,
   normalizeMemorySettingsStore
-} from '../../shared/memory-settings'
+} from '@shared/memory-settings'
 import {
   CloudEmbeddingProvider,
   createCloudEmbeddingFingerprint
-} from '../embedding/cloud-provider'
+} from '@main/embedding/cloud-provider'
 import {
   createLocalEmbeddingFingerprint,
   getEmbeddingFingerprintKey,
   isSameEmbeddingFingerprint
-} from '../embedding/fingerprint'
+} from '@main/embedding/fingerprint'
 import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './retrieval'
 import { readMemoryHardwareInfo } from './hardware'
 import { loadWorldMarkdownEntries, walkMarkdownFiles } from './world'
-import { logger } from '../logging'
-import { runMonitoredTask } from '../observability/monitored-task'
+import { logger } from '@main/logging'
+import { runMonitoredTask } from '@main/observability/monitored-task'
 import {
   getAppDataRoot,
   getMemoryDatabasePath,
@@ -53,7 +53,7 @@ import {
   readOptionalFile,
   pathExists,
   writeJsonFileAtomic
-} from '../utils'
+} from '@main/utils'
 
 type SearchRow = {
   id: string

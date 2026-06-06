@@ -8,18 +8,18 @@ import {
 } from 'react'
 import { List, type RowComponentProps, useDynamicRowHeight } from 'react-window'
 import { Send, StopCircle } from 'lucide-react'
-import type { ChatRunEvent } from '../../shared/ai'
-import { trackUiEvent } from '../logging'
-import { useCharacterStore } from '../stores/characterStore'
-import { selectSessionById, useSessionStore } from '../stores/sessionStore'
-import { selectActiveProfile, useSettingsStore } from '../stores/settingsStore'
-import { cn } from '../utils'
+import type { ChatRunEvent } from '@shared/ai'
+import { trackUiEvent } from '@renderer//logging'
+import { useCharacterStore } from '@renderer//stores/characterStore'
+import { selectSessionById, useSessionStore } from '@renderer//stores/sessionStore'
+import { selectActiveProfile, useSettingsStore } from '@renderer//stores/settingsStore'
+import { cn } from '@renderer//utils'
 
-import bgAvatar from '../assets/avatar-bg.png'
-import bgRight from '../assets/T_PhoneSystemPanel_01.png'
-import bgChar from '../assets/T_PhoneSystemModel03.png'
-import bgLine from '../assets/T_PhoneSystemModel03Line.png'
-import playerAvatar from '../assets/T_IconRoleHeadCircle256_5_a_UI.png'
+import bgAvatar from '@renderer//assets/avatar-bg.png'
+import bgRight from '@renderer//assets/T_PhoneSystemPanel_01.png'
+import bgChar from '@renderer//assets/T_PhoneSystemModel03.png'
+import bgLine from '@renderer//assets/T_PhoneSystemModel03Line.png'
+import playerAvatar from '@renderer//assets/T_IconRoleHeadCircle256_5_a_UI.png'
 
 function getChatErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
@@ -117,7 +117,7 @@ function MessagesList({ messages }: { messages: Message[] }): ReactElement {
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-gray-400">
-        开始新的一轮对话...
+        开始新的一轮对话@renderer/.
       </div>
     )
   }
@@ -167,7 +167,7 @@ function InputArea({
       <input
         ref={inputRef}
         type="text"
-        placeholder="发送消息..."
+        placeholder="发送消息@renderer/."
         value={input}
         onChange={(event) => setInput(event.target.value)}
         onKeyUp={handleKeyPress}

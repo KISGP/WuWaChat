@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
-import { logger } from '../logging'
-import { captureError } from '../observability/error-monitor'
+import { logger } from '@main/logging'
+import { captureError } from '@main/observability/error-monitor'
 
 function summarizeValue(value: unknown): unknown {
   if (value == null) {

@@ -1,4 +1,4 @@
-import type { CharacterInfo } from '../../shared/ai'
+import type { CharacterInfo } from '@shared/ai'
 
 export function normalizeCharacterVersion(value: string | null | undefined): string | null {
   if (!value) {

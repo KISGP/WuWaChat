@@ -1,7 +1,7 @@
 import { type ReactElement } from 'react'
-import bgLeft from '../assets/T_PhoneSystemBg01A.png'
+import bgLeft from '@renderer/assets/T_PhoneSystemBg01A.png'
 import CharCard from './char-card'
-import { useCharacterStore } from '../stores/characterStore'
+import { useCharacterStore } from '@renderer/stores/characterStore'
 
 export default function AreaLeft(): ReactElement {
   const characters = useCharacterStore((state) => state.characters)

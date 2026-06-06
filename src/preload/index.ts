@@ -1,13 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '../shared/ai'
-import type { RendererLogEventPayload } from '../shared/logging'
+import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '@shared/ai'
+import type { RendererLogEventPayload } from '@shared/logging'
 import type {
   MemoryDebugRetrieveRequest,
   MemorySettingsStore,
   MemoryTaskEvent
-} from '../shared/memory-settings'
-import type { ProfilesStore } from '../shared/model-settings'
+} from '@shared/memory-settings'
+import type { ProfilesStore } from '@shared/model-settings'
 
 const ENABLE_MEMORY_DEBUG_TOOLS = import.meta.env.DEV
 

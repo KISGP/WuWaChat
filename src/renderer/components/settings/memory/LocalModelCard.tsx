@@ -1,11 +1,11 @@
 import { Download, Trash2 } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { LocalEmbeddingCatalogItem } from '../../../../shared/memory-settings'
-import type { LocalModelUiState } from '../../../stores/memoryStore'
-import { cn } from '../../../utils'
-import { Progress } from '../../progress'
+import type { LocalEmbeddingCatalogItem } from '@shared/memory-settings'
+import type { LocalModelUiState } from '@renderer/stores/memoryStore'
+import { cn } from '@renderer/utils'
+import { Progress } from '@renderer/components/progress'
 import { renderStructuredMessage } from './helpers'
-import { Badge } from '../../badge'
+import { Badge } from '@renderer/components/badge'
 
 export function LocalModelCard({
   model,

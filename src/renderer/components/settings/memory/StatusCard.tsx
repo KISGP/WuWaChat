@@ -4,8 +4,8 @@ import type {
   CharacterMemoryIndexStatus,
   EmbeddingCompatibilityStatus,
   WorldIndexStatus
-} from '../../../../shared/memory-settings'
-import { cn } from '../../../utils'
+} from '@shared/memory-settings'
+import { cn } from '@renderer/utils'
 import {
   formatDateTime,
   getAvailabilityMeta,

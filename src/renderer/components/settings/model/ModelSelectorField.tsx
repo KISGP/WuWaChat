@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { cn } from '../../../utils'
+import { cn } from '@renderer/utils'
 import { inputClassName } from './helpers'
 
 export function ModelSelectorField({

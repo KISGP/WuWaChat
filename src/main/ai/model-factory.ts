@@ -1,6 +1,6 @@
 import { ChatDeepSeek } from '@langchain/deepseek'
 import { ChatOpenAI } from '@langchain/openai'
-import type { ModelProfile } from '../../shared/ai'
+import type { ModelProfile } from '@shared/ai'
 
 function requireValue(value: string, label: string): string {
   const trimmed = value.trim()
