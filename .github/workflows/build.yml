@@ -2,8 +2,6 @@ name: Build and Publish Electron App
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'V*'
   pull_request:
