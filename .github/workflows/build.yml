@@ -36,33 +36,17 @@ jobs:
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Ensure release tag does not exist
-        shell: powershell
+        shell: bash
         run: |
-          $remoteTag = git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release tag already exists: $RELEASE_TAG"
+            exit 1
+          fi
 
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Failed to query remote tags.'
-          }
-
-          if (-not [string]::IsNullOrWhiteSpace($remoteTag)) {
-            throw "Release tag already exists: $env:RELEASE_TAG"
-          }
-
-          $existingRelease = $null
-          $releaseExists = $false
-
-          try {
-            $existingRelease = gh release view $env:RELEASE_TAG --json tagName 2>$null
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($existingRelease)) {
-              $releaseExists = $true
-            }
-          } catch {
-            $releaseExists = $false
-          }
-
-          if ($releaseExists) {
-            throw "Release already exists: $env:RELEASE_TAG"
-          }
+          if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -81,7 +65,7 @@ jobs:
         run: npm run build
 
       - name: Build Windows Package
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       - name: Archive win-unpacked
         shell: powershell
