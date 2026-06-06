@@ -1,9 +1,7 @@
 name: Build and Publish Electron App
 
 on:
-  push:
-    tags:
-      - 'V*'
+  workflow_dispatch:
 
 jobs:
   release:
@@ -14,6 +12,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -21,24 +21,63 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Resolve Release Version
+        shell: powershell
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'package.json version is empty.'
+          }
+
+          $tag = "v$version"
+
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Ensure release tag does not exist
+        shell: powershell
+        run: |
+          $remoteTag = git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to query remote tags.'
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($remoteTag)) {
+            throw "Release tag already exists: $env:RELEASE_TAG"
+          }
+
+          $existingRelease = gh release view $env:RELEASE_TAG --json tagName 2>$null
+
+          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($existingRelease)) {
+            throw "Release already exists: $env:RELEASE_TAG"
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and Push Release Tag
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a $env:RELEASE_TAG -m "Release $env:RELEASE_TAG"
+          git push origin $env:RELEASE_TAG
+
       - name: Install Dependencies
         run: npm ci
 
       - name: Build App
         run: npm run build
 
-      - name: Build and Publish Electron App
-        run: npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Windows Package
+        run: npx electron-builder --win
 
       - name: Archive win-unpacked
         shell: powershell
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
           $sourcePath = Join-Path $PWD 'dist\win-unpacked'
-          $archivePath = Join-Path $PWD "dist\wuwchat-V$version.zip"
+          $archivePath = Join-Path $PWD "dist\wuwchat-$env:APP_VERSION.zip"
 
           if (-not (Test-Path $sourcePath)) {
             throw "win-unpacked directory not found: $sourcePath"
@@ -50,13 +89,36 @@ jobs:
 
           Compress-Archive -Path "$sourcePath\*" -DestinationPath $archivePath
 
-      - name: Upload win-unpacked archive
+      - name: Create GitHub Release
         shell: powershell
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          $tag = "${{ github.ref_name }}"
-          $archivePath = Join-Path $PWD "dist\wuwchat-V$version.zip"
+          gh release create $env:RELEASE_TAG --title $env:RELEASE_TAG --notes "Release $env:RELEASE_TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          gh release upload $tag $archivePath --clobber
+      - name: Upload Release Assets
+        shell: powershell
+        run: |
+          $distPath = Join-Path $PWD 'dist'
+          $assetPaths = @(
+            Join-Path $distPath "wuwchat-$env:APP_VERSION.zip"
+            Join-Path $distPath "wuwachat-$env:APP_VERSION-setup.exe"
+            Join-Path $distPath 'latest.yml'
+          )
+
+          $optionalAssets = @(
+            Join-Path $distPath "wuwachat-$env:APP_VERSION-setup.exe.blockmap"
+          )
+
+          foreach ($assetPath in $assetPaths) {
+            if (-not (Test-Path $assetPath)) {
+              throw "Expected release asset not found: $assetPath"
+            }
+          }
+
+          $existingOptionalAssets = $optionalAssets | Where-Object { Test-Path $_ }
+          $allAssets = $assetPaths + $existingOptionalAssets
+
+          gh release upload $env:RELEASE_TAG $allAssets --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
