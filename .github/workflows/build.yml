@@ -38,18 +38,21 @@ jobs:
       - name: Ensure release tag does not exist
         shell: powershell
         run: |
-          $remoteTag = git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          $tagExists = $false
+          $releaseExists = $false
 
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Failed to query remote tags.'
+          try {
+            $tagRef = gh api "repos/${{ github.repository }}/git/ref/tags/$env:RELEASE_TAG" 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($tagRef)) {
+              $tagExists = $true
+            }
+          } catch {
+            $tagExists = $false
           }
 
-          if (-not [string]::IsNullOrWhiteSpace($remoteTag)) {
+          if ($tagExists) {
             throw "Release tag already exists: $env:RELEASE_TAG"
           }
-
-          $existingRelease = $null
-          $releaseExists = $false
 
           try {
             $existingRelease = gh release view $env:RELEASE_TAG --json tagName 2>$null
