@@ -10,6 +10,10 @@
 
 </div>
 
+## 开发计划
+
+https://github.com/users/KISGP/projects/9
+
 ## 功能概览
 
 WuWaChat 基于 Electron、React 和 TypeScript 构建，提供在本地桌面环境中管理角色聊天、模型连接和记忆能力的功能。
