@@ -28,18 +28,6 @@ function formatRefreshTime(value: string | null): string {
   return `上次刷新: ${new Date(value).toLocaleString()}`
 }
 
-function getOriginLabel(origin: CharacterListItemOrigin): string[] {
-  if (origin === 'preset-downloaded') {
-    return ['已下载', '预设']
-  }
-
-  if (origin === 'remote-only') {
-    return ['远端']
-  }
-
-  return ['本地']
-}
-
 function getOriginDescription(origin: CharacterListItemOrigin): string {
   if (origin === 'preset-downloaded') {
     return '预设角色'
@@ -56,6 +44,10 @@ function getStatusText(origin: CharacterListItemOrigin): string {
   return origin === 'remote-only' ? '未下载' : '已下载'
 }
 
+/**
+ * @description 渲染角色设置页，支持浏览角色、下载预设角色与编辑本地 Prompt。
+ * @returns 角色设置页内容。
+ */
 export function CharacterTab(): ReactElement {
   const refreshCharacters = useCharacterStore((state) => state.refreshCharacters)
   const [selectedCharacterId, setSelectedCharacterId] = useState('')
@@ -92,6 +84,8 @@ export function CharacterTab(): ReactElement {
         id: character.id,
         name: character.name,
         description: character.description,
+        avatar: character.avatar,
+        cardBg: character.cardBg,
         origin: 'remote-only',
         isDownloaded: false,
         remoteEntry: character
@@ -315,205 +309,194 @@ export function CharacterTab(): ReactElement {
   }
 
   return (
-    <div className="flex h-full w-full gap-4 px-6 py-4">
-      <div className="flex w-[22rem] shrink-0 flex-col rounded border border-white/10 bg-black/20 p-3">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-white/85">角色列表</div>
-            <div className="mt-1 text-xs text-white/45">
-              {formatRefreshTime(catalog.refreshedAt)}
+    <div className="h-full overflow-y-auto px-4">
+      <div className="mx-auto flex h-full gap-4 pb-6">
+        <div className="flex w-66 shrink-0 flex-col rounded border border-white/10 bg-black/20 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-white/85">角色列表</div>
+              <div className="mt-1 text-xs text-white/45">
+                {formatRefreshTime(catalog.refreshedAt)}
+              </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                void (async () => {
+                  setDetailError('')
+                  await refreshCharacters()
+                  await loadCatalog(true)
+                })()
+              }
+              disabled={isRefreshing}
+              className="flex items-center gap-2 rounded border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10 disabled:opacity-50"
+            >
+              <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              void (async () => {
-                setDetailError('')
-                await refreshCharacters()
-                await loadCatalog(true)
-              })()
-            }
-            disabled={isRefreshing}
-            className="flex items-center gap-2 rounded border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10 disabled:opacity-50"
-          >
-            <RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
-          </button>
+          {catalogError && (
+            <div className="mb-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {catalogError}
+            </div>
+          )}
+
+          <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
+            {characters.map((character) => (
+              <button
+                key={character.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCharacterId(character.id)
+                  setSaveStatus('idle')
+                  setDetailError('')
+                  trackUiEvent('character-selected', 'User selected a character in settings', {
+                    characterId: character.id,
+                    origin: character.origin
+                  })
+                }}
+                className={cn(
+                  'relative overflow-hidden rounded border px-2 py-4 text-left transition-colors',
+                  selectedCharacter?.id === character.id
+                    ? 'border-[#e8c690]/50 bg-white/10 text-[#e8c690]'
+                    : 'border-white/10 text-white/70 hover:bg-white/5'
+                )}
+              >
+                <div className="text-sm font-medium text-white/90">{character.name}</div>
+                <img
+                  src={character.cardBg}
+                  alt=""
+                  className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-20"
+                />
+              </button>
+            ))}
+
+            {characters.length === 0 && !catalogError && (
+              <div className="py-6 text-center text-sm text-white/50">
+                当前还没有可用角色，先刷新远端列表或下载角色试试
+              </div>
+            )}
+          </div>
         </div>
 
-        {catalogError && (
-          <div className="mb-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-            {catalogError}
-          </div>
-        )}
+        <div className="flex min-w-0 flex-1 flex-col rounded border border-white/10 bg-black/20 p-4">
+          {selectedCharacter ? (
+            <div className="flex h-full flex-col">
+              <div className="mb-4 flex items-start gap-4">
+                <div className="size-16 shrink-0 overflow-hidden rounded-full border border-white/20 bg-black/50">
+                  {selectedCharacter.avatar && (
+                    <img src={selectedCharacter.avatar} className="size-full object-cover" alt="" />
+                  )}
+                </div>
 
-        <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
-          {characters.map((character) => (
-            <button
-              key={character.id}
-              type="button"
-              onClick={() => {
-                setSelectedCharacterId(character.id)
-                setSaveStatus('idle')
-                setDetailError('')
-                trackUiEvent('character-selected', 'User selected a character in settings', {
-                  characterId: character.id,
-                  origin: character.origin
-                })
-              }}
-              className={cn(
-                'rounded border px-3 py-3 text-left transition-colors',
-                selectedCharacter?.id === character.id
-                  ? 'border-[#e8c690]/50 bg-white/10 text-[#e8c690]'
-                  : 'border-white/10 text-white/70 hover:bg-white/5'
+                <div className="min-w-0 flex-1">
+                  <div className="text-lg font-medium text-white/90">{selectedCharacter.name}</div>
+                  <div className="mt-1 text-xs text-white/45">
+                    来源: {getOriginDescription(selectedCharacter.origin)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/45">
+                    状态: {getStatusText(selectedCharacter.origin)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <div className="text-xs tracking-[0.18em] text-white/45 uppercase">Description</div>
+                <div className="mt-2 rounded border border-white/10 bg-black/30 px-3 py-3 text-sm leading-6 text-white/80">
+                  {selectedCharacter.description || '暂无描述'}
+                </div>
+              </div>
+
+              {detailError && (
+                <div className="mb-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  {detailError}
+                </div>
               )}
-            >
-              <div className="flex flex-wrap items-center gap-1.5">
-                {getOriginLabel(character.origin).map((label) => (
-                  <span
-                    key={label}
-                    className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/60"
-                  >
-                    {label}
-                  </span>
-                ))}
-              </div>
 
-              <div className="mt-2 text-sm font-medium text-white/90">{character.name}</div>
-              <div className="mt-1 line-clamp-2 text-xs leading-5 text-white/45">
-                {character.description || character.id}
-              </div>
-            </button>
-          ))}
+              <div className="mb-2 text-xs tracking-[0.18em] text-white/45 uppercase">Prompt</div>
 
-          {characters.length === 0 && !catalogError && (
-            <div className="py-6 text-center text-sm text-white/50">
-              当前还没有可用角色，先刷新远端列表或下载角色试试
+              {selectedCharacter.origin === 'remote-only' ? (
+                <>
+                  <div className="flex-1 overflow-hidden rounded border border-white/10 bg-black/40">
+                    <textarea
+                      value={
+                        remotePromptLoadingId === selectedCharacter.id && !remotePromptPreview
+                          ? '正在加载远端 Prompt...'
+                          : remotePromptPreview
+                      }
+                      readOnly
+                      className="h-full w-full resize-none bg-transparent p-4 text-sm leading-relaxed text-white/85 outline-none"
+                      placeholder="远端 Prompt 预览"
+                    />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadOrReset(selectedCharacter)}
+                      disabled={activeActionId === selectedCharacter.id}
+                      className="flex items-center gap-2 rounded bg-[#e8c690]/90 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-[#e8c690] disabled:opacity-50"
+                    >
+                      <Download className="size-4" />
+                      {activeActionId === selectedCharacter.id ? '下载中...' : '下载角色'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    value={activePromptText}
+                    onChange={(event) => {
+                      setDraftPrompts((current) => ({
+                        ...current,
+                        [selectedCharacter.id]: event.target.value
+                      }))
+                      setSaveStatus('idle')
+                    }}
+                    className="flex-1 resize-none rounded border border-white/10 bg-black/40 p-4 text-sm leading-relaxed text-white/90 transition-colors outline-none focus:border-[#e8c690]"
+                    placeholder="在这里编辑本地角色 Prompt..."
+                  />
+
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-xs">
+                      {saveStatus === 'success' && <span className="text-green-400">保存成功</span>}
+                      {saveStatus === 'error' && <span className="text-red-400">保存失败</span>}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {selectedCharacter.origin === 'preset-downloaded' && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadOrReset(selectedCharacter)}
+                          disabled={activeActionId === selectedCharacter.id}
+                          className="flex items-center gap-2 rounded border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
+                        >
+                          <RotateCcw className="size-4" />
+                          {activeActionId === selectedCharacter.id ? '恢复中...' : '恢复初始设置'}
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => void handleSavePrompt()}
+                        disabled={isSavingPrompt}
+                        className="flex items-center gap-2 rounded bg-[#e8c690]/90 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-[#e8c690] disabled:opacity-50"
+                      >
+                        <Save className="size-4" />
+                        {isSavingPrompt ? '保存中...' : '保存'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-white/50">
+              选择一个角色后，可以在这里查看详情、预览或编辑 Prompt
             </div>
           )}
         </div>
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col rounded border border-white/10 bg-black/20 p-4">
-        {selectedCharacter ? (
-          <div className="flex h-full flex-col">
-            <div className="mb-4 flex items-start gap-4">
-              <div className="size-16 shrink-0 overflow-hidden rounded-full border border-white/20 bg-black/50">
-                {selectedCharacter.avatar ? (
-                  <img src={selectedCharacter.avatar} className="size-full object-cover" alt="" />
-                ) : (
-                  <div className="flex size-full items-center justify-center text-xs text-white/35">
-                    No Image
-                  </div>
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="text-lg font-medium text-white/90">{selectedCharacter.name}</div>
-                <div className="mt-1 text-xs text-white/45">
-                  来源: {getOriginDescription(selectedCharacter.origin)}
-                </div>
-                <div className="mt-1 text-xs text-white/45">
-                  状态: {getStatusText(selectedCharacter.origin)}
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-3">
-              <div className="text-xs tracking-[0.18em] text-white/45 uppercase">Description</div>
-              <div className="mt-2 rounded border border-white/10 bg-black/30 px-3 py-3 text-sm leading-6 text-white/80">
-                {selectedCharacter.description || '暂无描述'}
-              </div>
-            </div>
-
-            {detailError && (
-              <div className="mb-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                {detailError}
-              </div>
-            )}
-
-            <div className="mb-2 text-xs tracking-[0.18em] text-white/45 uppercase">Prompt</div>
-
-            {selectedCharacter.origin === 'remote-only' ? (
-              <>
-                <div className="flex-1 overflow-hidden rounded border border-white/10 bg-black/40">
-                  <textarea
-                    value={
-                      remotePromptLoadingId === selectedCharacter.id && !remotePromptPreview
-                        ? '正在加载远端 Prompt...'
-                        : remotePromptPreview
-                    }
-                    readOnly
-                    className="h-full w-full resize-none bg-transparent p-4 text-sm leading-relaxed text-white/85 outline-none"
-                    placeholder="远端 Prompt 预览"
-                  />
-                </div>
-
-                <div className="mt-3 flex items-center justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void handleDownloadOrReset(selectedCharacter)}
-                    disabled={activeActionId === selectedCharacter.id}
-                    className="flex items-center gap-2 rounded bg-[#e8c690]/90 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-[#e8c690] disabled:opacity-50"
-                  >
-                    <Download className="size-4" />
-                    {activeActionId === selectedCharacter.id ? '下载中...' : '下载角色'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <textarea
-                  value={activePromptText}
-                  onChange={(event) => {
-                    setDraftPrompts((current) => ({
-                      ...current,
-                      [selectedCharacter.id]: event.target.value
-                    }))
-                    setSaveStatus('idle')
-                  }}
-                  className="flex-1 resize-none rounded border border-white/10 bg-black/40 p-4 text-sm leading-relaxed text-white/90 transition-colors outline-none focus:border-[#e8c690]"
-                  placeholder="在这里编辑本地角色 Prompt..."
-                />
-
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-xs">
-                    {saveStatus === 'success' && <span className="text-green-400">保存成功</span>}
-                    {saveStatus === 'error' && <span className="text-red-400">保存失败</span>}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {selectedCharacter.origin === 'preset-downloaded' && (
-                      <button
-                        type="button"
-                        onClick={() => void handleDownloadOrReset(selectedCharacter)}
-                        disabled={activeActionId === selectedCharacter.id}
-                        className="flex items-center gap-2 rounded border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
-                      >
-                        <RotateCcw className="size-4" />
-                        {activeActionId === selectedCharacter.id ? '恢复中...' : '恢复初始设置'}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => void handleSavePrompt()}
-                      disabled={isSavingPrompt}
-                      className="flex items-center gap-2 rounded bg-[#e8c690]/90 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-[#e8c690] disabled:opacity-50"
-                    >
-                      <Save className="size-4" />
-                      {isSavingPrompt ? '保存中...' : '保存'}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center text-white/50">
-            选择一个角色后，可以在这里查看详情、预览或编辑 Prompt
-          </div>
-        )}
       </div>
     </div>
   )

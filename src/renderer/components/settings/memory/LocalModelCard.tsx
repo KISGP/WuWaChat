@@ -3,9 +3,9 @@ import type { ReactElement } from 'react'
 import type { LocalEmbeddingCatalogItem } from '@shared/memory-settings'
 import type { LocalModelUiState } from '@renderer/stores/memoryStore'
 import { cn } from '@renderer/utils'
-import { Progress } from '@renderer/components/progress'
+import { Progress } from '@renderer/components/ui/progress'
 import { renderStructuredMessage } from './helpers'
-import { Badge } from '@renderer/components/badge'
+import { Badge } from '@renderer/components/ui/badge'
 
 export function LocalModelCard({
   model,

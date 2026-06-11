@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ReactElement } from 'react'
 import type { ModelProfile } from '@shared/chat'
-import { PARAMETER_FIELDS, inputClassName } from './helpers'
+import { PARAMETER_FIELDS } from './helpers'
+import { Input } from '@renderer/components/ui/input'
 
 export function ModelAdvancedSection({
   advancedOpen,
@@ -37,7 +38,7 @@ export function ModelAdvancedSection({
           {PARAMETER_FIELDS.map((field) => (
             <label key={field.key} className="flex flex-col gap-1.5">
               <span className="text-xs text-white/55">{field.label}</span>
-              <input
+              <Input
                 type="number"
                 min={field.min}
                 max={field.max}
@@ -48,7 +49,6 @@ export function ModelAdvancedSection({
                     [field.key]: Number(event.target.value)
                   })
                 }
-                className={inputClassName()}
               />
             </label>
           ))}

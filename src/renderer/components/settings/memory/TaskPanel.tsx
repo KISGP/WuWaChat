@@ -107,7 +107,7 @@ export function TaskPanel({
   }
 
   return (
-    <div className="rounded border border-white/10 bg-black/15 p-4">
+    <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-medium text-white/90">构建任务反馈</h3>

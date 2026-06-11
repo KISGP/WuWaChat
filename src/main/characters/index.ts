@@ -176,6 +176,8 @@ async function buildCharacterCatalog(): Promise<CharacterCatalog> {
       id: character.id,
       name: pickDisplayText(character.info.name, character.id),
       description: pickDisplayText(character.info.description),
+      avatar: getRemoteCharacterFileUrl(character.id, 'avatar.png'),
+      cardBg: getRemoteCharacterFileUrl(character.id, 'cardBg.png'),
       isDownloaded: localIds.has(character.id)
     })),
     refreshedAt: remoteCatalogRefreshedAt

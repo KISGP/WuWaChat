@@ -34,6 +34,8 @@ export type RemoteCharacterEntry = {
   id: string
   name: string
   description?: string
+  avatar?: string
+  cardBg?: string
   isDownloaded: boolean
 }
 

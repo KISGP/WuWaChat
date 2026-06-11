@@ -1,7 +1,7 @@
 import { ChevronDown } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { cn } from '@renderer/utils'
-import { inputClassName } from './helpers'
+import { Input } from '@renderer/components/ui/input'
 
 export function ModelSelectorField({
   model,
@@ -30,7 +30,7 @@ export function ModelSelectorField({
     <label className="flex flex-col gap-1.5">
       <span className="text-xs text-white/55">模型 ID</span>
       <span className="relative">
-        <input
+        <Input
           type="text"
           value={model}
           onChange={(event) => onChange(event.target.value)}
@@ -40,7 +40,7 @@ export function ModelSelectorField({
             }
           }}
           onBlur={() => window.setTimeout(onCloseDropdown, 120)}
-          className={cn(inputClassName(), hasModelOptions ? 'w-full pr-10' : 'w-full')}
+          className={hasModelOptions ? 'w-full pr-10' : 'w-full'}
           placeholder={placeholder}
         />
         {hasModelOptions && (
@@ -49,7 +49,7 @@ export function ModelSelectorField({
             onMouseDown={(event) => event.preventDefault()}
             onClick={onToggleDropdown}
             className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center text-white/45 transition-colors hover:text-white/80"
-            title="浠庡彲鐢ㄦā鍨嬪垪琛ㄩ€夋嫨"
+            title="选择可用模型"
           >
             <ChevronDown
               className={cn('size-4 transition-transform', modelDropdownOpen && 'rotate-180')}
@@ -78,9 +78,7 @@ export function ModelSelectorField({
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-2 text-xs text-white/40">
-                娌℃湁鍖归厤鐨勫彲鐢ㄦā鍨嬶紝鍙户缁墜鍔ㄨ緭鍏?
-              </div>
+              <div className="px-3 py-2 text-xs text-white/40">无匹配的模型</div>
             )}
           </div>
         )}

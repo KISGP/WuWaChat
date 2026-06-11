@@ -21,6 +21,7 @@ function Switch({
         className
       )}
       {...props}
+      onClick={(e) => e.stopPropagation()}
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"

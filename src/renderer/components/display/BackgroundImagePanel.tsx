@@ -2,7 +2,11 @@ import BG1 from '@renderer/assets/T_PhoneSystemPanelS.png'
 import BG1Pre from '@renderer/assets/T_PhoneSystemIconBg00Small.png'
 import { type ReactElement } from 'react'
 
-export function BackgroundTab(): ReactElement {
+/**
+ * @description Renders the background image settings content shown in the display panel.
+ * @returns The background image settings panel.
+ */
+export function BackgroundImagePanel(): ReactElement {
   return (
     <div className="flex h-full w-full gap-2 px-8 py-4">
       <div className="grid shrink-0 grid-cols-2 gap-2">
