@@ -24,6 +24,7 @@ import type {
   WorldIndexStatus
 } from '@shared/memory-settings'
 import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
+import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
 
 declare global {
   interface Window {
@@ -83,6 +84,9 @@ declare global {
       readLogs: () => Promise<LogEntry[]>
       openDirectory: () => Promise<void>
       clearLogs: () => Promise<void>
+    }
+    tools: {
+      getGachaUrl: (request?: GachaUrlRequest) => Promise<GachaUrlResult>
     }
   }
 }

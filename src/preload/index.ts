@@ -8,6 +8,7 @@ import type {
   MemoryTaskEvent
 } from '@shared/memory-settings'
 import type { ProfilesStore } from '@shared/model-settings'
+import type { GachaUrlRequest } from '@shared/tools'
 
 const ENABLE_MEMORY_DEBUG_TOOLS = import.meta.env.DEV
 
@@ -98,6 +99,10 @@ const logs = {
   clearLogs: () => ipcRenderer.invoke('log:clearLogs')
 }
 
+const tools = {
+  getGachaUrl: (request?: GachaUrlRequest) => ipcRenderer.invoke('tools:getGachaUrl', request)
+}
+
 const exposedApis = {
   electron: electronAPI,
   api,
@@ -105,7 +110,8 @@ const exposedApis = {
   characters,
   settings,
   memory,
-  logs
+  logs,
+  tools
 }
 
 if (process.contextIsolated) {
