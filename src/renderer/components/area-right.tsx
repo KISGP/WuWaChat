@@ -11,12 +11,12 @@ import { Send, StopCircle } from 'lucide-react'
 import type { ChatRunEvent } from '@shared/chat'
 import { trackUiEvent } from '@renderer/logging'
 import { useCharacterStore } from '@renderer//stores/characterStore'
+import { selectActiveBackground, useAppearanceStore } from '@renderer/stores/appearanceStore'
 import { selectSessionById, useSessionStore } from '@renderer//stores/sessionStore'
 import { selectActiveProfile, useSettingsStore } from '@renderer//stores/settingsStore'
 import { cn } from '@renderer//utils'
-
+import bgBase from '@renderer//assets/T_PhoneSystemPanel_01.png'
 import bgAvatar from '@renderer//assets/avatar-bg.png'
-import bgRight from '@renderer//assets/T_PhoneSystemPanel_01.png'
 import bgChar from '@renderer//assets/T_PhoneSystemModel03.png'
 import bgLine from '@renderer//assets/T_PhoneSystemModel03Line.png'
 import playerAvatar from '@renderer//assets/T_IconRoleHeadCircle256_5_a_UI.png'
@@ -163,7 +163,7 @@ function InputArea({
   }
 
   return (
-    <div className="absolute right-10 bottom-8 left-14 flex h-14 items-center gap-2 rounded-xl border-2 border-[#e5e7eb] bg-white/40 px-2 backdrop-blur-sm transition-colors focus-within:bg-white/90 hover:bg-white/60">
+    <div className="absolute right-10 bottom-8 left-14 z-100 flex h-14 items-center gap-2 rounded-xl border-2 border-[#e5e7eb] bg-white/40 px-2 backdrop-blur-sm transition-colors focus-within:bg-white/90 hover:bg-white/60">
       <input
         ref={inputRef}
         type="text"
@@ -197,6 +197,7 @@ function InputArea({
 
 export default function AreaRight(): ReactElement {
   const activateChar = useCharacterStore((state) => state.activateChar)
+  const activeBackground = useAppearanceStore(selectActiveBackground)
   const activeProfile = useSettingsStore(selectActiveProfile)
   const currentSessionId = useSessionStore((state) => state.currentSessionId)
   const setCurrentSessionId = useSessionStore((state) => state.setCurrentSessionId)
@@ -286,10 +287,17 @@ export default function AreaRight(): ReactElement {
     <div className="relative h-156 w-205">
       <div className="relative h-156 w-205">
         <img
-          src={bgRight}
+          src={bgBase}
           className="absolute top-0 left-0 object-contain drop-shadow-[0_0_0_#ffffff]"
           draggable="false"
         />
+        {!activeBackground.fullSrc.includes('T_PhoneSystemPanelS.png') && (
+          <img
+            src={activeBackground.fullSrc}
+            className="absolute bottom-0 object-contain drop-shadow-[0_0_0_#ffffff]"
+            draggable="false"
+          />
+        )}
 
         <img
           src={bgChar}
