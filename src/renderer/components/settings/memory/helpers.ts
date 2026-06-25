@@ -8,14 +8,6 @@ import type {
 
 type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
 
-export function inputClassName(): string {
-  return 'h-9 rounded border border-white/15 bg-black/35 px-3 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-[#e8c690]'
-}
-
-export function cardClassName(): string {
-  return 'rounded border border-white/10 bg-white/[0.03] p-4'
-}
-
 export function getDefaultCloudModel(provider: CloudEmbeddingSettings['provider']): string {
   if (provider === 'huggingface-inference') {
     return 'ibm-granite/granite-embedding-97m-multilingual-r2'

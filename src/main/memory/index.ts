@@ -4,13 +4,14 @@ import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ConversationSession, MemoryEntry } from '@shared/ai'
+import type { ConversationSession, MemoryEntry } from '@shared/chat'
 import type {
   CharacterMemoryIndexStatus,
   MemoryDebugRetrieveRequest,
   MemoryDebugRetrieveResult,
   MemoryDebugRetrievalHit,
   MemoryDebugRuntimeDetail,
+  MemoryDebugRuntimeSummary,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
@@ -19,6 +20,7 @@ import type {
   LocalEmbeddingCatalogItem,
   MemoryHardwareInfo,
   MemorySettingsStore,
+  MemoryTargetSelection,
   MemoryStatusSnapshot,
   MemoryTask,
   MemoryTaskStatus,
@@ -33,14 +35,18 @@ import {
   CloudEmbeddingProvider,
   createCloudEmbeddingFingerprint
 } from '@main/embedding/cloud-provider'
+import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
 import {
   createLocalEmbeddingFingerprint,
-  getEmbeddingFingerprintKey,
   isSameEmbeddingFingerprint
 } from '@main/embedding/fingerprint'
-import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './retrieval'
 import { readMemoryHardwareInfo } from './hardware'
+import type { RetrievalExecution } from './internal-types'
+import { MemoryIndexRepository } from './index-repository'
+import { MemoryWorkerClient } from './worker-client'
+import { RetrievalQueryService } from './retrieval-query-service'
 import { loadWorldMarkdownEntries, walkMarkdownFiles } from './world'
+import { MemoryWorkerRuntime } from './worker-runtime'
 import { logger } from '@main/logging'
 import { runMonitoredTask } from '@main/observability/monitored-task'
 import {
@@ -55,32 +61,6 @@ import {
   writeJsonFileAtomic
 } from '@main/utils'
 
-type SearchRow = {
-  id: string
-  text: string
-  sourcePath?: string | null
-  sessionId?: string | null
-  characterId?: string | null
-  vectorJson: string
-}
-
-type RetrievalExecution = {
-  hits: MemoryDebugRetrievalHit[]
-  runtimeModeUsed: WorldIndexStatus['runtimeMode']
-  fallbackReason?: string
-}
-
-type EmbeddingProvider = {
-  embedDocuments: (texts: string[]) => Promise<number[][]>
-  embedQuery: (text: string) => Promise<number[]>
-  testConnection: () => Promise<EmbeddingConnectionTestResult>
-  prepare?: () => Promise<{
-    requestedDevice: 'cpu' | 'gpu'
-    actualDevice: 'cpu' | 'gpu'
-    fallbackToCpu: boolean
-  }>
-}
-
 type LocalEmbeddingModule = typeof import('../embedding/local')
 
 const WORLD_SCOPE = 'world'
@@ -92,6 +72,30 @@ type WorldBundleMetadata = {
   updatedAt: string
 }
 
+type TaskCancellationState = {
+  controller: AbortController
+  throwIfCancelled: () => void
+}
+
+type PromptContextPreviewResult = {
+  worldHits: MemoryDebugRetrievalHit[]
+  memoryHits: MemoryDebugRetrievalHit[]
+  runtimeSummary: MemoryDebugRuntimeSummary
+}
+
+type MemoryResolvedTarget = {
+  targetId: string | null
+  characterId: string | null
+  sessionId: string | null
+  session: ConversationSession | null
+}
+
+class MemoryTaskCancelledError extends Error {
+  constructor() {
+    super('Task cancelled')
+  }
+}
+
 export class MemoryService {
   private settings = createDefaultMemorySettingsStore()
   private sessions: ConversationSession[] = []
@@ -99,46 +103,124 @@ export class MemoryService {
   private worldUpdatedAt: string | null = null
   private worldBundleError: string | null = null
   private tasks = new Map<string, MemoryTask>()
+  private settingsLoaded = false
   private initialized = false
+  private settingsPromise: Promise<void> | null = null
+  private initializationPromise: Promise<void> | null = null
   private db: DatabaseSync | null = null
+  private repository: MemoryIndexRepository | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
+  private taskCancellationStates = new Map<string, TaskCancellationState>()
   private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
   private hardwareInfoPromise: Promise<MemoryHardwareInfo> | null = null
+  private readonly retrievalQueryService = new RetrievalQueryService()
+  private readonly workerClient = new MemoryWorkerClient(
+    new MemoryWorkerRuntime(this.retrievalQueryService)
+  )
+
+  async initializeSettings(): Promise<void> {
+    await this.ensureSettingsLoaded()
+  }
 
   async initialize(): Promise<void> {
+    await this.ensureInitialized('manual')
+  }
+
+  private async ensureSettingsLoaded(): Promise<void> {
+    if (this.settingsLoaded) {
+      return
+    }
+
+    if (!this.settingsPromise) {
+      this.settingsPromise = this.loadSettings().then((settings) => {
+        this.settings = settings
+        this.settingsLoaded = true
+      })
+    }
+
+    await this.settingsPromise
+  }
+
+  private async ensureInitialized(
+    trigger:
+      | 'manual'
+      | 'memory-ipc'
+      | 'memory-status'
+      | 'memory-local-models'
+      | 'chat-world-retrieval'
+      | 'chat-memory-retrieval'
+      | 'memory-hardware'
+      | 'memory-build'
+      | 'memory-debug'
+      | 'memory-embedding'
+  ): Promise<void> {
     if (this.initialized) {
       return
     }
 
-    this.settings = await this.loadSettings()
-    this.db = new DatabaseSync(getMemoryDatabasePath())
-    this.prepareDatabase()
+    await this.ensureSettingsLoaded()
 
-    try {
-      await this.ensureWorldBundleReady()
-    } catch (error) {
-      this.worldBundleError = error instanceof Error ? error.message : String(error)
-      void logger.error(
-        'memory',
-        'world-bundle-initialize-failed',
-        'Failed to prepare world bundle during initialization',
-        {
-          error: this.worldBundleError
+    if (!this.initializationPromise) {
+      const startedAt = Date.now()
+      void logger.info('memory', 'lazy-init-started', 'Starting lazy memory initialization', {
+        trigger,
+        retrievalMode: this.settings.retrievalMode
+      })
+
+      this.initializationPromise = (async () => {
+        this.db = new DatabaseSync(getMemoryDatabasePath())
+        this.repository = new MemoryIndexRepository(this.db)
+        this.repository.prepareDatabase()
+
+        try {
+          const worldBootstrapStartedAt = Date.now()
+          await this.ensureWorldBundleReady()
+          void logger.info(
+            'memory',
+            'world-bundle-ready',
+            'World bundle prepared during lazy memory initialization',
+            {
+              durationMs: Date.now() - worldBootstrapStartedAt,
+              worldUpdatedAt: this.worldUpdatedAt
+            }
+          )
+        } catch (error) {
+          this.worldBundleError = error instanceof Error ? error.message : String(error)
+          void logger.error(
+            'memory',
+            'world-bundle-initialize-failed',
+            'Failed to prepare world bundle during lazy memory initialization',
+            {
+              trigger,
+              error: this.worldBundleError
+            }
+          )
         }
-      )
+
+        this.worldEntries = await this.loadWorldEntries()
+        this.initialized = true
+        void logger.info('memory', 'lazy-init-completed', 'Lazy memory initialization completed', {
+          trigger,
+          retrievalMode: this.settings.retrievalMode,
+          durationMs: Date.now() - startedAt,
+          worldEntryCount: this.worldEntries.length,
+          worldUpdatedAt: this.worldUpdatedAt
+        })
+      })().catch((error) => {
+        this.initializationPromise = null
+        throw error
+      })
     }
 
-    this.worldEntries = await this.loadWorldEntries()
-    this.initialized = true
-    void logger.info('memory', 'initialized', 'Memory service initialized', {
-      retrievalMode: this.settings.retrievalMode,
-      worldEntryCount: this.worldEntries.length,
-      worldUpdatedAt: this.worldUpdatedAt
-    })
+    await this.initializationPromise
   }
 
   setSessions(sessions: ConversationSession[]): void {
     this.sessions = sessions
+  }
+
+  syncSessions(sessions: ConversationSession[]): void {
+    this.setSessions(sessions)
   }
 
   getSettings(): MemorySettingsStore {
@@ -146,8 +228,17 @@ export class MemoryService {
   }
 
   async saveSettings(store: MemorySettingsStore): Promise<MemorySettingsStore> {
+    await this.ensureSettingsLoaded()
+    const previousSettings = this.settings
     this.settings = normalizeMemorySettingsStore(store)
     await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+
+    this.settingsLoaded = true
+
+    if (this.shouldClearLocalEmbeddingPipelines(previousSettings, this.settings)) {
+      await this.clearLocalEmbeddingPipelines()
+    }
+
     void logger.info('memory', 'settings-saved', 'Memory settings saved', {
       retrievalMode: this.settings.retrievalMode,
       worldSearchEnabled: this.settings.worldSearchEnabled,
@@ -158,11 +249,13 @@ export class MemoryService {
   }
 
   async listLocalModels(): Promise<LocalEmbeddingCatalogItem[]> {
+    await this.ensureInitialized('memory-local-models')
     const { listLocalEmbeddingModels } = await this.getLocalEmbeddingModule()
     return listLocalEmbeddingModels(this.settings.localEmbedding.model)
   }
 
   async downloadLocalModel(modelId: string): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'local-model-download',
       'character-memory',
@@ -194,6 +287,7 @@ export class MemoryService {
             }
           })
           await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+          this.settingsLoaded = true
         }
       },
       modelId
@@ -201,6 +295,7 @@ export class MemoryService {
   }
 
   async selectLocalModel(modelId: string): Promise<MemorySettingsStore> {
+    await this.ensureInitialized('memory-local-models')
     const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const installedModel = await getInstalledLocalEmbeddingModel(modelId)
     if (!installedModel) {
@@ -217,10 +312,13 @@ export class MemoryService {
       }
     })
     await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+    this.settingsLoaded = true
+    await this.clearLocalEmbeddingPipelines()
     return this.settings
   }
 
   async removeLocalModel(modelId: string): Promise<boolean> {
+    await this.ensureInitialized('memory-local-models')
     const { removeLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const removed = await removeLocalEmbeddingModel(modelId)
     if (!removed) {
@@ -236,12 +334,15 @@ export class MemoryService {
         }
       })
       await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+      this.settingsLoaded = true
     }
 
+    await this.clearLocalEmbeddingPipelines()
     return true
   }
 
   async testEmbeddingConnection(): Promise<EmbeddingConnectionTestResult> {
+    await this.ensureInitialized('memory-embedding')
     const startedAt = Date.now()
     void logger.info('memory', 'embedding-test-started', 'Embedding connection test started', {
       retrievalMode: this.settings.retrievalMode
@@ -267,11 +368,31 @@ export class MemoryService {
     }
   }
 
-  getEmbeddingCompatibility(characterId?: string | null): EmbeddingCompatibilityStatus[] {
-    return [this.getWorldCompatibility(), this.getMemoryCompatibility(characterId || null)]
+  /**
+   * @description 获取当前 world 与角色记忆索引和所选目标之间的 embedding 兼容性快照。
+   * @param selection 当前查看的角色 / 会话目标；非跨会话模式下会优先按 `sessionId` 解析。
+   * @returns world 与角色记忆两个 scope 的兼容性结果。
+   */
+  async getEmbeddingCompatibility(
+    selection?: MemoryTargetSelection | null
+  ): Promise<EmbeddingCompatibilityStatus[]> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildEmbeddingCompatibility(selection)
   }
 
-  getWorldIndexStatus(): WorldIndexStatus {
+  /**
+   * @description 构造当前所选 memory 目标对应的兼容性列表。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns world 与角色记忆的兼容性数组。
+   */
+  private buildEmbeddingCompatibility(
+    selection?: MemoryTargetSelection | null
+  ): EmbeddingCompatibilityStatus[] {
+    const resolvedTarget = this.resolveMemoryTarget(selection)
+    return [this.getWorldCompatibility(), this.getMemoryCompatibility(resolvedTarget)]
+  }
+
+  private buildWorldIndexStatus(): WorldIndexStatus {
     const manifest = this.getManifest(WORLD_SCOPE)
     const compatibility = this.getWorldCompatibility()
     const availability = this.getWorldAvailability(manifest, compatibility)
@@ -288,33 +409,67 @@ export class MemoryService {
     }
   }
 
-  getMemoryIndexStatus(characterId?: string | null): CharacterMemoryIndexStatus {
-    const manifest = this.getManifest(MEMORY_SCOPE, characterId || null)
-    const compatibility = this.getMemoryCompatibility(characterId || null)
+  async getWorldIndexStatus(): Promise<WorldIndexStatus> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildWorldIndexStatus()
+  }
+
+  /**
+   * @description 基于当前 memory 选择目标构造角色记忆索引状态，用于设置页展示与调试。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 与解析后目标一致的角色记忆索引状态。
+   */
+  private buildMemoryIndexStatus(
+    selection?: MemoryTargetSelection | null
+  ): CharacterMemoryIndexStatus {
+    const resolvedTarget = this.resolveMemoryTarget(selection)
+    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
+    const compatibility = this.getMemoryCompatibility(resolvedTarget)
     const availability = this.getMemoryAvailability(manifest, compatibility)
     return {
       scope: MEMORY_SCOPE,
-      characterId: characterId || null,
+      characterId: resolvedTarget.characterId,
+      targetCharacterId: resolvedTarget.characterId,
+      targetSessionId: resolvedTarget.sessionId,
       availability,
       runtimeMode: this.getRuntimeMode(availability),
-      entryCount: manifest?.entryCount || this.countMemoryEntries(characterId || null),
+      entryCount: manifest?.entryCount || this.countMemoryEntries(resolvedTarget),
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null
     }
   }
 
-  async getStatus(characterId?: string | null): Promise<MemoryStatusSnapshot> {
+  /**
+   * @description 读取当前 memory 选择目标对应的角色记忆索引状态。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 角色记忆索引状态。
+   */
+  async getMemoryIndexStatus(
+    selection?: MemoryTargetSelection | null
+  ): Promise<CharacterMemoryIndexStatus> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildMemoryIndexStatus(selection)
+  }
+
+  /**
+   * @description 读取 Memory 设置页需要的状态快照，并按当前选择目标解析角色记忆索引状态。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 包含设置、索引、任务和硬件信息的完整快照。
+   */
+  async getStatus(selection?: MemoryTargetSelection | null): Promise<MemoryStatusSnapshot> {
+    await this.ensureInitialized('memory-status')
     return {
       settings: this.settings,
-      worldIndex: this.getWorldIndexStatus(),
-      memoryIndex: this.getMemoryIndexStatus(characterId),
+      worldIndex: this.buildWorldIndexStatus(),
+      memoryIndex: this.buildMemoryIndexStatus(selection),
       tasks: this.getTasks(),
       hardware: await this.getHardwareInfo()
     }
   }
 
   private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
+    await this.ensureInitialized('memory-hardware')
     if (!this.hardwareInfoPromise) {
       this.hardwareInfoPromise = readMemoryHardwareInfo().catch((error) => {
         void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
@@ -334,82 +489,126 @@ export class MemoryService {
   }
 
   async startWorldBundleDownload(): Promise<MemoryTask> {
-    return this.runTask('world-bundle-download', 'world', async (taskId, updateTask) => {
-      updateTask(taskId, {
-        progress: 10,
-        message: 'Checking local world update time'
-      })
-      const localUpdatedAt = await this.getLocalWorldUpdatedAt()
+    await this.ensureInitialized('memory-build')
+    return this.runTask(
+      'world-bundle-download',
+      'world',
+      async (taskId, updateTask, taskControl) => {
+        taskControl.throwIfCancelled()
+        updateTask(taskId, {
+          progress: 10,
+          message: 'Checking local world update time'
+        })
+        const localUpdatedAt = await this.getLocalWorldUpdatedAt()
+        taskControl.throwIfCancelled()
 
-      updateTask(taskId, {
-        progress: 25,
-        message: 'Fetching remote world update time'
-      })
-      const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt()
+        updateTask(taskId, {
+          progress: 25,
+          message: 'Fetching remote world update time'
+        })
+        const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt(taskControl.controller.signal)
+        taskControl.throwIfCancelled()
 
-      if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
-        this.worldUpdatedAt = localUpdatedAt
-        this.worldBundleError = null
+        if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
+          this.worldUpdatedAt = localUpdatedAt
+          this.worldBundleError = null
+          this.worldEntries = await this.loadWorldEntries()
+          updateTask(taskId, {
+            progress: 100,
+            message: `World bundle is already up to date (${localUpdatedAt}).`
+          })
+          return
+        }
+
+        updateTask(taskId, {
+          progress: 45,
+          message: 'Downloading latest world bundle archive'
+        })
+        const installedVersion = await this.downloadAndInstallWorldBundle(
+          remoteUpdatedAt,
+          taskControl.controller.signal,
+          taskControl.throwIfCancelled
+        )
+        taskControl.throwIfCancelled()
+
+        updateTask(taskId, {
+          progress: 90,
+          message: 'Reloading local world bundle content'
+        })
         this.worldEntries = await this.loadWorldEntries()
+        taskControl.throwIfCancelled()
+        this.worldBundleError = null
         updateTask(taskId, {
           progress: 100,
-          message: `World bundle is already up to date (${localUpdatedAt}).`
+          message: `World bundle updated to ${installedVersion}. Rebuild world vectors if you use vector retrieval.`
         })
-        return
       }
-
-      updateTask(taskId, {
-        progress: 45,
-        message: 'Downloading latest world bundle archive'
-      })
-      const installedVersion = await this.downloadAndInstallWorldBundle(remoteUpdatedAt)
-
-      updateTask(taskId, {
-        progress: 90,
-        message: 'Reloading local world bundle content'
-      })
-      this.worldEntries = await this.loadWorldEntries()
-      this.worldBundleError = null
-      updateTask(taskId, {
-        progress: 100,
-        message: `World bundle updated to ${installedVersion}. Rebuild world vectors if you use vector retrieval.`
-      })
-    })
+    )
   }
 
   async startWorldVectorBuild(): Promise<MemoryTask> {
-    return this.runTask('world-vector-build', 'world', async (taskId, updateTask) => {
+    await this.ensureInitialized('memory-build')
+    return this.runTask('world-vector-build', 'world', async (taskId, updateTask, taskControl) => {
       const provider = await this.requireVectorEmbeddingProvider()
+      taskControl.throwIfCancelled()
       updateTask(taskId, { progress: 10, message: 'Scanning world markdown files' })
       this.worldEntries = await this.loadWorldEntries()
+      taskControl.throwIfCancelled()
       const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+      taskControl.throwIfCancelled()
       updateTask(taskId, {
         progress: 25,
         message: runtimeMessage
           ? `Generating world embeddings (${runtimeMessage})`
           : 'Generating world embeddings'
       })
-      const vectors = await provider.embedDocuments(this.worldEntries.map((entry) => entry.text))
-      const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
+      const buildResult = await this.workerClient.buildVectorIndex({
+        type: 'build-world-vectors',
+        entries: this.worldEntries,
+        provider,
+        createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+        embedOptions: {
+          abortSignal: taskControl.controller.signal,
+          throwIfAborted: taskControl.throwIfCancelled,
+          onProgress: (progress) => {
+            updateTask(taskId, {
+              progress: this.mapEmbeddingProgress(progress, 25, 70),
+              message: runtimeMessage
+                ? `Generating world embeddings (${runtimeMessage})`
+                : 'Generating world embeddings'
+            })
+          }
+        }
+      })
+      taskControl.throwIfCancelled()
       updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
-      this.saveWorldVectors(this.worldEntries, vectors, fingerprint)
+      taskControl.throwIfCancelled()
+      this.saveWorldVectors(
+        this.worldEntries,
+        buildResult.data.vectors,
+        buildResult.data.fingerprint
+      )
       updateTask(taskId, { progress: 100, message: 'World vector index built successfully' })
     })
   }
 
   async startCharacterMemoryBuild(characterId: string): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'character-memory-build',
       'character-memory',
-      async (taskId, updateTask) => {
+      async (taskId, updateTask, taskControl) => {
         const provider = await this.requireVectorEmbeddingProvider()
+        taskControl.throwIfCancelled()
         updateTask(taskId, {
           progress: 15,
           message: 'Collecting current character memory',
           characterId
         })
         const entries = this.buildCharacterMemoryEntries(characterId)
+        taskControl.throwIfCancelled()
         const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+        taskControl.throwIfCancelled()
         updateTask(taskId, {
           progress: 45,
           message: runtimeMessage
@@ -417,14 +616,38 @@ export class MemoryService {
             : 'Generating character memory embeddings',
           characterId
         })
-        const vectors = await provider.embedDocuments(entries.map((entry) => entry.text))
-        const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
+        const buildResult = await this.workerClient.buildVectorIndex({
+          type: 'build-character-memory-vectors',
+          entries,
+          provider,
+          createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+          embedOptions: {
+            abortSignal: taskControl.controller.signal,
+            throwIfAborted: taskControl.throwIfCancelled,
+            onProgress: (progress) => {
+              updateTask(taskId, {
+                progress: this.mapEmbeddingProgress(progress, 45, 80),
+                message: runtimeMessage
+                  ? `Generating character memory embeddings (${runtimeMessage})`
+                  : 'Generating character memory embeddings',
+                characterId
+              })
+            }
+          }
+        })
+        taskControl.throwIfCancelled()
         updateTask(taskId, {
           progress: 80,
           message: 'Writing character memory index',
           characterId
         })
-        this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
+        taskControl.throwIfCancelled()
+        this.saveCharacterMemoryVectors(
+          characterId,
+          entries,
+          buildResult.data.vectors,
+          buildResult.data.fingerprint
+        )
         updateTask(taskId, {
           progress: 100,
           message: 'Current character memory rebuilt',
@@ -436,33 +659,64 @@ export class MemoryService {
   }
 
   async startAllMemoryBuild(): Promise<MemoryTask> {
-    return this.runTask('all-memory-build', 'character-memory', async (taskId, updateTask) => {
-      const provider = await this.requireVectorEmbeddingProvider()
-      const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
-      let lastDimensions: number | undefined
-      const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+    await this.ensureInitialized('memory-build')
+    return this.runTask(
+      'all-memory-build',
+      'character-memory',
+      async (taskId, updateTask, taskControl) => {
+        const provider = await this.requireVectorEmbeddingProvider()
+        const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
+        const runtimeMessage = await this.describeEmbeddingRuntime(provider)
 
-      for (let index = 0; index < characterIds.length; index += 1) {
-        const characterId = characterIds[index]
+        for (let index = 0; index < characterIds.length; index += 1) {
+          taskControl.throwIfCancelled()
+          const characterId = characterIds[index]
+          updateTask(taskId, {
+            progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
+            message: runtimeMessage
+              ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+              : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+            characterId
+          })
+          const entries = this.buildCharacterMemoryEntries(characterId)
+          const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
+          const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
+          const buildResult = await this.workerClient.buildVectorIndex({
+            type: 'build-character-memory-vectors',
+            entries,
+            provider,
+            createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+            embedOptions: {
+              abortSignal: taskControl.controller.signal,
+              throwIfAborted: taskControl.throwIfCancelled,
+              onProgress: (progress) => {
+                updateTask(taskId, {
+                  progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
+                  message: runtimeMessage
+                    ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+                    : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+                  characterId
+                })
+              }
+            }
+          })
+          taskControl.throwIfCancelled()
+          const fingerprint = buildResult.data.fingerprint
+          taskControl.throwIfCancelled()
+          this.saveCharacterMemoryVectors(
+            characterId,
+            entries,
+            buildResult.data.vectors,
+            fingerprint
+          )
+        }
+
         updateTask(taskId, {
-          progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
-          message: runtimeMessage
-            ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
-            : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
-          characterId
+          progress: 100,
+          message: 'All character memory indices rebuilt'
         })
-        const entries = this.buildCharacterMemoryEntries(characterId)
-        const vectors = await provider.embedDocuments(entries.map((entry) => entry.text))
-        lastDimensions = vectors[0]?.length || lastDimensions
-        const fingerprint = await this.createActiveEmbeddingFingerprint(lastDimensions)
-        this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
       }
-
-      updateTask(taskId, {
-        progress: 100,
-        message: 'All character memory indices rebuilt'
-      })
-    })
+    )
   }
 
   cancelTask(taskId: string): boolean {
@@ -470,6 +724,8 @@ export class MemoryService {
     if (!task || task.status === 'completed' || task.status === 'failed') {
       return false
     }
+
+    this.taskCancellationStates.get(taskId)?.controller.abort()
 
     const nextTask = {
       ...task,
@@ -483,16 +739,45 @@ export class MemoryService {
   }
 
   async retrieveWorldContext(query: string): Promise<string[]> {
+    await this.ensureInitialized('chat-world-retrieval')
     const result = await this.retrieveWorldDebugHits(query)
     return result.hits.map((hit) => hit.text)
   }
 
   async retrieveMemoryContext(query: string, session: ConversationSession): Promise<string[]> {
+    await this.ensureInitialized('chat-memory-retrieval')
     const result = await this.retrieveMemoryDebugHits(query, session)
     return result.hits.map((hit) => hit.text)
   }
 
+  /**
+   * @description 预览聊天请求将携带的检索上下文，按 world 与角色记忆拆分返回。
+   * @param query 当前模拟用户输入。
+   * @param session 当前将用于记忆检索的会话；为空时仅返回 world 命中与记忆回退信息。
+   * @returns 拆分后的检索命中列表与对应运行时摘要。
+   */
+  async previewPromptContext(
+    query: string,
+    session: ConversationSession | null
+  ): Promise<PromptContextPreviewResult> {
+    await this.ensureInitialized('memory-debug')
+    const normalizedQuery = query.trim()
+    const worldResult = await this.retrieveWorldDebugHits(normalizedQuery)
+    const memoryResult = await this.retrieveMemoryDebugHits(normalizedQuery, session)
+
+    return {
+      worldHits: worldResult.hits,
+      memoryHits: memoryResult.hits,
+      runtimeSummary: {
+        requestedMode: this.settings.retrievalMode,
+        world: this.buildWorldRuntimeSummary(worldResult),
+        memory: this.buildMemoryRuntimeSummary(memoryResult, session)
+      }
+    }
+  }
+
   async debugRetrieve(request: MemoryDebugRetrieveRequest): Promise<MemoryDebugRetrieveResult> {
+    await this.ensureInitialized('memory-debug')
     const query = request.query.trim()
     const scope = request.scope
     const session = this.resolveDebugSession(request.characterId || null, request.sessionId || null)
@@ -500,7 +785,7 @@ export class MemoryService {
       scope === 'character-memory'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(this.getWorldIndexStatus().availability),
+            runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
             fallbackReason: 'World retrieval was not requested.'
           }
         : await this.retrieveWorldDebugHits(query)
@@ -509,7 +794,14 @@ export class MemoryService {
         ? {
             hits: [],
             runtimeModeUsed: this.getRuntimeMode(
-              this.getMemoryIndexStatus(session?.characterId || null).availability
+              this.buildMemoryIndexStatus(
+                session
+                  ? {
+                      characterId: session.characterId,
+                      sessionId: session.id
+                    }
+                  : null
+              ).availability
             ),
             fallbackReason: 'Character memory retrieval was not requested.'
           }
@@ -531,6 +823,22 @@ export class MemoryService {
     return this.settings.recentMessageCount
   }
 
+  private mapEmbeddingProgress(
+    progress: EmbeddingBatchProgress,
+    stageStart: number,
+    stageEnd: number
+  ): number {
+    if (progress.total <= 0) {
+      return stageEnd
+    }
+
+    const ratio = Math.max(0, Math.min(progress.completed / progress.total, 1))
+    return Math.max(
+      stageStart,
+      Math.min(stageEnd, Math.round(stageStart + (stageEnd - stageStart) * ratio))
+    )
+  }
+
   private async describeEmbeddingRuntime(provider: EmbeddingProvider): Promise<string | null> {
     const runtime = await provider.prepare?.()
     if (!runtime) {
@@ -544,68 +852,12 @@ export class MemoryService {
     return runtime.actualDevice === 'gpu' ? 'Using GPU for this build' : 'Using CPU for this build'
   }
 
-  private getDatabase(): DatabaseSync {
-    if (!this.db) {
-      throw new Error('Memory database is not initialized')
+  private getRepository(): MemoryIndexRepository {
+    if (!this.repository) {
+      throw new Error('Memory index repository is not initialized')
     }
 
-    return this.db
-  }
-
-  private prepareDatabase(): void {
-    const db = this.getDatabase()
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS world_chunks (
-        id TEXT PRIMARY KEY,
-        source_path TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS world_embeddings (
-        chunk_id TEXT PRIMARY KEY,
-        vector_json TEXT NOT NULL,
-        fingerprint_key TEXT NOT NULL,
-        built_at TEXT NOT NULL,
-        FOREIGN KEY (chunk_id) REFERENCES world_chunks(id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS memory_entries (
-        id TEXT PRIMARY KEY,
-        character_id TEXT,
-        session_id TEXT,
-        source_type TEXT NOT NULL,
-        text TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS memory_embeddings (
-        entry_id TEXT PRIMARY KEY,
-        vector_json TEXT NOT NULL,
-        fingerprint_key TEXT NOT NULL,
-        built_at TEXT NOT NULL,
-        FOREIGN KEY (entry_id) REFERENCES memory_entries(id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS index_manifests (
-        scope TEXT NOT NULL,
-        target_id TEXT,
-        fingerprint_key TEXT NOT NULL,
-        fingerprint_json TEXT NOT NULL,
-        status TEXT NOT NULL,
-        entry_count INTEGER NOT NULL,
-        data_version TEXT,
-        built_at TEXT,
-        message TEXT,
-        PRIMARY KEY (scope, target_id)
-      );
-    `)
-
-    const manifestColumns = db.prepare('PRAGMA table_info(index_manifests)').all() as {
-      name: string
-    }[]
-    if (!manifestColumns.some((column) => column.name === 'data_version')) {
-      db.exec('ALTER TABLE index_manifests ADD COLUMN data_version TEXT')
-    }
-
-    this.normalizeLegacyManifestRows()
+    return this.repository
   }
 
   private async loadSettings(): Promise<MemorySettingsStore> {
@@ -652,10 +904,11 @@ export class MemoryService {
     return this.normalizeWorldVersion(metadata?.updatedAt)
   }
 
-  private async fetchRemoteWorldUpdatedAt(): Promise<string> {
+  private async fetchRemoteWorldUpdatedAt(signal?: AbortSignal): Promise<string> {
     const response = await this.fetchWorldResource(
       WORLD_BUNDLE_REPO_URL,
-      'fetch world repo metadata'
+      'fetch world repo metadata',
+      signal
     )
     const payload = (await response.json()) as { pushed_at?: unknown }
     const updatedAt =
@@ -667,7 +920,11 @@ export class MemoryService {
     return updatedAt
   }
 
-  private async downloadAndInstallWorldBundle(updatedAt: string): Promise<string> {
+  private async downloadAndInstallWorldBundle(
+    updatedAt: string,
+    signal?: AbortSignal,
+    throwIfCancelled?: () => void
+  ): Promise<string> {
     const tempRoot = join(getAppDataRoot(), 'tmp', `world-bundle-${randomUUID()}`)
     const archivePath = join(tempRoot, 'world.zip')
     const extractRoot = join(tempRoot, 'extracted')
@@ -678,15 +935,20 @@ export class MemoryService {
     await mkdir(extractRoot, { recursive: true })
 
     try {
+      throwIfCancelled?.()
       const response = await this.fetchWorldResource(
         WORLD_BUNDLE_ZIP_URL,
-        'download world bundle archive'
+        'download world bundle archive',
+        signal
       )
+      throwIfCancelled?.()
       const archiveBuffer = Buffer.from(await response.arrayBuffer())
+      throwIfCancelled?.()
       await writeFile(archivePath, archiveBuffer)
 
       const zip = new AdmZip(archivePath)
       zip.extractAllTo(extractRoot, true)
+      throwIfCancelled?.()
 
       const bundleRoot = await this.findWorldBundleRoot(extractRoot)
       if (!bundleRoot) {
@@ -694,14 +956,18 @@ export class MemoryService {
       }
 
       await rename(bundleRoot, stagedWorldRoot)
+      throwIfCancelled?.()
       await this.replaceWorldDirectory(stagedWorldRoot, targetRoot, backupRoot)
+      throwIfCancelled?.()
       await this.writeWorldBundleMetadata(updatedAt)
 
       this.worldUpdatedAt = updatedAt
       this.worldBundleError = null
       return updatedAt
     } catch (error) {
-      this.worldBundleError = error instanceof Error ? error.message : String(error)
+      if (!(error instanceof MemoryTaskCancelledError)) {
+        this.worldBundleError = error instanceof Error ? error.message : String(error)
+      }
       throw error
     } finally {
       await rm(tempRoot, { recursive: true, force: true })
@@ -790,15 +1056,22 @@ export class MemoryService {
     } satisfies WorldBundleMetadata)
   }
 
-  private async fetchWorldResource(url: string, action: string): Promise<Response> {
+  private async fetchWorldResource(
+    url: string,
+    action: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
     try {
-      const response = await fetch(url)
+      const response = await fetch(url, { signal })
       if (!response.ok) {
         throw new Error(`${action} failed (${response.status} ${response.statusText})`)
       }
 
       return response
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new MemoryTaskCancelledError()
+      }
       const reason = error instanceof Error ? error.message : String(error)
       throw new Error(`${action} failed for ${url}: ${reason}`)
     }
@@ -817,23 +1090,12 @@ export class MemoryService {
     query: string,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    return this.worldEntries
-      .map((entry) => ({
-        entry,
-        score: scoreTextMatch(query, `${entry.sourcePath || ''}\n${entry.text}`)
-      }))
-      .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.worldTopK)
-      .map((item, index) => ({
-        id: item.entry.id,
-        scope: WORLD_SCOPE,
-        text: item.entry.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: runtimeModeUsed,
-        sourcePath: item.entry.sourcePath || null
-      }))
+    return this.retrievalQueryService.buildWorldStringHits(
+      query,
+      this.worldEntries,
+      this.settings.worldTopK,
+      runtimeModeUsed
+    )
   }
 
   private buildMemoryStringHits(
@@ -841,65 +1103,30 @@ export class MemoryService {
     session: ConversationSession,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    const entries = this.getMemoryEntriesForSession(session)
-
-    return entries
-      .map((entry) => ({
-        entry,
-        score: scoreTextMatch(query, entry.text)
-      }))
-      .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.memoryTopK)
-      .map((item, index) => ({
-        id: item.entry.id,
-        scope: MEMORY_SCOPE,
-        text: item.entry.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: runtimeModeUsed,
-        sessionId: item.entry.sessionId || null,
-        characterId: item.entry.characterId || null
-      }))
+    return this.retrievalQueryService.buildMemoryStringHits(
+      query,
+      this.getMemoryEntriesForSession(session),
+      this.settings.memoryTopK,
+      runtimeModeUsed
+    )
   }
 
   private async buildWorldVectorHits(query: string): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
-    const queryVector = await provider.embedQuery(query)
     const manifest = this.getManifest(WORLD_SCOPE)
     if (!manifest) {
       return []
     }
 
-    const rows = this.getDatabase()
-      .prepare(
-        `
-          SELECT world_chunks.id AS id, world_chunks.text AS text, world_chunks.source_path AS sourcePath, world_embeddings.vector_json AS vectorJson
-          FROM world_chunks
-          INNER JOIN world_embeddings ON world_embeddings.chunk_id = world_chunks.id
-          WHERE world_embeddings.fingerprint_key = ?
-        `
-      )
-      .all(manifest.fingerprintKey) as SearchRow[]
+    const response = await this.workerClient.retrieveWorldVectorHits({
+      type: 'retrieve-world-vectors',
+      query,
+      provider,
+      rows: this.getRepository().getWorldVectorRows(manifest.fingerprintKey),
+      topK: this.settings.worldTopK
+    })
 
-    return rows
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        sourcePath: row.sourcePath || null,
-        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
-      }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.worldTopK)
-      .map((item, index) => ({
-        id: item.id,
-        scope: WORLD_SCOPE,
-        text: item.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: 'vector',
-        sourcePath: item.sourcePath
-      }))
+    return response.data
   }
 
   private async buildMemoryVectorHits(
@@ -907,47 +1134,25 @@ export class MemoryService {
     session: ConversationSession
   ): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
-    const queryVector = await provider.embedQuery(query)
     const targetId = this.settings.crossSessionCharacterMemory ? session.characterId : session.id
     const manifest = this.getManifest(MEMORY_SCOPE, targetId)
     if (!manifest) {
       return []
     }
 
-    const whereClause = this.settings.crossSessionCharacterMemory
-      ? 'character_id = ?'
-      : 'session_id = ?'
-    const rows = this.getDatabase()
-      .prepare(
-        `
-          SELECT memory_entries.id AS id, memory_entries.text AS text, memory_entries.session_id AS sessionId, memory_entries.character_id AS characterId, memory_embeddings.vector_json AS vectorJson
-          FROM memory_entries
-          INNER JOIN memory_embeddings ON memory_embeddings.entry_id = memory_entries.id
-          WHERE memory_embeddings.fingerprint_key = ? AND ${whereClause}
-        `
-      )
-      .all(manifest.fingerprintKey, targetId) as SearchRow[]
+    const response = await this.workerClient.retrieveMemoryVectorHits({
+      type: 'retrieve-memory-vectors',
+      query,
+      provider,
+      rows: this.getRepository().getMemoryVectorRows(
+        manifest.fingerprintKey,
+        targetId,
+        this.settings.crossSessionCharacterMemory
+      ),
+      topK: this.settings.memoryTopK
+    })
 
-    return rows
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        sessionId: row.sessionId || null,
-        characterId: row.characterId || null,
-        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
-      }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.memoryTopK)
-      .map((item, index) => ({
-        id: item.id,
-        scope: MEMORY_SCOPE,
-        text: item.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: 'vector',
-        sessionId: item.sessionId,
-        characterId: item.characterId
-      }))
+    return response.data
   }
 
   private buildCharacterMemoryEntries(characterId: string): MemoryEntry[] {
@@ -994,57 +1199,7 @@ export class MemoryService {
     vectors: number[][],
     fingerprint: EmbeddingFingerprint
   ): void {
-    const db = this.getDatabase()
-    const key = getEmbeddingFingerprintKey(fingerprint)
-    const insertChunk = db.prepare(
-      'INSERT OR REPLACE INTO world_chunks (id, source_path, chunk_index, text, updated_at) VALUES (?, ?, ?, ?, ?)'
-    )
-    const insertEmbedding = db.prepare(
-      'INSERT OR REPLACE INTO world_embeddings (chunk_id, vector_json, fingerprint_key, built_at) VALUES (?, ?, ?, ?)'
-    )
-
-    db.exec('BEGIN')
-    try {
-      db.prepare('DELETE FROM world_embeddings').run()
-      db.prepare('DELETE FROM world_chunks').run()
-
-      entries.forEach((entry, index) => {
-        insertChunk.run(
-          entry.id,
-          entry.sourcePath || '',
-          entry.chunkIndex || 0,
-          entry.text,
-          entry.updatedAt
-        )
-        insertEmbedding.run(entry.id, JSON.stringify(vectors[index] || []), key, now())
-      })
-
-      this.saveManifest({
-        scope: WORLD_SCOPE,
-        targetId: null,
-        fingerprintKey: key,
-        status: 'ready',
-        entryCount: entries.length,
-        builtAt: now(),
-        message: 'World vector index is ready',
-        fingerprint
-      })
-
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      this.saveManifest({
-        scope: WORLD_SCOPE,
-        targetId: null,
-        fingerprintKey: key,
-        status: 'failed',
-        entryCount: 0,
-        builtAt: now(),
-        message: error instanceof Error ? error.message : String(error),
-        fingerprint
-      })
-      throw error
-    }
+    this.getRepository().saveWorldVectors(entries, vectors, fingerprint)
   }
 
   private saveCharacterMemoryVectors(
@@ -1053,157 +1208,20 @@ export class MemoryService {
     vectors: number[][],
     fingerprint: EmbeddingFingerprint
   ): void {
-    const db = this.getDatabase()
-    const key = getEmbeddingFingerprintKey(fingerprint)
-    const insertEntry = db.prepare(
-      'INSERT OR REPLACE INTO memory_entries (id, character_id, session_id, source_type, text, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-    const insertEmbedding = db.prepare(
-      'INSERT OR REPLACE INTO memory_embeddings (entry_id, vector_json, fingerprint_key, built_at) VALUES (?, ?, ?, ?)'
-    )
-
-    db.exec('BEGIN')
-    try {
-      db.prepare(
-        `
-          DELETE FROM memory_embeddings
-          WHERE entry_id IN (
-            SELECT id FROM memory_entries WHERE character_id = ?
-          )
-        `
-      ).run(characterId)
-      db.prepare('DELETE FROM memory_entries WHERE character_id = ?').run(characterId)
-
-      entries.forEach((entry, index) => {
-        insertEntry.run(
-          entry.id,
-          entry.characterId || null,
-          entry.sessionId || null,
-          entry.sourceType,
-          entry.text,
-          entry.updatedAt
-        )
-        insertEmbedding.run(entry.id, JSON.stringify(vectors[index] || []), key, now())
-      })
-
-      this.saveManifest({
-        scope: MEMORY_SCOPE,
-        targetId: characterId,
-        fingerprintKey: key,
-        status: 'ready',
-        entryCount: entries.length,
-        builtAt: now(),
-        message: 'Character memory vector index is ready',
-        fingerprint
-      })
-
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      this.saveManifest({
-        scope: MEMORY_SCOPE,
-        targetId: characterId,
-        fingerprintKey: key,
-        status: 'failed',
-        entryCount: 0,
-        builtAt: now(),
-        message: error instanceof Error ? error.message : String(error),
-        fingerprint
-      })
-      throw error
-    }
-  }
-
-  private saveManifest(input: IndexManifestRecord & { fingerprint: EmbeddingFingerprint }): void {
-    const db = this.getDatabase()
-    db.prepare('DELETE FROM index_manifests WHERE scope = ? AND target_id IS ?').run(
-      input.scope,
-      input.targetId || null
-    )
-    db.prepare(
-      `
-        INSERT INTO index_manifests
-        (scope, target_id, fingerprint_key, fingerprint_json, status, entry_count, data_version, built_at, message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      input.scope,
-      input.targetId || null,
-      input.fingerprintKey,
-      JSON.stringify(input.fingerprint),
-      input.status,
-      input.entryCount,
-      input.dataVersion || null,
-      input.builtAt || null,
-      input.message || null
-    )
+    this.getRepository().saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
   }
 
   private getManifest(
     scope: 'world' | 'character-memory',
     targetId?: string | null
   ): IndexManifestRecord | null {
-    const row = this.getDatabase()
-      .prepare(
-        `
-          SELECT
-            scope,
-            target_id AS targetId,
-            fingerprint_key AS fingerprintKey,
-            status,
-            entry_count AS entryCount,
-            data_version AS dataVersion,
-            built_at AS builtAt,
-            message
-          FROM index_manifests
-          WHERE scope = ? AND target_id IS ?
-          ORDER BY built_at DESC, rowid DESC
-          LIMIT 1
-        `
-      )
-      .get(scope, targetId || null) as
-      | (IndexManifestRecord & { targetId?: string | null })
-      | undefined
-
-    return row || null
+    return this.getRepository().getManifest(scope, targetId)
   }
 
   private fingerprintFromManifest(
     manifest: IndexManifestRecord & { targetId?: string | null }
   ): EmbeddingFingerprint | null {
-    const row = this.getDatabase()
-      .prepare(
-        `
-          SELECT fingerprint_json AS fingerprintJson
-          FROM index_manifests
-          WHERE scope = ? AND target_id IS ?
-          ORDER BY built_at DESC, rowid DESC
-          LIMIT 1
-        `
-      )
-      .get(manifest.scope, manifest.targetId || null) as { fingerprintJson: string } | undefined
-
-    return row ? (JSON.parse(row.fingerprintJson) as EmbeddingFingerprint) : null
-  }
-
-  private normalizeLegacyManifestRows(): void {
-    const db = this.getDatabase()
-    db.exec(`
-      DELETE FROM index_manifests
-      WHERE rowid NOT IN (
-        SELECT rowid
-        FROM (
-          SELECT
-            rowid,
-            ROW_NUMBER() OVER (
-              PARTITION BY scope, target_id
-              ORDER BY built_at DESC, rowid DESC
-            ) AS row_number
-          FROM index_manifests
-        )
-        WHERE row_number = 1
-      )
-    `)
+    return this.getRepository().fingerprintFromManifest(manifest)
   }
 
   private getExpectedFingerprint(): EmbeddingFingerprint | null {
@@ -1243,9 +1261,15 @@ export class MemoryService {
     }
   }
 
-  private getMemoryCompatibility(characterId: string | null): EmbeddingCompatibilityStatus {
-    const targetId = characterId || null
-    const manifest = this.getManifest(MEMORY_SCOPE, targetId)
+  /**
+   * @description 计算当前解析出的角色记忆目标与激活 embedding 配置之间的兼容性。
+   * @param resolvedTarget 已解析出的 memory 目标。
+   * @returns 角色记忆索引兼容性结果。
+   */
+  private getMemoryCompatibility(
+    resolvedTarget: MemoryResolvedTarget
+  ): EmbeddingCompatibilityStatus {
+    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
     const compatible =
@@ -1253,7 +1277,7 @@ export class MemoryService {
 
     return {
       scope: MEMORY_SCOPE,
-      targetId,
+      targetId: resolvedTarget.targetId,
       compatible,
       expectedFingerprint: expected,
       activeFingerprint: active,
@@ -1390,9 +1414,12 @@ export class MemoryService {
       }
     }
 
-    const compatibility = this.getMemoryCompatibility(
-      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-    )
+    const compatibility = this.getMemoryCompatibility({
+      targetId: this.settings.crossSessionCharacterMemory ? session.characterId : session.id,
+      characterId: session.characterId,
+      sessionId: session.id,
+      session
+    })
     if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
       try {
         return {
@@ -1423,7 +1450,7 @@ export class MemoryService {
   }
 
   private buildWorldRuntimeSummary(result: RetrievalExecution): MemoryDebugRuntimeDetail {
-    const worldIndex = this.getWorldIndexStatus()
+    const worldIndex = this.buildWorldIndexStatus()
     return {
       scope: WORLD_SCOPE,
       enabled: this.settings.worldSearchEnabled,
@@ -1438,11 +1465,12 @@ export class MemoryService {
     result: RetrievalExecution,
     session: ConversationSession | null
   ): MemoryDebugRuntimeDetail {
-    const memoryIndex = this.getMemoryIndexStatus(
+    const memoryIndex = this.buildMemoryIndexStatus(
       session
-        ? this.settings.crossSessionCharacterMemory
-          ? session.characterId
-          : session.id
+        ? {
+            characterId: session.characterId,
+            sessionId: session.id
+          }
         : null
     )
     return {
@@ -1452,13 +1480,13 @@ export class MemoryService {
       retrievalModeUsed: result.runtimeModeUsed,
       resultCount: result.hits.length,
       fallbackReason: result.fallbackReason,
-      targetCharacterId: session?.characterId || null,
-      targetSessionId: session?.id || null
+      targetCharacterId: memoryIndex.targetCharacterId || null,
+      targetSessionId: memoryIndex.targetSessionId || null
     }
   }
 
   private getWorldCompatibilityReason(compatibility: EmbeddingCompatibilityStatus): string {
-    const worldIndex = this.getWorldIndexStatus()
+    const worldIndex = this.buildWorldIndexStatus()
     if (worldIndex.availability === 'missing') {
       return 'World vector index is missing, so the query fell back to keyword matching.'
     }
@@ -1481,9 +1509,10 @@ export class MemoryService {
     compatibility: EmbeddingCompatibilityStatus,
     session: ConversationSession
   ): string {
-    const memoryIndex = this.getMemoryIndexStatus(
-      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-    )
+    const memoryIndex = this.buildMemoryIndexStatus({
+      characterId: session.characterId,
+      sessionId: session.id
+    })
     if (memoryIndex.availability === 'missing') {
       return 'Character memory index is missing, so the query fell back to keyword matching.'
     }
@@ -1507,47 +1536,108 @@ export class MemoryService {
     return `Vector retrieval failed at runtime, so the query fell back to keyword matching. ${message}`
   }
 
-  private resolveDebugSession(
-    characterId: string | null,
-    sessionId: string | null
-  ): ConversationSession | null {
-    if (sessionId) {
-      const session = this.sessions.find((item) => item.id === sessionId)
-      if (session) {
-        return session
-      }
-    }
+  /**
+   * @description 按当前 memory 设置解析界面选中的角色 / 会话目标，统一角色聚合与单会话模式下的 target 语义。
+   * @param selection 设置页或调试页传入的角色 / 会话选择。
+   * @returns 已补齐真实 targetId、角色、会话与可用 session 的解析结果。
+   */
+  private resolveMemoryTarget(selection?: MemoryTargetSelection | null): MemoryResolvedTarget {
+    const requestedCharacterId = selection?.characterId || null
+    const requestedSessionId = selection?.sessionId || null
+    const selectedSession = requestedSessionId
+      ? this.sessions.find((item) => item.id === requestedSessionId) || null
+      : null
+    const session =
+      selectedSession &&
+      (!requestedCharacterId || selectedSession.characterId === requestedCharacterId)
+        ? selectedSession
+        : null
+    const characterId = requestedCharacterId || session?.characterId || null
+    const resolvedSession =
+      session ||
+      (this.settings.crossSessionCharacterMemory
+        ? this.resolveLatestSessionForCharacter(characterId)
+        : null)
+    const sessionId = session?.id || null
 
+    return {
+      targetId: this.settings.crossSessionCharacterMemory ? characterId : sessionId,
+      characterId,
+      sessionId,
+      session: resolvedSession
+    }
+  }
+
+  /**
+   * @description 查找指定角色最近更新的一条会话，供跨会话角色记忆模式下补全上下文目标。
+   * @param characterId 角色 ID。
+   * @returns 最近会话；若不存在则返回 `null`。
+   */
+  private resolveLatestSessionForCharacter(characterId: string | null): ConversationSession | null {
     if (!characterId) {
       return null
     }
 
-    const sessions = this.sessions
-      .filter((item) => item.characterId === characterId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    return sessions[0] || null
+    return (
+      this.sessions
+        .filter((item) => item.characterId === characterId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] || null
+    )
   }
 
-  private countMemoryEntries(characterId: string | null): number {
-    if (characterId) {
-      const field = this.settings.crossSessionCharacterMemory ? 'character_id' : 'session_id'
-      const result = this.getDatabase()
-        .prepare(`SELECT COUNT(*) AS count FROM memory_entries WHERE ${field} = ?`)
-        .get(characterId) as { count: number }
-      return result.count
+  private resolveDebugSession(
+    characterId: string | null,
+    sessionId: string | null
+  ): ConversationSession | null {
+    return this.resolveMemoryTarget({ characterId, sessionId }).session
+  }
+
+  /**
+   * @description 统计当前 memory 目标下可用于检索的记忆条目数。
+   * @param resolvedTarget 已解析出的 memory 目标。
+   * @returns 目标范围内的记忆条目数量。
+   */
+  private countMemoryEntries(resolvedTarget: MemoryResolvedTarget): number {
+    if (!resolvedTarget.targetId) {
+      return 0
     }
 
-    const result = this.getDatabase()
-      .prepare('SELECT COUNT(*) AS count FROM memory_entries')
-      .get() as { count: number }
-    return result.count
+    return this.getRepository().countMemoryEntries(
+      resolvedTarget.targetId,
+      this.settings.crossSessionCharacterMemory
+    )
   }
 
   private countIndexedCharacters(): number {
-    const result = this.getDatabase()
-      .prepare('SELECT COUNT(DISTINCT character_id) AS count FROM memory_entries')
-      .get() as { count: number }
-    return result.count
+    return this.getRepository().countIndexedCharacters()
+  }
+
+  private shouldClearLocalEmbeddingPipelines(
+    previousSettings: MemorySettingsStore,
+    nextSettings: MemorySettingsStore
+  ): boolean {
+    const previousUsesLocal = previousSettings.retrievalMode === 'vector-local'
+    const nextUsesLocal = nextSettings.retrievalMode === 'vector-local'
+
+    if (!previousUsesLocal && !nextUsesLocal) {
+      return false
+    }
+
+    return (
+      previousSettings.retrievalMode !== nextSettings.retrievalMode ||
+      previousSettings.localEmbedding.model !== nextSettings.localEmbedding.model ||
+      previousSettings.localEmbedding.modelPath !== nextSettings.localEmbedding.modelPath ||
+      previousSettings.localEmbedding.useGpu !== nextSettings.localEmbedding.useGpu ||
+      previousSettings.localEmbedding.useHuggingFaceMirror !==
+        nextSettings.localEmbedding.useHuggingFaceMirror ||
+      previousSettings.localEmbedding.huggingFaceMirrorUrl !==
+        nextSettings.localEmbedding.huggingFaceMirrorUrl
+    )
+  }
+
+  private async clearLocalEmbeddingPipelines(): Promise<void> {
+    const { clearAllPipelineCaches } = await this.getLocalEmbeddingModule()
+    clearAllPipelineCaches()
   }
 
   private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {
@@ -1667,7 +1757,8 @@ export class MemoryService {
     scope: MemoryTask['scope'],
     callback: (
       taskId: string,
-      updateTask: (taskId: string, patch: Partial<MemoryTask>) => void
+      updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
+      taskControl: TaskCancellationState
     ) => Promise<void>,
     characterId?: string
   ): Promise<MemoryTask> {
@@ -1684,6 +1775,17 @@ export class MemoryService {
 
     this.tasks.set(task.taskId, task)
     this.taskLogStates.delete(task.taskId)
+    const controller = new AbortController()
+    const taskControl: TaskCancellationState = {
+      controller,
+      throwIfCancelled: () => {
+        const currentTask = this.tasks.get(task.taskId)
+        if (controller.signal.aborted || currentTask?.status === 'cancelled') {
+          throw new MemoryTaskCancelledError()
+        }
+      }
+    }
+    this.taskCancellationStates.set(task.taskId, taskControl)
     this.emitTask(task)
 
     void (async () => {
@@ -1699,13 +1801,15 @@ export class MemoryService {
             scope,
             characterId
           },
+          shouldCaptureError: (error) => !(error instanceof MemoryTaskCancelledError),
           run: async () => {
             this.updateTask(task.taskId, {
               status: 'running',
               progress: 5,
               message: this.getTaskStartMessage(taskType)
             })
-            await callback(task.taskId, (id, patch) => this.updateTask(id, patch))
+            taskControl.throwIfCancelled()
+            await callback(task.taskId, (id, patch) => this.updateTask(id, patch), taskControl)
             const current = this.tasks.get(task.taskId)
             if (current?.status !== 'cancelled') {
               this.updateTask(task.taskId, {
@@ -1717,10 +1821,22 @@ export class MemoryService {
           }
         })
       } catch (error) {
-        this.updateTask(task.taskId, {
-          status: 'failed',
-          message: this.formatTaskError(taskType, error)
-        })
+        if (error instanceof MemoryTaskCancelledError) {
+          const current = this.tasks.get(task.taskId)
+          if (current?.status !== 'cancelled') {
+            this.updateTask(task.taskId, {
+              status: 'cancelled',
+              message: current?.message || 'Task cancelled'
+            })
+          }
+        } else {
+          this.updateTask(task.taskId, {
+            status: 'failed',
+            message: this.formatTaskError(taskType, error)
+          })
+        }
+      } finally {
+        this.taskCancellationStates.delete(task.taskId)
       }
     })()
 

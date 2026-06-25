@@ -6,6 +6,7 @@ import type {
   MemoryHardwareInfo,
   MemorySettingsStore,
   MemoryStatusSnapshot,
+  MemoryTargetSelection,
   MemoryTask,
   WorldIndexStatus
 } from '@shared/memory-settings'
@@ -38,7 +39,7 @@ type MemoryStore = {
   setIsLoaded: (isLoaded: boolean) => void
   applySnapshot: (snapshot: MemoryStatusSnapshot) => void
   reconcileTask: (task: MemoryTask) => void
-  refreshStatus: (characterId?: string | null) => Promise<void>
+  refreshStatus: (selection?: MemoryTargetSelection | null) => Promise<void>
   refreshLocalModels: () => Promise<void>
   saveSettings: (store: MemorySettingsStore) => Promise<void>
   downloadLocalModel: (modelId: string) => Promise<void>
@@ -54,9 +55,32 @@ type MemoryStore = {
 }
 
 let refreshRequestId = 0
-let activeCharacterId: string | null = null
+let activeMemorySelection: MemoryTargetSelection | null = null
 let refreshTimeout: number | null = null
 
+/**
+ * @description 复制当前查看的 memory 目标选择，避免外部后续修改对象时污染调度中的刷新参数。
+ * @param selection 当前选择的角色 / 会话目标。
+ * @returns 可安全缓存的选择副本；若未传入则返回 `null`。
+ */
+function cloneMemoryTargetSelection(
+  selection?: MemoryTargetSelection | null
+): MemoryTargetSelection | null {
+  if (!selection) {
+    return null
+  }
+
+  return {
+    characterId: selection.characterId ?? null,
+    sessionId: selection.sessionId ?? null
+  }
+}
+
+/**
+ * @description 解析任务错误消息中的标题与原因，供本地模型下载状态展示使用。
+ * @param message 主进程返回的原始任务错误消息。
+ * @returns 拆分后的错误编码与详细原因。
+ */
 function parseTaskError(message: string): { errorCode?: string; errorDetail?: string } {
   const lines = message
     .split('\n')
@@ -71,15 +95,31 @@ function parseTaskError(message: string): { errorCode?: string; errorDetail?: st
   }
 }
 
+/**
+ * @description 判断 memory 任务当前是否仍处于排队或执行中。
+ * @param task 待检查的 memory 任务。
+ * @returns 若任务仍活跃则返回 `true`。
+ */
 function isTaskActive(task: MemoryTask): boolean {
   return task.status === 'queued' || task.status === 'running'
 }
 
+/**
+ * @description 将最新的任务快照合并进任务列表，并按更新时间倒序排序。
+ * @param current 当前任务列表。
+ * @param nextTask 最新任务快照。
+ * @returns 合并后的任务列表。
+ */
 function reconcileMemoryTasks(current: MemoryTask[], nextTask: MemoryTask): MemoryTask[] {
   const next = [nextTask, ...current.filter((task) => task.taskId !== nextTask.taskId)]
   return next.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+/**
+ * @description 将本地模型下载任务转换为界面需要的展示状态。
+ * @param task 当前任务快照。
+ * @returns 对应的本地模型 UI 状态；若任务无关则返回 `null`。
+ */
 function createLocalModelUiStateFromTask(task: MemoryTask): LocalModelUiState | null {
   if (task.taskType !== 'local-model-download' || !task.characterId) {
     return null
@@ -120,13 +160,25 @@ function createLocalModelUiStateFromTask(task: MemoryTask): LocalModelUiState | 
   return null
 }
 
-function getActiveMemoryCharacterId(): string | null {
-  return useMemoryStore.getState().memoryIndex?.characterId || null
+/**
+ * @description 读取当前 memory 页正在查看的目标选择，供异步刷新与任务回调复用。
+ * @returns 当前激活的 memory 目标选择快照。
+ */
+function getActiveMemoryTargetSelection(): MemoryTargetSelection | null {
+  return cloneMemoryTargetSelection(activeMemorySelection)
 }
 
-export function scheduleMemoryStatusRefresh(delayMs: number, characterId?: string | null): void {
-  if (characterId !== undefined) {
-    activeCharacterId = characterId
+/**
+ * @description 在指定延迟后刷新 memory 状态，并沿用最近一次显式选择的角色 / 会话目标。
+ * @param delayMs 刷新延迟，单位毫秒。
+ * @param selection 可选的显式目标；传入后会覆盖当前缓存的目标。
+ */
+export function scheduleMemoryStatusRefresh(
+  delayMs: number,
+  selection?: MemoryTargetSelection | null
+): void {
+  if (selection !== undefined) {
+    activeMemorySelection = cloneMemoryTargetSelection(selection)
   }
 
   if (refreshTimeout != null) {
@@ -137,13 +189,16 @@ export function scheduleMemoryStatusRefresh(delayMs: number, characterId?: strin
     refreshTimeout = null
     void useMemoryStore
       .getState()
-      .refreshStatus(activeCharacterId)
+      .refreshStatus(getActiveMemoryTargetSelection())
       .catch((error) => {
         console.error('Failed to refresh memory status after task event', error)
       })
   }, delayMs)
 }
 
+/**
+ * @description 清理已注册但尚未执行的 memory 状态延迟刷新任务。
+ */
 export function clearScheduledMemoryStatusRefresh(): void {
   if (refreshTimeout != null) {
     window.clearTimeout(refreshTimeout)
@@ -184,13 +239,13 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
         : current.localModelUiState
     }))
   },
-  refreshStatus: async (characterId) => {
-    activeCharacterId = characterId ?? null
+  refreshStatus: async (selection) => {
+    activeMemorySelection = cloneMemoryTargetSelection(selection)
     const requestId = refreshRequestId + 1
     refreshRequestId = requestId
     const [snapshot, nextCompatibility] = await Promise.all([
-      window.memory.getStatus(characterId),
-      window.memory.getEmbeddingCompatibility(characterId)
+      window.memory.getStatus(activeMemorySelection),
+      window.memory.getEmbeddingCompatibility(activeMemorySelection)
     ])
 
     if (refreshRequestId !== requestId) {
@@ -219,7 +274,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     })
     const saved = await window.memory.saveSettings(store)
     set({ settings: saved })
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
     await get().refreshLocalModels()
   },
   downloadLocalModel: async (modelId) => {
@@ -244,7 +299,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
 
     try {
       await window.memory.downloadLocalModel(modelId)
-      await get().refreshStatus(getActiveMemoryCharacterId())
+      await get().refreshStatus(getActiveMemoryTargetSelection())
       await get().refreshLocalModels()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -271,7 +326,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     })
     const saved = await window.memory.selectLocalModel(modelId)
     set({ settings: saved })
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
     await get().refreshLocalModels()
   },
   removeLocalModel: async (modelId) => {
@@ -280,7 +335,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     })
     await window.memory.removeLocalModel(modelId)
     get().clearLocalModelUiState(modelId)
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
     await get().refreshLocalModels()
   },
   testEmbeddingConnection: async () => {
@@ -289,29 +344,29 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     })
     const result = await window.memory.testEmbeddingConnection()
     set({ embeddingTestResult: result })
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   startWorldBundleDownload: async () => {
     trackUiEvent('memory-world-bundle-download', 'User started world bundle refresh')
     await window.memory.startWorldBundleDownload()
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   startWorldVectorBuild: async () => {
     trackUiEvent('memory-world-build', 'User started world vector build')
     await window.memory.startWorldVectorBuild()
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   startCharacterMemoryBuild: async (characterId) => {
     trackUiEvent('memory-character-build', 'User started character memory build', {
       characterId
     })
     await window.memory.startCharacterMemoryBuild(characterId)
-    await get().refreshStatus(characterId)
+    await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   startAllMemoryBuild: async () => {
     trackUiEvent('memory-all-build', 'User started rebuilding all character memory')
     await window.memory.startAllMemoryBuild()
-    await get().refreshStatus(getActiveMemoryCharacterId())
+    await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   cancelTask: async (taskId) => {
     trackUiEvent('memory-task-cancel', 'User cancelled a memory task', {

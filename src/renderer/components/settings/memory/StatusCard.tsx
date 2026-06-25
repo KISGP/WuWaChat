@@ -41,7 +41,7 @@ export function StatusCard({
       : null
 
   return (
-    <div className="rounded border border-white/10 bg-black/20 p-3">
+    <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-white/85">
           <Database className="size-4 text-[#e8c690]" />
@@ -57,7 +57,7 @@ export function StatusCard({
         <div className="mt-1 text-white/45">{runtimeMeta.description}</div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/60">
+      <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-white/60">
         <InfoPill label="当前运行" value={runtimeMeta.label} />
         <InfoPill label={derivedMetadataLabel} value={metadataValue ?? '-'} />
         <InfoPill label="索引条目" value={index?.entryCount ?? '-'} />

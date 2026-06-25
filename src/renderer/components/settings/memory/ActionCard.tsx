@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon } from 'lucide-react'
+import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon, XCircle } from 'lucide-react'
 import { cn } from '@renderer/utils'
 
 export function ActionCard({
@@ -25,13 +25,15 @@ export function ActionCard({
   disabledReason?: string
   onClick: () => Promise<void>
 }): ReactElement {
+  const actionLabel = Icon === XCircle ? '中止构建' : title
+
   return (
     <div
       className={cn(
         'rounded border p-4',
         tone === 'highlight'
-          ? 'border-[#e8c690]/35 bg-[#e8c690]/[0.06]'
-          : 'border-white/10 bg-black/20'
+          ? 'border-[#e8c690]/35 bg-[#e8c690]/6'
+          : 'border-white/10 bg-[rgb(4,4,4,0.5)]'
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -88,7 +90,7 @@ export function ActionCard({
         )}
       >
         <Icon className="size-4" />
-        {title}
+        {actionLabel}
       </button>
     </div>
   )

@@ -1,37 +1,72 @@
-import { useEffect } from 'react'
+import type { MemoryTargetSelection } from '@shared/memory-settings'
+import { useEffect, useRef } from 'react'
 
 type UseMemoryTabLifecycleArgs = {
   isActive: boolean
-  activeCharacterId?: string | null
+  isLoaded: boolean
+  selection?: MemoryTargetSelection | null
   buildLaunchNotice: unknown
-  refreshStatus: (characterId?: string | null) => Promise<void>
+  refreshStatus: (selection?: MemoryTargetSelection | null) => Promise<void>
   refreshLocalModels: () => Promise<void>
+  setIsLoaded: (isLoaded: boolean) => void
   clearBuildLaunchNotice: () => void
 }
 
+/**
+ * @description 在 Memory 选项卡首次激活时加载并刷新内存状态与本地模型列表；在选项卡激活且已加载时持续刷新，并在出现 `buildLaunchNotice` 时在 10 秒后自动清除提示。
+ */
 export function useMemoryTabLifecycle({
   isActive,
-  activeCharacterId,
+  isLoaded,
+  selection,
   buildLaunchNotice,
   refreshStatus,
   refreshLocalModels,
+  setIsLoaded,
   clearBuildLaunchNotice
 }: UseMemoryTabLifecycleArgs): void {
+  const hasInitializedRef = useRef(false)
+
   useEffect(() => {
-    if (!isActive) {
+    if (!isActive || hasInitializedRef.current) {
       return
     }
 
-    void refreshStatus(activeCharacterId || null)
-  }, [activeCharacterId, isActive, refreshStatus])
+    let cancelled = false
+    hasInitializedRef.current = true
+
+    Promise.all([refreshStatus(selection || null), refreshLocalModels()])
+      .catch((error) => {
+        console.error('Failed to load memory status', error)
+      })
+      .finally(() => {
+        if (cancelled) {
+          return
+        }
+
+        setIsLoaded(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isActive, refreshLocalModels, refreshStatus, selection, setIsLoaded])
 
   useEffect(() => {
-    if (!isActive) {
+    if (!isActive || !hasInitializedRef.current || !isLoaded) {
+      return
+    }
+
+    void refreshStatus(selection || null)
+  }, [isActive, isLoaded, refreshStatus, selection])
+
+  useEffect(() => {
+    if (!isActive || !hasInitializedRef.current || !isLoaded) {
       return
     }
 
     void refreshLocalModels()
-  }, [isActive, refreshLocalModels])
+  }, [isActive, isLoaded, refreshLocalModels])
 
   useEffect(() => {
     if (!buildLaunchNotice) {

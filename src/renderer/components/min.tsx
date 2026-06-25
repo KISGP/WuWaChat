@@ -1,4 +1,4 @@
-import Close from '@renderer/assets/close.png'
+import Close from '@renderer/assets/SP_BtnBack.png'
 import { cn } from '@renderer/utils'
 import { type ReactElement } from 'react'
 

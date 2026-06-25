@@ -1,4 +1,4 @@
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
 import {
   type ProfilesStore,
   createDefaultProfile,
@@ -126,10 +126,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     commitProfilesStore(set, {
       ...get().store,
       activeProfileId: id,
-      profiles: [
-        ...get().store.profiles,
-        createDefaultProfile(id, `OpenAI ${get().store.profiles.length + 1}`, 'openai')
-      ]
+      profiles: [...get().store.profiles, createDefaultProfile(id, `自定义配置`, 'openai')]
     })
 
     return id

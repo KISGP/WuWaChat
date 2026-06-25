@@ -5,7 +5,7 @@ import type {
   CharacterPromptDocument,
   CharacterSummary,
   RemoteCharacterEntry
-} from '../../shared/ai'
+} from '@shared/chat'
 import {
   getCharacterAvatarPath,
   getCharactersCachePath,
@@ -20,7 +20,7 @@ import {
   readImageDataUrl,
   readOptionalFile,
   writeJsonFileAtomic
-} from '../utils'
+} from '@main/utils'
 import { PROMPT_FILE_NAME } from './constants'
 import { normalizeCharacterVersion, pickDisplayText } from './mappers'
 import {
@@ -176,6 +176,8 @@ async function buildCharacterCatalog(): Promise<CharacterCatalog> {
       id: character.id,
       name: pickDisplayText(character.info.name, character.id),
       description: pickDisplayText(character.info.description),
+      avatar: getRemoteCharacterFileUrl(character.id, 'avatar.png'),
+      cardBg: getRemoteCharacterFileUrl(character.id, 'cardBg.png'),
       isDownloaded: localIds.has(character.id)
     })),
     refreshedAt: remoteCatalogRefreshedAt

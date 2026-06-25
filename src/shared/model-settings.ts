@@ -1,4 +1,4 @@
-import type { ModelProfile, ProviderKind } from './ai'
+import type { ModelProfile, ProviderKind } from './chat'
 
 export type ProfilesStore = {
   version: 1
@@ -28,14 +28,14 @@ export const PROVIDER_DEFAULTS: Record<
   openai: {
     provider: 'openai',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
+    model: '',
     temperature: 0.7,
     maxTokens: 2048
   },
   deepseek: {
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: '',
     temperature: 0.7,
     maxTokens: 2048
   }

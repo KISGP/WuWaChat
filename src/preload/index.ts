@@ -1,37 +1,55 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '@shared/ai'
+import type {
+  ChatDeleteMessageRequest,
+  ChatPromptPreviewRequest,
+  ChatRunEvent,
+  ChatRunRequest,
+  ModelProfile
+} from '@shared/chat'
+import { CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
 import type { RendererLogEventPayload } from '@shared/logging'
 import type {
   MemoryDebugRetrieveRequest,
+  MemoryTargetSelection,
   MemorySettingsStore,
   MemoryTaskEvent
 } from '@shared/memory-settings'
 import type { ProfilesStore } from '@shared/model-settings'
+import type { StorageUsageSnapshot } from '@shared/storage'
+import type { GachaUrlRequest } from '@shared/tools'
 
-const ENABLE_MEMORY_DEBUG_TOOLS = import.meta.env.DEV
+const ENABLE_DEV_TOOLS = import.meta.env.DEV
 
 const api = {
   minimize: () => ipcRenderer.send('window:minimize')
 }
 
 const ai = {
-  getCharacters: () => ipcRenderer.invoke('ai:getCharacters'),
+  getCharacters: () => ipcRenderer.invoke('chat:getCharacters'),
   getCharacterPrompt: (characterId: string) =>
-    ipcRenderer.invoke('ai:getCharacterPrompt', characterId),
+    ipcRenderer.invoke('chat:getCharacterPrompt', characterId),
   saveCharacterPrompt: (characterId: string, promptText: string) =>
-    ipcRenderer.invoke('ai:saveCharacterPrompt', characterId, promptText),
-  getSessions: () => ipcRenderer.invoke('ai:getSessions'),
-  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('ai:sendMessage', request),
-  abortRun: (requestId: string) => ipcRenderer.invoke('ai:abortRun', requestId),
+    ipcRenderer.invoke('chat:saveCharacterPrompt', characterId, promptText),
+  getSessions: () => ipcRenderer.invoke('chat:getSessions'),
+  deleteMessage: (request: ChatDeleteMessageRequest) =>
+    ipcRenderer.invoke('chat:deleteMessage', request),
+  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('chat:sendMessage', request),
+  abortRun: (requestId: string) => ipcRenderer.invoke('chat:abortRun', requestId),
+  ...(ENABLE_DEV_TOOLS
+    ? {
+        previewModelInput: (request: ChatPromptPreviewRequest) =>
+          ipcRenderer.invoke('chat:previewModelInput', request)
+      }
+    : {}),
   onRunEvent: (listener: (event: ChatRunEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: ChatRunEvent): void => {
       listener(payload)
     }
 
-    ipcRenderer.on('ai:run:event', wrappedListener)
+    ipcRenderer.on(CHAT_RUN_EVENT_CHANNEL, wrappedListener)
     return () => {
-      ipcRenderer.removeListener('ai:run:event', wrappedListener)
+      ipcRenderer.removeListener(CHAT_RUN_EVENT_CHANNEL, wrappedListener)
     }
   }
 }
@@ -55,24 +73,25 @@ const settings = {
 const memory = {
   getSettings: () => ipcRenderer.invoke('memory:getSettings'),
   saveSettings: (data: MemorySettingsStore) => ipcRenderer.invoke('memory:saveSettings', data),
-  getStatus: (characterId?: string | null) => ipcRenderer.invoke('memory:getStatus', characterId),
+  getStatus: (selection?: MemoryTargetSelection | null) =>
+    ipcRenderer.invoke('memory:getStatus', selection),
   listLocalModels: () => ipcRenderer.invoke('memory:listLocalModels'),
   downloadLocalModel: (modelId: string) => ipcRenderer.invoke('memory:downloadLocalModel', modelId),
   selectLocalModel: (modelId: string) => ipcRenderer.invoke('memory:selectLocalModel', modelId),
   removeLocalModel: (modelId: string) => ipcRenderer.invoke('memory:removeLocalModel', modelId),
   testEmbeddingConnection: () => ipcRenderer.invoke('memory:testEmbeddingConnection'),
-  getEmbeddingCompatibility: (characterId?: string | null) =>
-    ipcRenderer.invoke('memory:getEmbeddingCompatibility', characterId),
+  getEmbeddingCompatibility: (selection?: MemoryTargetSelection | null) =>
+    ipcRenderer.invoke('memory:getEmbeddingCompatibility', selection),
   getWorldIndexStatus: () => ipcRenderer.invoke('memory:getWorldIndexStatus'),
-  getMemoryIndexStatus: (characterId?: string | null) =>
-    ipcRenderer.invoke('memory:getMemoryIndexStatus', characterId),
+  getMemoryIndexStatus: (selection?: MemoryTargetSelection | null) =>
+    ipcRenderer.invoke('memory:getMemoryIndexStatus', selection),
   startWorldBundleDownload: () => ipcRenderer.invoke('memory:startWorldBundleDownload'),
   startWorldVectorBuild: () => ipcRenderer.invoke('memory:startWorldVectorBuild'),
   startCharacterMemoryBuild: (characterId: string) =>
     ipcRenderer.invoke('memory:startCharacterMemoryBuild', characterId),
   startAllMemoryBuild: () => ipcRenderer.invoke('memory:startAllMemoryBuild'),
   cancelTask: (taskId: string) => ipcRenderer.invoke('memory:cancelTask', taskId),
-  ...(ENABLE_MEMORY_DEBUG_TOOLS
+  ...(ENABLE_DEV_TOOLS
     ? {
         debugRetrieve: (request: MemoryDebugRetrieveRequest) =>
           ipcRenderer.invoke('memory:debugRetrieve', request)
@@ -98,6 +117,14 @@ const logs = {
   clearLogs: () => ipcRenderer.invoke('log:clearLogs')
 }
 
+const storage = {
+  getUsage: (): Promise<StorageUsageSnapshot> => ipcRenderer.invoke('storage:getUsage')
+}
+
+const tools = {
+  getGachaUrl: (request?: GachaUrlRequest) => ipcRenderer.invoke('tools:getGachaUrl', request)
+}
+
 const exposedApis = {
   electron: electronAPI,
   api,
@@ -105,7 +132,9 @@ const exposedApis = {
   characters,
   settings,
   memory,
-  logs
+  logs,
+  storage,
+  tools
 }
 
 if (process.contextIsolated) {

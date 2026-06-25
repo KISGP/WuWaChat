@@ -54,6 +54,7 @@ export type LocalEmbeddingSettings = {
   model: string
   modelPath?: string
   dimensions?: number | null
+  batchSize: number
   useGpu: boolean
   useHuggingFaceMirror: boolean
   huggingFaceMirrorUrl: string
@@ -186,6 +187,11 @@ export type MemoryDebugRetrieveRequest = {
   sessionId?: string | null
 }
 
+export type MemoryTargetSelection = {
+  characterId?: string | null
+  sessionId?: string | null
+}
+
 export type MemoryDebugRetrieveResult = {
   query: string
   scope: MemoryDebugScope
@@ -206,6 +212,8 @@ export type WorldIndexStatus = {
 export type CharacterMemoryIndexStatus = {
   scope: 'character-memory'
   characterId?: string | null
+  targetCharacterId?: string | null
+  targetSessionId?: string | null
   availability: IndexAvailability
   runtimeMode: IndexRuntimeMode
   entryCount: number
@@ -276,6 +284,7 @@ export function createDefaultMemorySettingsStore(): MemorySettingsStore {
       model: 'BAAI/bge-small-zh-v1.5',
       modelPath: '',
       dimensions: 512,
+      batchSize: 16,
       useGpu: false,
       useHuggingFaceMirror: true,
       huggingFaceMirrorUrl: 'https://hf-mirror.com'
@@ -413,6 +422,12 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
         raw.localEmbedding?.dimensions == null
           ? defaults.localEmbedding.dimensions
           : normalizeInteger(raw.localEmbedding.dimensions, 256, 8, 4096),
+      batchSize: normalizeInteger(
+        raw.localEmbedding?.batchSize,
+        defaults.localEmbedding.batchSize,
+        1,
+        128
+      ),
       useHuggingFaceMirror:
         typeof raw.localEmbedding?.useHuggingFaceMirror === 'boolean'
           ? raw.localEmbedding.useHuggingFaceMirror
