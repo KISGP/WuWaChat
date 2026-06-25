@@ -489,8 +489,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                       使用 GPU 运行本地 embedding
                     </FieldTitle>
                     <FieldDescription>
-                      <p>开启后会优先使用 GPU，如果当前环境不支持，则会自动切换到 CPU。</p>
-                      {hardware.gpuName && <p>当前 GPU：{hardware.gpuName}</p>}
+                      <span>开启后会优先使用 GPU，如果当前环境不支持，则会自动切换到 CPU。</span>
+                      {hardware.gpuName && <span>当前 GPU：{hardware.gpuName}</span>}
                     </FieldDescription>
                   </FieldContent>
                   <Switch
