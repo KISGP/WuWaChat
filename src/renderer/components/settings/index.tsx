@@ -2,7 +2,8 @@ import { lazy, Suspense, type ReactElement, useEffect, useState } from 'react'
 import CloseIcon from '@renderer/components/close'
 import { LogTab } from './LogTab'
 import { ModelTab } from './ModelTab'
-import { Bot, Brain, Wrench, ScrollText, BugPlay } from 'lucide-react'
+import { ToolsTab } from './tools'
+import { Bot, Brain, Wrench, ScrollText, BugPlay, FileCode2, HardDrive } from 'lucide-react'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 
@@ -14,17 +15,28 @@ const MemoryTab = lazy(() =>
 const CharacterTab = lazy(() =>
   import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
 )
+const StorageTab = lazy(() =>
+  import('./StorageTab').then((module) => ({ default: module.StorageTab }))
+)
 const DebugTab = ENABLE_DEBUG_TAB ? lazy(() => import('./DebugTab')) : null
+const PromptPreviewTab = ENABLE_DEBUG_TAB ? lazy(() => import('./PromptPreviewTab')) : null
 
 const TABS = [
   { id: 'model', label: '模型', icon: Bot },
   { id: 'memory', label: '记忆', icon: Brain },
   { id: 'character', label: '角色', icon: Bot },
+  { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'log', label: '日志', icon: ScrollText },
   { id: 'tools', label: '工具', icon: Wrench }
 ] as const
 
-const ALL_TABS = DebugTab ? [...TABS, { id: 'debug', label: 'Debug', icon: BugPlay }] : TABS
+const ALL_TABS = DebugTab
+  ? [
+      ...TABS,
+      { id: 'debug', label: 'Debug', icon: BugPlay },
+      { id: 'prompt-preview', label: 'Prompt', icon: FileCode2 }
+    ]
+  : TABS
 
 type SettingsTabId = (typeof ALL_TABS)[number]['id']
 
@@ -39,6 +51,7 @@ function TabLoadingFallback(): ReactElement {
 export default function Settings({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
   const [mounted, setMounted] = useState(false)
+  const activeTabItem = ALL_TABS.find((tab) => tab.id === activeTab) ?? ALL_TABS[0]
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -66,6 +79,12 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
             <CharacterTab />
           </Suspense>
         )
+      case 'storage':
+        return (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <StorageTab />
+          </Suspense>
+        )
       case 'log':
         return <LogTab />
       case 'debug':
@@ -78,12 +97,18 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
             Debug tools unavailable.
           </div>
         )
-      case 'tools':
-        return (
-          <div className="flex h-full items-center justify-center rounded border border-white/10 bg-white/3 px-4 py-4 text-sm text-white/60">
-            工具正在开发中，敬请期待！
+      case 'prompt-preview':
+        return PromptPreviewTab ? (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <PromptPreviewTab />
+          </Suspense>
+        ) : (
+          <div className="flex h-full items-center justify-center rounded border border-white/10 bg-white/3 px-6 py-4 text-sm text-white/60">
+            Prompt preview unavailable.
           </div>
         )
+      case 'tools':
+        return <ToolsTab />
       default:
         return <ModelTab />
     }
@@ -93,15 +118,8 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
     <div className="flex h-full w-full flex-col overflow-hidden font-sans">
       <div data-drag-region className="relative h-16 shrink-0 items-center justify-between">
         <div data-drag-region className="absolute bottom-4 left-6 flex items-center gap-1">
-          {ALL_TABS.map(
-            (tab) =>
-              tab.id === activeTab && (
-                <>
-                  <tab.icon className="text-background size-8" />
-                  <span className="text-background text-lg">{tab.label}</span>
-                </>
-              )
-          )}
+          <activeTabItem.icon className="text-background size-6" />
+          <span className="text-background text-xl font-bold">{activeTabItem.label}</span>
         </div>
         <CloseIcon className="absolute right-6 bottom-2" onClick={onClose} />
       </div>

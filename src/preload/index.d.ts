@@ -1,5 +1,9 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  ChatDeleteMessageRequest,
+  ChatDeleteMessageResult,
+  ChatPromptPreviewRequest,
+  ChatPromptPreviewResult,
   ChatRunAccepted,
   CharacterCatalog,
   ChatRunEvent,
@@ -19,11 +23,13 @@ import type {
   LocalEmbeddingCatalogItem,
   MemorySettingsStore,
   MemoryStatusSnapshot,
+  MemoryTargetSelection,
   MemoryTask,
   MemoryTaskEvent,
   WorldIndexStatus
 } from '@shared/memory-settings'
 import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
+import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
 
 declare global {
@@ -40,6 +46,8 @@ declare global {
         promptText: string
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
+      deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
+      previewModelInput?: (request: ChatPromptPreviewRequest) => Promise<ChatPromptPreviewResult>
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
@@ -59,17 +67,19 @@ declare global {
     memory: {
       getSettings: () => Promise<MemorySettingsStore>
       saveSettings: (store: MemorySettingsStore) => Promise<MemorySettingsStore>
-      getStatus: (characterId?: string | null) => Promise<MemoryStatusSnapshot>
+      getStatus: (selection?: MemoryTargetSelection | null) => Promise<MemoryStatusSnapshot>
       listLocalModels: () => Promise<LocalEmbeddingCatalogItem[]>
       downloadLocalModel: (modelId: string) => Promise<MemoryTask>
       selectLocalModel: (modelId: string) => Promise<MemorySettingsStore>
       removeLocalModel: (modelId: string) => Promise<boolean>
       testEmbeddingConnection: () => Promise<EmbeddingConnectionTestResult>
       getEmbeddingCompatibility: (
-        characterId?: string | null
+        selection?: MemoryTargetSelection | null
       ) => Promise<EmbeddingCompatibilityStatus[]>
       getWorldIndexStatus: () => Promise<WorldIndexStatus>
-      getMemoryIndexStatus: (characterId?: string | null) => Promise<CharacterMemoryIndexStatus>
+      getMemoryIndexStatus: (
+        selection?: MemoryTargetSelection | null
+      ) => Promise<CharacterMemoryIndexStatus>
       startWorldBundleDownload: () => Promise<MemoryTask>
       startWorldVectorBuild: () => Promise<MemoryTask>
       startCharacterMemoryBuild: (characterId: string) => Promise<MemoryTask>
@@ -84,6 +94,9 @@ declare global {
       readLogs: () => Promise<LogEntry[]>
       openDirectory: () => Promise<void>
       clearLogs: () => Promise<void>
+    }
+    storage: {
+      getUsage: () => Promise<StorageUsageSnapshot>
     }
     tools: {
       getGachaUrl: (request?: GachaUrlRequest) => Promise<GachaUrlResult>

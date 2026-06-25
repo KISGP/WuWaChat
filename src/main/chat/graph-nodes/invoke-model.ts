@@ -1,5 +1,9 @@
 import { createChatModel } from '@main/chat/model-factory'
 import { contentToText } from '@main/chat/message-content'
+import {
+  splitAssistantMessages,
+  splitStreamingAssistantMessages
+} from '@main/chat/assistant-message-splitter'
 import type { GraphStateValue } from '@main/chat/graph-state'
 import type { ChatGraphNodeContext } from '@main/chat/graph-node-context'
 
@@ -20,13 +24,15 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
 
       assistantDraft += text
       context.runRegistry.trackChunk(state.requestId, text)
-      const syncedSession = context.sessionStore.updateAssistantMessage(
+      const assistantMessages = splitStreamingAssistantMessages(assistantDraft)
+      const syncedSession = context.sessionStore.syncAssistantRunMessages(
         state.sessionId,
         state.assistantMessageId,
-        assistantDraft
+        assistantMessages,
+        'streaming'
       )
       const message =
-        context.sessionStore.getMessage(state.sessionId, state.assistantMessageId) ||
+        [...syncedSession.messages].reverse().find((item) => item.role === 'assistant') ||
         syncedSession.messages[syncedSession.messages.length - 1]
 
       context.eventPublisher.publish({
@@ -47,6 +53,10 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
         requestId: state.requestId,
         session: syncedSession
       })
+    }
+
+    if (splitAssistantMessages(assistantDraft).length === 0) {
+      throw new Error('Model returned no displayable text output.')
     }
 
     return { assistantDraft }

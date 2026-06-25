@@ -6,6 +6,10 @@ import BG3 from '@renderer/assets/T_PhoneSystemIconBg03.png'
 import BG1Pre from '@renderer/assets/T_PhoneSystemIconBg00Small.png'
 import BG2Pre from '@renderer/assets/T_PhoneSystemIconBg02Small.png'
 import BG3Pre from '@renderer/assets/T_PhoneSystemIconBg03Small.png'
+import PhoneDialogueR_000 from '@renderer/assets/T_IconA_PhoneDialogueR_000_UI.png'
+import PhoneDialogueR_001 from '@renderer/assets/T_IconA_PhoneDialogueR_001_UI.png'
+import PhoneDialogueR_002 from '@renderer/assets/T_IconA_PhoneDialogueR_002_UI.png'
+import PhoneDialogueR_003 from '@renderer/assets/T_IconA_PhoneDialogueR_003_UI.png'
 
 export type ChatBackground = {
   id: string
@@ -39,6 +43,41 @@ export const CHAT_BACKGROUNDS: ChatBackground[] = [
     previewSrc: BG3Pre,
     fullSrc: BG3,
     description: 'I Really Want to Stay At Your House.',
+    obtained: '在幻梦珊瑚商店购买后解锁'
+  }
+]
+
+export const BUBBLE_BACKGROUNDS: ChatBackground[] = [
+  {
+    id: 'default',
+    name: '默认气泡',
+    previewSrc: PhoneDialogueR_000,
+    fullSrc: '',
+    description: '飞讯默认聊天气泡。',
+    obtained: '默认获得'
+  },
+  {
+    id: 'bzbb',
+    name: '波仔啵啵',
+    previewSrc: PhoneDialogueR_001,
+    fullSrc: '',
+    description: '客人,又见面了。这次要尝尝店内的新款咖啡吗?',
+    obtained: '购买飞讯特惠礼包 ·甜咖的金印后解锁'
+  },
+  {
+    id: 'pgzd',
+    name: '盘古终端',
+    previewSrc: PhoneDialogueR_002,
+    fullSrc: '',
+    description: '为飞讯新用户准备的礼物,一款以盘古终端为原型设计的聊天气泡。',
+    obtained: '默认获得'
+  },
+  {
+    id: 'dwmdns',
+    name: '大卫·马丁内斯',
+    previewSrc: PhoneDialogueR_003,
+    fullSrc: '',
+    description: '不过,或许所谓传奇便是如此:世间有千万人,就有千万个传奇的影子。',
     obtained: '在幻梦珊瑚商店购买后解锁'
   }
 ]

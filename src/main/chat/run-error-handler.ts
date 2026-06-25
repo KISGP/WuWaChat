@@ -19,13 +19,18 @@ export async function handleRunError(
   context: RunErrorHandlerContext
 ): Promise<void> {
   if (activeRun.controller.signal.aborted || isAbortError(error)) {
-    const abortedSession = context.sessionStore.abortRun(activeRun.sessionId, activeRun.messageId)
+    const abortedSession = context.sessionStore.updateAssistantRunStatus(
+      activeRun.sessionId,
+      activeRun.messageId,
+      'aborted',
+      'idle'
+    )
     context.eventPublisher.publish({
       type: 'message-updated',
       requestId,
       sessionId: abortedSession.id,
       message:
-        context.sessionStore.getMessage(activeRun.sessionId, activeRun.messageId) ||
+        [...abortedSession.messages].reverse().find((message) => message.role === 'assistant') ||
         abortedSession.messages[abortedSession.messages.length - 1]
     })
     context.eventPublisher.publish({
@@ -50,17 +55,18 @@ export async function handleRunError(
     return
   }
 
-  const failedSession = context.sessionStore.failRun(
+  const failedSession = context.sessionStore.updateAssistantRunStatus(
     activeRun.sessionId,
     activeRun.messageId,
-    error instanceof Error ? error.message : String(error)
+    'error',
+    'error'
   )
   context.eventPublisher.publish({
     type: 'message-updated',
     requestId,
     sessionId: failedSession.id,
     message:
-      context.sessionStore.getMessage(activeRun.sessionId, activeRun.messageId) ||
+      [...failedSession.messages].reverse().find((message) => message.role === 'assistant') ||
       failedSession.messages[failedSession.messages.length - 1]
   })
   context.eventPublisher.publish({

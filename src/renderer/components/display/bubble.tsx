@@ -1,19 +1,20 @@
 import { type ReactElement } from 'react'
 import {
-  CHAT_BACKGROUNDS,
+  BUBBLE_BACKGROUNDS,
   selectActiveBackground,
   useAppearanceStore
 } from '@renderer/stores/appearanceStore'
 import { cn } from '@renderer/utils'
+import BubbleItemBg from '@renderer/assets/bubble-item-bg.png'
 
-export function BackgroundImagePanel(): ReactElement {
+export default function Bubble(): ReactElement {
   const activeBackground = useAppearanceStore(selectActiveBackground)
   const setBackgroundId = useAppearanceStore((state) => state.setBackgroundId)
 
   return (
     <div className="flex h-full w-full gap-8">
       <div className="my-2 grid h-fit shrink-0 grid-cols-2 gap-2">
-        {CHAT_BACKGROUNDS.map((bg) => (
+        {BUBBLE_BACKGROUNDS.map((bg) => (
           <button
             key={bg.id}
             type="button"
@@ -26,18 +27,13 @@ export function BackgroundImagePanel(): ReactElement {
             onClick={() => setBackgroundId(bg.id)}
           >
             <img
-              src={bg.previewSrc}
-              alt={bg.name}
-              className="h-fit w-46 object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+              src={BubbleItemBg}
+              className="z-10 h-fit w-46 object-contain transition-transform duration-200 group-hover:scale-[1.02]"
             />
-            <div
-              className={cn(
-                'absolute inset-x-0 bottom-0 bg-black/45 px-2 py-1 text-left text-xs text-white/80 transition-opacity',
-                activeBackground.id === bg.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-              )}
-            >
-              {bg.name}
-            </div>
+            <img
+              src={bg.previewSrc}
+              className="absolute top-0 z-100 h-4/5 w-4/5 transition-transform duration-200 group-hover:scale-[1.02]"
+            />
           </button>
         ))}
       </div>

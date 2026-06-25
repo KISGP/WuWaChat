@@ -1,17 +1,21 @@
 import { logger } from '@main/logging'
+import { splitAssistantMessages } from '@main/chat/assistant-message-splitter'
 import type { GraphStateValue } from '@main/chat/graph-state'
 import type { ChatGraphNodeContext } from '@main/chat/graph-node-context'
 
 export function createCommitAssistantMessageNode(context: ChatGraphNodeContext) {
   return (state: GraphStateValue) => {
-    const syncedSession = context.sessionStore.completeRun(
+    const syncedSession = context.sessionStore.syncAssistantRunMessages(
       state.sessionId,
       state.assistantMessageId,
-      state.assistantDraft
+      splitAssistantMessages(state.assistantDraft),
+      'complete',
+      'idle',
+      'immediate'
     )
     context.chatContext.syncSessions(context.sessionStore.getSessions())
     const message =
-      context.sessionStore.getMessage(state.sessionId, state.assistantMessageId) ||
+      [...syncedSession.messages].reverse().find((item) => item.role === 'assistant') ||
       syncedSession.messages[syncedSession.messages.length - 1]
 
     context.eventPublisher.publish({

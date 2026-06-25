@@ -11,6 +11,7 @@ import type {
   MemoryDebugRetrieveResult,
   MemoryDebugRetrievalHit,
   MemoryDebugRuntimeDetail,
+  MemoryDebugRuntimeSummary,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
@@ -19,6 +20,7 @@ import type {
   LocalEmbeddingCatalogItem,
   MemoryHardwareInfo,
   MemorySettingsStore,
+  MemoryTargetSelection,
   MemoryStatusSnapshot,
   MemoryTask,
   MemoryTaskStatus,
@@ -73,6 +75,19 @@ type WorldBundleMetadata = {
 type TaskCancellationState = {
   controller: AbortController
   throwIfCancelled: () => void
+}
+
+type PromptContextPreviewResult = {
+  worldHits: MemoryDebugRetrievalHit[]
+  memoryHits: MemoryDebugRetrievalHit[]
+  runtimeSummary: MemoryDebugRuntimeSummary
+}
+
+type MemoryResolvedTarget = {
+  targetId: string | null
+  characterId: string | null
+  sessionId: string | null
+  session: ConversationSession | null
 }
 
 class MemoryTaskCancelledError extends Error {
@@ -353,15 +368,28 @@ export class MemoryService {
     }
   }
 
+  /**
+   * @description 获取当前 world 与角色记忆索引和所选目标之间的 embedding 兼容性快照。
+   * @param selection 当前查看的角色 / 会话目标；非跨会话模式下会优先按 `sessionId` 解析。
+   * @returns world 与角色记忆两个 scope 的兼容性结果。
+   */
   async getEmbeddingCompatibility(
-    characterId?: string | null
+    selection?: MemoryTargetSelection | null
   ): Promise<EmbeddingCompatibilityStatus[]> {
     await this.ensureInitialized('memory-ipc')
-    return this.buildEmbeddingCompatibility(characterId)
+    return this.buildEmbeddingCompatibility(selection)
   }
 
-  private buildEmbeddingCompatibility(characterId?: string | null): EmbeddingCompatibilityStatus[] {
-    return [this.getWorldCompatibility(), this.getMemoryCompatibility(characterId || null)]
+  /**
+   * @description 构造当前所选 memory 目标对应的兼容性列表。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns world 与角色记忆的兼容性数组。
+   */
+  private buildEmbeddingCompatibility(
+    selection?: MemoryTargetSelection | null
+  ): EmbeddingCompatibilityStatus[] {
+    const resolvedTarget = this.resolveMemoryTarget(selection)
+    return [this.getWorldCompatibility(), this.getMemoryCompatibility(resolvedTarget)]
   }
 
   private buildWorldIndexStatus(): WorldIndexStatus {
@@ -386,33 +414,55 @@ export class MemoryService {
     return this.buildWorldIndexStatus()
   }
 
-  private buildMemoryIndexStatus(characterId?: string | null): CharacterMemoryIndexStatus {
-    const manifest = this.getManifest(MEMORY_SCOPE, characterId || null)
-    const compatibility = this.getMemoryCompatibility(characterId || null)
+  /**
+   * @description 基于当前 memory 选择目标构造角色记忆索引状态，用于设置页展示与调试。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 与解析后目标一致的角色记忆索引状态。
+   */
+  private buildMemoryIndexStatus(
+    selection?: MemoryTargetSelection | null
+  ): CharacterMemoryIndexStatus {
+    const resolvedTarget = this.resolveMemoryTarget(selection)
+    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
+    const compatibility = this.getMemoryCompatibility(resolvedTarget)
     const availability = this.getMemoryAvailability(manifest, compatibility)
     return {
       scope: MEMORY_SCOPE,
-      characterId: characterId || null,
+      characterId: resolvedTarget.characterId,
+      targetCharacterId: resolvedTarget.characterId,
+      targetSessionId: resolvedTarget.sessionId,
       availability,
       runtimeMode: this.getRuntimeMode(availability),
-      entryCount: manifest?.entryCount || this.countMemoryEntries(characterId || null),
+      entryCount: manifest?.entryCount || this.countMemoryEntries(resolvedTarget),
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
       builtAt: manifest?.builtAt || null
     }
   }
 
-  async getMemoryIndexStatus(characterId?: string | null): Promise<CharacterMemoryIndexStatus> {
+  /**
+   * @description 读取当前 memory 选择目标对应的角色记忆索引状态。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 角色记忆索引状态。
+   */
+  async getMemoryIndexStatus(
+    selection?: MemoryTargetSelection | null
+  ): Promise<CharacterMemoryIndexStatus> {
     await this.ensureInitialized('memory-ipc')
-    return this.buildMemoryIndexStatus(characterId)
+    return this.buildMemoryIndexStatus(selection)
   }
 
-  async getStatus(characterId?: string | null): Promise<MemoryStatusSnapshot> {
+  /**
+   * @description 读取 Memory 设置页需要的状态快照，并按当前选择目标解析角色记忆索引状态。
+   * @param selection 当前查看的角色 / 会话目标。
+   * @returns 包含设置、索引、任务和硬件信息的完整快照。
+   */
+  async getStatus(selection?: MemoryTargetSelection | null): Promise<MemoryStatusSnapshot> {
     await this.ensureInitialized('memory-status')
     return {
       settings: this.settings,
       worldIndex: this.buildWorldIndexStatus(),
-      memoryIndex: this.buildMemoryIndexStatus(characterId),
+      memoryIndex: this.buildMemoryIndexStatus(selection),
       tasks: this.getTasks(),
       hardware: await this.getHardwareInfo()
     }
@@ -700,6 +750,32 @@ export class MemoryService {
     return result.hits.map((hit) => hit.text)
   }
 
+  /**
+   * @description 预览聊天请求将携带的检索上下文，按 world 与角色记忆拆分返回。
+   * @param query 当前模拟用户输入。
+   * @param session 当前将用于记忆检索的会话；为空时仅返回 world 命中与记忆回退信息。
+   * @returns 拆分后的检索命中列表与对应运行时摘要。
+   */
+  async previewPromptContext(
+    query: string,
+    session: ConversationSession | null
+  ): Promise<PromptContextPreviewResult> {
+    await this.ensureInitialized('memory-debug')
+    const normalizedQuery = query.trim()
+    const worldResult = await this.retrieveWorldDebugHits(normalizedQuery)
+    const memoryResult = await this.retrieveMemoryDebugHits(normalizedQuery, session)
+
+    return {
+      worldHits: worldResult.hits,
+      memoryHits: memoryResult.hits,
+      runtimeSummary: {
+        requestedMode: this.settings.retrievalMode,
+        world: this.buildWorldRuntimeSummary(worldResult),
+        memory: this.buildMemoryRuntimeSummary(memoryResult, session)
+      }
+    }
+  }
+
   async debugRetrieve(request: MemoryDebugRetrieveRequest): Promise<MemoryDebugRetrieveResult> {
     await this.ensureInitialized('memory-debug')
     const query = request.query.trim()
@@ -718,7 +794,14 @@ export class MemoryService {
         ? {
             hits: [],
             runtimeModeUsed: this.getRuntimeMode(
-              this.buildMemoryIndexStatus(session?.characterId || null).availability
+              this.buildMemoryIndexStatus(
+                session
+                  ? {
+                      characterId: session.characterId,
+                      sessionId: session.id
+                    }
+                  : null
+              ).availability
             ),
             fallbackReason: 'Character memory retrieval was not requested.'
           }
@@ -1178,9 +1261,15 @@ export class MemoryService {
     }
   }
 
-  private getMemoryCompatibility(characterId: string | null): EmbeddingCompatibilityStatus {
-    const targetId = characterId || null
-    const manifest = this.getManifest(MEMORY_SCOPE, targetId)
+  /**
+   * @description 计算当前解析出的角色记忆目标与激活 embedding 配置之间的兼容性。
+   * @param resolvedTarget 已解析出的 memory 目标。
+   * @returns 角色记忆索引兼容性结果。
+   */
+  private getMemoryCompatibility(
+    resolvedTarget: MemoryResolvedTarget
+  ): EmbeddingCompatibilityStatus {
+    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
     const compatible =
@@ -1188,7 +1277,7 @@ export class MemoryService {
 
     return {
       scope: MEMORY_SCOPE,
-      targetId,
+      targetId: resolvedTarget.targetId,
       compatible,
       expectedFingerprint: expected,
       activeFingerprint: active,
@@ -1325,9 +1414,12 @@ export class MemoryService {
       }
     }
 
-    const compatibility = this.getMemoryCompatibility(
-      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-    )
+    const compatibility = this.getMemoryCompatibility({
+      targetId: this.settings.crossSessionCharacterMemory ? session.characterId : session.id,
+      characterId: session.characterId,
+      sessionId: session.id,
+      session
+    })
     if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
       try {
         return {
@@ -1375,9 +1467,10 @@ export class MemoryService {
   ): MemoryDebugRuntimeDetail {
     const memoryIndex = this.buildMemoryIndexStatus(
       session
-        ? this.settings.crossSessionCharacterMemory
-          ? session.characterId
-          : session.id
+        ? {
+            characterId: session.characterId,
+            sessionId: session.id
+          }
         : null
     )
     return {
@@ -1387,8 +1480,8 @@ export class MemoryService {
       retrievalModeUsed: result.runtimeModeUsed,
       resultCount: result.hits.length,
       fallbackReason: result.fallbackReason,
-      targetCharacterId: session?.characterId || null,
-      targetSessionId: session?.id || null
+      targetCharacterId: memoryIndex.targetCharacterId || null,
+      targetSessionId: memoryIndex.targetSessionId || null
     }
   }
 
@@ -1416,9 +1509,10 @@ export class MemoryService {
     compatibility: EmbeddingCompatibilityStatus,
     session: ConversationSession
   ): string {
-    const memoryIndex = this.buildMemoryIndexStatus(
-      this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-    )
+    const memoryIndex = this.buildMemoryIndexStatus({
+      characterId: session.characterId,
+      sessionId: session.id
+    })
     if (memoryIndex.availability === 'missing') {
       return 'Character memory index is missing, so the query fell back to keyword matching.'
     }
@@ -1442,30 +1536,74 @@ export class MemoryService {
     return `Vector retrieval failed at runtime, so the query fell back to keyword matching. ${message}`
   }
 
-  private resolveDebugSession(
-    characterId: string | null,
-    sessionId: string | null
-  ): ConversationSession | null {
-    if (sessionId) {
-      const session = this.sessions.find((item) => item.id === sessionId)
-      if (session) {
-        return session
-      }
-    }
+  /**
+   * @description 按当前 memory 设置解析界面选中的角色 / 会话目标，统一角色聚合与单会话模式下的 target 语义。
+   * @param selection 设置页或调试页传入的角色 / 会话选择。
+   * @returns 已补齐真实 targetId、角色、会话与可用 session 的解析结果。
+   */
+  private resolveMemoryTarget(selection?: MemoryTargetSelection | null): MemoryResolvedTarget {
+    const requestedCharacterId = selection?.characterId || null
+    const requestedSessionId = selection?.sessionId || null
+    const selectedSession = requestedSessionId
+      ? this.sessions.find((item) => item.id === requestedSessionId) || null
+      : null
+    const session =
+      selectedSession &&
+      (!requestedCharacterId || selectedSession.characterId === requestedCharacterId)
+        ? selectedSession
+        : null
+    const characterId = requestedCharacterId || session?.characterId || null
+    const resolvedSession =
+      session ||
+      (this.settings.crossSessionCharacterMemory
+        ? this.resolveLatestSessionForCharacter(characterId)
+        : null)
+    const sessionId = session?.id || null
 
+    return {
+      targetId: this.settings.crossSessionCharacterMemory ? characterId : sessionId,
+      characterId,
+      sessionId,
+      session: resolvedSession
+    }
+  }
+
+  /**
+   * @description 查找指定角色最近更新的一条会话，供跨会话角色记忆模式下补全上下文目标。
+   * @param characterId 角色 ID。
+   * @returns 最近会话；若不存在则返回 `null`。
+   */
+  private resolveLatestSessionForCharacter(characterId: string | null): ConversationSession | null {
     if (!characterId) {
       return null
     }
 
-    const sessions = this.sessions
-      .filter((item) => item.characterId === characterId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    return sessions[0] || null
+    return (
+      this.sessions
+        .filter((item) => item.characterId === characterId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] || null
+    )
   }
 
-  private countMemoryEntries(characterId: string | null): number {
+  private resolveDebugSession(
+    characterId: string | null,
+    sessionId: string | null
+  ): ConversationSession | null {
+    return this.resolveMemoryTarget({ characterId, sessionId }).session
+  }
+
+  /**
+   * @description 统计当前 memory 目标下可用于检索的记忆条目数。
+   * @param resolvedTarget 已解析出的 memory 目标。
+   * @returns 目标范围内的记忆条目数量。
+   */
+  private countMemoryEntries(resolvedTarget: MemoryResolvedTarget): number {
+    if (!resolvedTarget.targetId) {
+      return 0
+    }
+
     return this.getRepository().countMemoryEntries(
-      characterId,
+      resolvedTarget.targetId,
       this.settings.crossSessionCharacterMemory
     )
   }

@@ -5,6 +5,7 @@ type SessionStore = {
   sessions: Session[]
   currentSessionId: Session['id'] | null
   setSessions: (sessions: Session[]) => void
+  upsertSession: (session: Session) => void
   setCurrentSessionId: (sessionId: Session['id'] | null) => void
   startNewSession: (charId: Char['id']) => void
   mergeRunEventSession: (event: ChatRunEvent) => void
@@ -19,6 +20,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
   sessions: [],
   currentSessionId: null,
   setSessions: (sessions) => set({ sessions }),
+  /**
+   * @description 将单个会话合并进列表，并按更新时间保持会话顺序。
+   * @param session 需要写入或更新的会话快照。
+   */
+  upsertSession: (session) =>
+    set((current) => ({
+      sessions: mergeSession(current.sessions, session)
+    })),
   setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
   startNewSession: (charId) => {
     void charId

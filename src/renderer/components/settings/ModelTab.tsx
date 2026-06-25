@@ -5,12 +5,13 @@ import { useModelTabState } from '@renderer/hooks/useModelTabState'
 import { selectActiveProfile, useSettingsStore } from '@renderer/stores/settingsStore'
 import { useShallow } from 'zustand/react/shallow'
 import { ModelConnectionSection } from './model/ModelConnectionSection'
-import { ModelDeleteModal } from './model/ModelDeleteModal'
 import { ModelProfileList } from './model/ModelProfileList'
 import { ModelProviderField } from './model/ModelProviderField'
 import { ModelSelectorField } from './model/ModelSelectorField'
 import { SectionCard } from '@renderer/components/settings/section'
 import { Input } from '@renderer/components/ui/input'
+import { ConfirmActionModal } from '@renderer/components/settings/ConfirmActionModal'
+import { PROVIDER_LABELS } from '@shared/model-settings'
 
 export function ModelTab(): ReactElement {
   const activeProfile = useSettingsStore(selectActiveProfile)
@@ -196,8 +197,15 @@ export function ModelTab(): ReactElement {
       </div>
 
       {deleteTarget && (
-        <ModelDeleteModal
-          target={deleteTarget}
+        <ConfirmActionModal
+          title="删除模型配置"
+          description={
+            <>
+              确认是否要删除名为 {deleteTarget.name} 的 {PROVIDER_LABELS[deleteTarget.provider]}{' '}
+              Profile 的本地配置吗？
+            </>
+          }
+          confirmLabel="删除"
           onCancel={() => setDeleteTarget(null)}
           onConfirm={handleConfirmDelete}
         />

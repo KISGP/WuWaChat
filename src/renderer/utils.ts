@@ -1,7 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { ModelProfile } from '@shared/chat'
-import type { LogEntry } from '@shared/logging'
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs))
@@ -42,5 +41,6 @@ export function isValidUrl(value: string): boolean {
 export function formatBytes(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`
   if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+  if (sizeBytes < 1024 * 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(sizeBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }

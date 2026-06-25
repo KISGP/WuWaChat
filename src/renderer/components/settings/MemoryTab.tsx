@@ -1,4 +1,4 @@
-import { type ReactElement } from 'react'
+import { useMemo, useState, type ReactElement } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -11,8 +11,15 @@ import {
   Wifi,
   XCircle
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { CloudEmbeddingSettings, MemoryRetrievalMode } from '@shared/memory-settings'
+import type {
+  CharacterMemoryIndexStatus,
+  CloudEmbeddingSettings,
+  MemoryRetrievalMode,
+  MemoryTargetSelection,
+  WorldIndexStatus
+} from '@shared/memory-settings'
 import { HUGGING_FACE_INFERENCE_PROVIDERS } from '@shared/memory-settings'
 import { useMemorySettingsDraft } from '@renderer/hooks/useMemorySettingsDraft'
 import { useMemoryTabActions } from '@renderer/hooks/useMemoryTabActions'
@@ -20,30 +27,177 @@ import { useMemoryTabLifecycle } from '@renderer/hooks/useMemoryTabLifecycle'
 import { useMemoryTabViewState } from '@renderer/hooks/useMemoryTabViewState'
 import { useCharacterStore } from '@renderer/stores/characterStore'
 import { useMemoryStore } from '@renderer/stores/memoryStore'
+import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
 import { cn } from '@renderer/utils'
-import { ActionCard } from '@renderer/components/settings/memory/ActionCard'
+import { CharacterSessionSelect } from '@renderer/components/settings/CharacterSessionSelect'
 import {
   CLOUD_PROVIDER_OPTIONS,
   RETRIEVAL_OPTIONS
 } from '@renderer/components/settings/memory/constants'
 import { EmbeddingTestResultBanner } from '@renderer/components/settings/memory/EmbeddingTestResultBanner'
 import {
+  formatDateTime,
+  getAvailabilityMeta,
   getDefaultCloudBaseUrl,
   getDefaultCloudModel,
   getSelectedEmbeddingModeLabel
 } from '@renderer/components/settings/memory/helpers'
 import { LocalModelCard } from '@renderer/components/settings/memory/LocalModelCard'
-import { StatusCard } from '@renderer/components/settings/memory/StatusCard'
 import { TaskPanel } from '@renderer/components/settings/memory/TaskPanel'
 import { SectionCard } from '@renderer/components/settings/section'
 import { SettingItem } from '@renderer/components/settings/setting-item'
 import { Switch } from '@renderer/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/components/ui/select'
 import { Input } from '@renderer/components/ui/input'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from '@renderer/components/ui/collapsible'
 import { isPositiveInteger } from '@renderer/utils'
 
 type MemoryTabProps = {
   isActive: boolean
+}
+
+type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
+
+/**
+ * @description 渲染索引管理区内的轻量状态行。
+ * @param props 当前索引状态、条目数和最近构建时间。
+ * @returns 索引状态摘要节点。
+ */
+function IndexStatusLine({
+  index,
+  metadataLabel,
+  metadataValue
+}: {
+  index: IndexStatus
+  metadataLabel?: string
+  metadataValue?: string | number | null
+}): ReactElement {
+  const availabilityMeta = getAvailabilityMeta(index?.availability, index)
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+      <span className={cn('rounded border px-2 py-1 text-[11px]', availabilityMeta.tone)}>
+        {availabilityMeta.label}
+      </span>
+      <span>条目：{index?.entryCount ?? '-'}</span>
+      {metadataLabel && (
+        <span>
+          {metadataLabel}：{metadataValue ?? '-'}
+        </span>
+      )}
+      <span>最近构建：{formatDateTime(index?.builtAt)}</span>
+    </div>
+  )
+}
+
+/**
+ * @description 渲染索引管理区内的紧凑操作按钮。
+ * @param props 按钮图标、文案、禁用状态和点击处理器。
+ * @returns 索引操作按钮节点。
+ */
+function IndexActionButton({
+  icon: Icon,
+  label,
+  disabled,
+  disabledReason,
+  highlight,
+  onClick
+}: {
+  icon: LucideIcon
+  label: string
+  disabled?: boolean
+  disabledReason?: string
+  highlight?: boolean
+  onClick: () => Promise<void>
+}): ReactElement {
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => void onClick()}
+        disabled={disabled}
+        className={cn(
+          'flex w-full items-center justify-center gap-2 rounded border px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+          highlight
+            ? 'border-[#e8c690]/40 bg-[#e8c690]/12 text-[#f2dfbd] hover:bg-[#e8c690]/20'
+            : 'border-white/15 bg-black/20 text-white/75 hover:bg-white/5'
+        )}
+      >
+        <Icon className="size-4 shrink-0" />
+        <span className="truncate">{label}</span>
+      </button>
+      {disabledReason && (
+        <div className="mt-1 text-xs leading-5 text-amber-200/85">{disabledReason}</div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * @description 渲染索引分组内的简短提示列表。
+ * @param props 当前分组需要展示的提示文本。
+ * @returns 提示列表节点；没有提示时返回 `null`。
+ */
+function IndexTipList({ tips }: { tips: string[] }): ReactElement | null {
+  if (tips.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-white/55">
+      {tips.map((tip) => (
+        <div key={tip}>{tip}</div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * @description 计算 Memory 页的初始本地角色 / 会话选择。
+ * @param activeCharacter 当前主页面角色。
+ * @param currentSession 当前主页面会话。
+ * @returns 适合在 Memory 页内部保存的初始选择。
+ */
+function getInitialMemorySelection(
+  activeCharacter: Char | null,
+  currentSession: Session | null
+): {
+  characterId: string | null
+  sessionId: string | null
+} {
+  const characterId = activeCharacter?.id ?? null
+  const sessionId =
+    currentSession && currentSession.characterId === characterId ? currentSession.id : null
+
+  return {
+    characterId,
+    sessionId
+  }
+}
+
+/**
+ * @description 返回指定角色最近更新的一条会话 ID。
+ * @param sessions 当前会话列表。
+ * @param characterId 角色 ID。
+ * @returns 最近会话 ID；若角色下暂无会话则返回 `null`。
+ */
+function getLatestSessionIdForCharacter(
+  sessions: Session[],
+  characterId: string | null
+): string | null {
+  if (!characterId) {
+    return null
+  }
+
+  return (
+    sessions
+      .filter((session) => session.characterId === characterId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id || null
+  )
 }
 
 export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
@@ -52,6 +206,23 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       activateChar: state.activateChar,
       characters: state.characters
     }))
+  )
+  const { currentSessionId, sessions } = useSessionStore(
+    useShallow((state) => ({
+      currentSessionId: state.currentSessionId,
+      sessions: state.sessions
+    }))
+  )
+  const currentSession = useSessionStore(selectSessionById(currentSessionId))
+  const initialSelection = useMemo(
+    () => getInitialMemorySelection(activateChar, currentSession),
+    [activateChar, currentSession]
+  )
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(
+    initialSelection.characterId
+  )
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    initialSelection.sessionId
   )
   const {
     settings,
@@ -116,11 +287,24 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     flushPendingChanges,
     retryAutosave
   } = useMemorySettingsDraft(settings, saveSettings)
+  const selectedCharacter =
+    characters.find((character) => character.id === selectedCharacterId) || null
+  const sessionSelectionDisabled = draft.crossSessionCharacterMemory
+  const hasMemoryInspectionTarget = draft.crossSessionCharacterMemory
+    ? Boolean(selectedCharacterId)
+    : Boolean(selectedSessionId)
+  const memorySelection = useMemo<MemoryTargetSelection>(
+    () => ({
+      characterId: selectedCharacterId,
+      sessionId: draft.crossSessionCharacterMemory ? null : selectedSessionId
+    }),
+    [draft.crossSessionCharacterMemory, selectedCharacterId, selectedSessionId]
+  )
+  const memoryIndexForView = hasMemoryInspectionTarget ? memoryIndex : null
+  const compatibilityForView = hasMemoryInspectionTarget ? compatibility : []
   const {
     providerListOpen,
     setProviderListOpen,
-    worldCompatibility,
-    memoryCompatibility,
     selectedProvider,
     isHuggingFace,
     isVolcengineArk,
@@ -137,10 +321,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     operationTips
   } = useMemoryTabViewState({
     draft,
-    compatibility,
+    compatibility: compatibilityForView,
     tasks,
     worldIndex,
-    memoryIndex
+    memoryIndex: memoryIndexForView
   })
 
   const {
@@ -163,7 +347,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     updateCloudEmbedding,
     updateDraft,
     flushPendingChanges,
-    activeCharacterId: activateChar?.id || null,
+    selectedCharacterId,
     clearLocalModelUiState,
     downloadLocalModel,
     selectLocalModel,
@@ -180,16 +364,19 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const characterMemoryPending =
     pendingBuildTaskType === 'character-memory-build' || characterMemoryBusy
   const allMemoryPending = pendingBuildTaskType === 'all-memory-build' || characterMemoryBusy
-  const isSaving = autosaveState === 'saving'
-  const handleSave = retryAutosave
   const selectedRetrievalOption = RETRIEVAL_OPTIONS.find(
     (option) => option.value === draft.retrievalMode
   )
+  const [localModelListOpen, setLocalModelListOpen] = useState(false)
+  const selectedLocalModel = localModels.find((model) => model.isSelected) || null
+  const installedLocalModelCount = localModels.filter(
+    (model) => model.status === 'installed'
+  ).length
 
   useMemoryTabLifecycle({
     isActive,
     isLoaded,
-    activeCharacterId: activateChar?.id || null,
+    selection: memorySelection,
     buildLaunchNotice,
     refreshStatus,
     refreshLocalModels,
@@ -227,6 +414,30 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             }
 
   const AutosaveIcon = autosaveMeta.icon
+  const selectionHint = draft.crossSessionCharacterMemory
+    ? '当前记忆索引按角色聚合查看。切换角色会同时切换状态、兼容性和索引目标。'
+    : '当前记忆索引按会话查看。若不选择会话，状态区只显示空态提示，不会误判为索引缺失。'
+  const memoryEmptyTip = '当前还没有角色记忆内容，先开始聊天产生记忆后，再构建向量索引即可。'
+  const operationTipsForView = operationTips.map((tip) => {
+    if (tip !== memoryEmptyTip || draft.crossSessionCharacterMemory) {
+      return tip
+    }
+
+    return selectedSessionId
+      ? '当前会话还没有可用于索引的记忆内容。你仍然可以重建当前角色记忆，系统会整理该角色名下的历史会话。'
+      : '当前没有选择会话，无法判断会话级记忆索引内容。请选择会话，或开启同一角色跨会话共享记忆。'
+  })
+  const generalIndexTips = operationTipsForView
+    .filter((tip) => tip.includes('字符串检索模式'))
+    .slice(0, 1)
+  const worldIndexTips = operationTipsForView.filter((tip) => tip.includes('世界知识')).slice(0, 2)
+  const memoryIndexTips = operationTipsForView
+    .filter((tip) => !tip.includes('世界知识') && !tip.includes('字符串检索模式'))
+    .slice(0, 2)
+  const hasIncompatibleIndex =
+    draft.retrievalMode !== 'string' &&
+    (worldIndex?.availability === 'incompatible' ||
+      memoryIndexForView?.availability === 'incompatible')
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto px-4">
@@ -538,18 +749,44 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                   />
                 </SettingItem>
 
-                <div className="grid grid-cols-1 gap-3">
-                  {localModels.map((model) => (
-                    <LocalModelCard
-                      key={model.id}
-                      model={model}
-                      uiState={localModelUiState[model.id]}
-                      onDownload={handleDownloadLocalModel}
-                      onSelect={handleSelectLocalModel}
-                      onRemove={handleRemoveLocalModel}
-                    />
-                  ))}
-                </div>
+                <Collapsible open={localModelListOpen} onOpenChange={setLocalModelListOpen}>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded border border-white/10 bg-black/20 px-4 py-3 text-left transition-colors hover:bg-white/5"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-white/90">
+                          本地 embedding 模型
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-white/45">
+                          当前：
+                          {selectedLocalModel?.label || '未选择模型'} · 已安装{' '}
+                          {installedLocalModelCount}/{localModels.length}
+                        </span>
+                      </span>
+                      {localModelListOpen ? (
+                        <ChevronDown className="size-4 shrink-0 text-white/55" />
+                      ) : (
+                        <ChevronRight className="size-4 shrink-0 text-white/55" />
+                      )}
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-3 grid grid-cols-1 gap-3">
+                      {localModels.map((model) => (
+                        <LocalModelCard
+                          key={model.id}
+                          model={model}
+                          uiState={localModelUiState[model.id]}
+                          onDownload={handleDownloadLocalModel}
+                          onSelect={handleSelectLocalModel}
+                          onRemove={handleRemoveLocalModel}
+                        />
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
             )}
 
@@ -608,187 +845,178 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
         </SettingItem>
       </SectionCard>
 
-      <SectionCard title="索引状态">
-        <div className="mb-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-white/80">当前设置：</span>
-            <span className="rounded border border-[#e8c690]/30 bg-[#e8c690]/10 px-2 py-1 text-xs text-[#f2dfbd]">
-              {getSelectedEmbeddingModeLabel(draft.retrievalMode)}
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3">
-          <StatusCard
-            title="世界知识索引"
-            index={worldIndex}
-            compatibility={worldCompatibility}
-            metadataLabel="world 更新时间"
-            metadataValue={new Date(worldIndex?.updatedAt || 0).toLocaleString()}
-            emptyHint="如果你想让系统从世界知识库里做语义检索，需要先更新知识包并构建世界知识向量。"
-          />
-          <StatusCard
-            title="角色记忆索引"
-            index={memoryIndex}
-            compatibility={memoryCompatibility}
-            metadataLabel="已索引角色数"
-            metadataValue={memoryIndex?.indexedCharacterCount}
-            emptyHint="如果你想让系统从历史会话里做语义检索，需要先为当前角色或全部角色重建记忆。"
-          />
-        </div>
-
-        {draft.retrievalMode !== 'string' &&
-          (worldIndex?.availability === 'incompatible' ||
-            memoryIndex?.availability === 'incompatible') && (
-            <div className="mt-3 flex items-start gap-2 rounded border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                当前向量索引与正在使用的 embedding
-                模型不一致。在完成重建前，系统会回退到字符串检索。
+      <SectionCard title="索引管理">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-white/80">当前设置：</span>
+              <span className="rounded border border-[#e8c690]/30 bg-[#e8c690]/10 px-2 py-1 text-xs text-[#f2dfbd]">
+                {getSelectedEmbeddingModeLabel(draft.retrievalMode)}
               </span>
             </div>
-          )}
-      </SectionCard>
 
-      <SectionCard title="索引操作">
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={isSaving}
-            className="hidden rounded border border-[#e8c690]/40 bg-[rgb(4,4,4,0.5)] px-4 py-2 text-sm text-[#f2dfbd] transition-colors hover:bg-[#e8c690]/20 disabled:opacity-50"
-          >
-            {isSaving ? '保存中...' : '保存记忆设置'}
-          </button>
-        </div>
-
-        {operationTips.length > 0 && (
-          <div className="mb-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] px-4 py-3 text-xs leading-5 text-white/60">
-            {operationTips.map((tip, index) => (
-              <div key={index}>{tip}</div>
-            ))}
+            {hasIncompatibleIndex && (
+              <div className="flex items-center gap-2 text-xs text-amber-200">
+                <AlertCircle className="size-4 shrink-0" />
+                <span>索引与当前 embedding 不一致，建议重建。</span>
+              </div>
+            )}
           </div>
-        )}
 
-        <div className="mb-3">
+          <IndexTipList tips={generalIndexTips} />
+
+          <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-medium text-white/90">世界知识</div>
+              <IndexStatusLine
+                index={worldIndex}
+                metadataLabel="更新时间"
+                metadataValue={formatDateTime(worldIndex?.updatedAt)}
+              />
+            </div>
+
+            <div className="mt-3">
+              <IndexTipList tips={worldIndexTips} />
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <IndexActionButton
+                icon={worldBundleBusy ? XCircle : Download}
+                label={worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新世界知识包'}
+                highlight={worldBundleBusy || worldIndexNeedsBuild}
+                disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
+                disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
+                onClick={
+                  worldBundleBusy && activeWorldBundleTaskId
+                    ? () => handleCancelTask(activeWorldBundleTaskId)
+                    : handleStartWorldBundleDownload
+                }
+              />
+              <IndexActionButton
+                icon={worldVectorPending ? XCircle : RefreshCw}
+                label={
+                  worldVectorPending && activeWorldVectorTaskId ? '中止构建' : '构建世界知识向量'
+                }
+                highlight={worldVectorPending || worldIndexNeedsBuild}
+                disabled={
+                  (worldVectorPending && !activeWorldVectorTaskId) ||
+                  (!worldVectorPending && !vectorModeSelected)
+                }
+                disabledReason={
+                  worldVectorPending
+                    ? '当前已有世界知识向量构建任务在运行。'
+                    : !vectorModeSelected
+                      ? '字符串检索模式下不需要构建向量索引。'
+                      : undefined
+                }
+                onClick={
+                  worldVectorPending && activeWorldVectorTaskId
+                    ? () => handleCancelTask(activeWorldVectorTaskId)
+                    : handleStartWorldVectorBuild
+                }
+              />
+            </div>
+          </div>
+
+          <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium text-white/90">角色记忆</div>
+                <span className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-white/55">
+                  {draft.crossSessionCharacterMemory ? '按角色聚合' : '按会话查看'}
+                </span>
+              </div>
+              <IndexStatusLine
+                index={memoryIndexForView}
+                metadataLabel="已索引角色"
+                metadataValue={memoryIndexForView?.indexedCharacterCount}
+              />
+            </div>
+
+            <div className="mt-3">
+              <CharacterSessionSelect
+                characters={characters}
+                sessions={sessions}
+                selectedCharacterId={selectedCharacterId}
+                selectedSessionId={selectedSessionId}
+                onCharacterChange={(characterId) => {
+                  setSelectedCharacterId(characterId)
+                  setSelectedSessionId(getLatestSessionIdForCharacter(sessions, characterId))
+                }}
+                onSessionChange={setSelectedSessionId}
+                allowEmptySession
+                sessionDisabled={sessionSelectionDisabled}
+                sessionPlaceholder="不选择会话"
+                sessionHint={selectionHint}
+              />
+              <div className="mt-2 text-xs text-white/50">
+                当前目标：{selectedCharacter?.name || '未选择角色'}
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <IndexTipList tips={memoryIndexTips} />
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <IndexActionButton
+                icon={characterMemoryPending && activeCharacterMemoryTaskId ? XCircle : RefreshCw}
+                label={
+                  characterMemoryPending && activeCharacterMemoryTaskId
+                    ? '中止构建'
+                    : '重建当前角色记忆'
+                }
+                highlight={Boolean(
+                  selectedCharacterId && !characterMemoryPending && shouldSuggestMemoryBuild
+                )}
+                disabled={
+                  !selectedCharacterId ||
+                  !vectorModeSelected ||
+                  (characterMemoryPending && !activeCharacterMemoryTaskId)
+                }
+                disabledReason={
+                  !selectedCharacterId
+                    ? '请先选择记忆索引目标。'
+                    : characterMemoryPending
+                      ? '当前已有角色记忆构建任务在运行。'
+                      : !vectorModeSelected
+                        ? '字符串检索模式下不需要构建记忆向量。'
+                        : undefined
+                }
+                onClick={
+                  characterMemoryPending && activeCharacterMemoryTaskId
+                    ? () => handleCancelTask(activeCharacterMemoryTaskId)
+                    : handleStartCharacterMemoryBuild
+                }
+              />
+              <IndexActionButton
+                icon={allMemoryPending && activeAllMemoryTaskId ? XCircle : RefreshCw}
+                label={allMemoryPending && activeAllMemoryTaskId ? '中止构建' : '重建全部角色记忆'}
+                highlight={allMemoryPending || shouldSuggestMemoryBuild}
+                disabled={
+                  characters.length === 0 ||
+                  !vectorModeSelected ||
+                  (allMemoryPending && !activeAllMemoryTaskId)
+                }
+                disabledReason={
+                  characters.length === 0
+                    ? '当前没有可用角色。'
+                    : allMemoryPending
+                      ? '当前已有角色记忆构建任务在运行。'
+                      : !vectorModeSelected
+                        ? '字符串检索模式下不需要构建记忆向量。'
+                        : undefined
+                }
+                onClick={
+                  allMemoryPending && activeAllMemoryTaskId
+                    ? () => handleCancelTask(activeAllMemoryTaskId)
+                    : handleStartAllMemoryBuild
+                }
+              />
+            </div>
+          </div>
+
           <TaskPanel tasks={tasks} buildLaunchNotice={buildLaunchNotice} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <ActionCard
-            icon={worldBundleBusy ? XCircle : Download}
-            title="更新世界知识包"
-            summary="从远端下载最新 world 压缩包，并覆盖本地已有数据。"
-            guidance="首次缺少 world 内容时会自动准备；之后当远端版本更新时，也可以在这里手动刷新。"
-            effect="仅更新 world 原始内容，不会自动生成向量索引。完成后如需向量检索，需再执行一次。"
-            statusText={
-              worldBundleBusy ? '更新中' : worldIndexNeedsBuild ? '建议先执行' : '按需执行'
-            }
-            tone={worldBundleBusy || worldIndexNeedsBuild ? 'highlight' : 'default'}
-            disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
-            disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
-            onClick={
-              worldBundleBusy && activeWorldBundleTaskId
-                ? () => handleCancelTask(activeWorldBundleTaskId)
-                : handleStartWorldBundleDownload
-            }
-          />
-          <ActionCard
-            icon={worldVectorPending ? XCircle : RefreshCw}
-            title="构建世界知识向量"
-            summary="把世界知识转换成可供语义检索的向量索引。"
-            guidance="仅在使用向量检索时才需要执行；更新知识包后需要再构建。"
-            effect="完成后，世界知识检索才能真正走向量语义匹配。"
-            statusText={
-              worldVectorPending ? '构建中' : worldIndexNeedsBuild ? '建议执行' : '可按需重建'
-            }
-            tone={worldVectorPending || worldIndexNeedsBuild ? 'highlight' : 'default'}
-            disabled={
-              (worldVectorPending && !activeWorldVectorTaskId) ||
-              (!worldVectorPending && !vectorModeSelected)
-            }
-            disabledReason={
-              worldVectorPending
-                ? '当前已有世界知识向量构建任务在运行。'
-                : !vectorModeSelected
-                  ? '你当前使用的是字符串检索模式，暂时不需要构建向量索引。'
-                  : undefined
-            }
-            onClick={
-              worldVectorPending && activeWorldVectorTaskId
-                ? () => handleCancelTask(activeWorldVectorTaskId)
-                : handleStartWorldVectorBuild
-            }
-          />
-          <ActionCard
-            icon={characterMemoryPending && activeCharacterMemoryTaskId ? XCircle : RefreshCw}
-            title="重建当前角色记忆"
-            summary="只为当前选中的角色重新整理历史会话记忆。"
-            guidance="当你只想修复或更新当前角色的长期记忆检索时，用它最快。"
-            effect="只影响当前角色，不会处理其他角色。"
-            statusText={
-              !activateChar?.id
-                ? '需先选择角色'
-                : characterMemoryPending
-                  ? '构建中'
-                  : shouldSuggestMemoryBuild
-                    ? '建议执行'
-                    : '适合局部更新'
-            }
-            tone={
-              activateChar?.id && !characterMemoryPending && shouldSuggestMemoryBuild
-                ? 'highlight'
-                : 'default'
-            }
-            disabled={
-              !activateChar?.id ||
-              !vectorModeSelected ||
-              (characterMemoryPending && !activeCharacterMemoryTaskId)
-            }
-            disabledReason={
-              !activateChar?.id
-                ? '当前没有选中角色，无法只重建单个角色记忆。'
-                : characterMemoryPending
-                  ? '当前已有角色记忆构建任务在运行。'
-                  : !vectorModeSelected
-                    ? '你当前使用的是字符串检索模式，暂时不需要构建记忆向量。'
-                    : undefined
-            }
-            onClick={
-              characterMemoryPending && activeCharacterMemoryTaskId
-                ? () => handleCancelTask(activeCharacterMemoryTaskId)
-                : handleStartCharacterMemoryBuild
-            }
-          />
-          <ActionCard
-            icon={allMemoryPending && activeAllMemoryTaskId ? XCircle : RefreshCw}
-            title="重建全部角色记忆"
-            summary="为所有角色统一重建长期记忆向量索引。"
-            guidance="当你调整了 embedding 配置、切换了模型，或想一次性修复所有角色时使用。"
-            effect="耗时通常比单角色更长，但能保证所有角色索引一致。"
-            statusText={
-              allMemoryPending ? '构建中' : shouldSuggestMemoryBuild ? '建议执行' : '适合全量更新'
-            }
-            tone={allMemoryPending || shouldSuggestMemoryBuild ? 'highlight' : 'default'}
-            disabled={
-              characters.length === 0 ||
-              !vectorModeSelected ||
-              (allMemoryPending && !activeAllMemoryTaskId)
-            }
-            disabledReason={
-              characters.length === 0
-                ? '当前没有可用角色。'
-                : allMemoryPending
-                  ? '当前已有角色记忆构建任务在运行。'
-                  : !vectorModeSelected
-                    ? '你当前使用的是字符串检索模式，暂时不需要构建记忆向量。'
-                    : undefined
-            }
-            onClick={
-              allMemoryPending && activeAllMemoryTaskId
-                ? () => handleCancelTask(activeAllMemoryTaskId)
-                : handleStartAllMemoryBuild
-            }
-          />
         </div>
       </SectionCard>
     </div>

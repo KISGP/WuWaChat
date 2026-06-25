@@ -1,5 +1,9 @@
 import { is } from '@electron-toolkit/utils'
-import type { MemoryDebugRetrieveRequest, MemorySettingsStore } from '@shared/memory-settings'
+import type {
+  MemoryDebugRetrieveRequest,
+  MemorySettingsStore,
+  MemoryTargetSelection
+} from '@shared/memory-settings'
 import { getMemoryService } from '@main/chat'
 import { handleLogged } from './logged-handler'
 
@@ -18,8 +22,11 @@ export function registerMemoryIpc(): void {
   )
   handleLogged(
     'memory:getStatus',
-    (_event, characterId?: string | null) => memory.getStatus(characterId),
-    (characterId) => ({ characterId })
+    (_event, selection?: MemoryTargetSelection | null) => memory.getStatus(selection),
+    (selection) => ({
+      characterId: selection?.characterId,
+      sessionId: selection?.sessionId
+    })
   )
   handleLogged('memory:listLocalModels', () => memory.listLocalModels())
   handleLogged(
@@ -40,14 +47,21 @@ export function registerMemoryIpc(): void {
   handleLogged('memory:testEmbeddingConnection', () => memory.testEmbeddingConnection())
   handleLogged(
     'memory:getEmbeddingCompatibility',
-    (_event, characterId?: string | null) => memory.getEmbeddingCompatibility(characterId),
-    (characterId) => ({ characterId })
+    (_event, selection?: MemoryTargetSelection | null) =>
+      memory.getEmbeddingCompatibility(selection),
+    (selection) => ({
+      characterId: selection?.characterId,
+      sessionId: selection?.sessionId
+    })
   )
   handleLogged('memory:getWorldIndexStatus', () => memory.getWorldIndexStatus())
   handleLogged(
     'memory:getMemoryIndexStatus',
-    (_event, characterId?: string | null) => memory.getMemoryIndexStatus(characterId),
-    (characterId) => ({ characterId })
+    (_event, selection?: MemoryTargetSelection | null) => memory.getMemoryIndexStatus(selection),
+    (selection) => ({
+      characterId: selection?.characterId,
+      sessionId: selection?.sessionId
+    })
   )
   handleLogged('memory:startWorldBundleDownload', () => memory.startWorldBundleDownload())
   handleLogged('memory:startWorldVectorBuild', () => memory.startWorldVectorBuild())
