@@ -1,4 +1,4 @@
-import type { ChatRunEvent } from '@shared/ai'
+import type { ChatRunEvent } from '@shared/chat'
 import { create } from 'zustand'
 
 type SessionStore = {

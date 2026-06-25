@@ -1,5 +1,5 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
 import type { OpenAIProfileConnectionTestResult } from '@shared/model-settings'
 import {
   connectionFingerprint,

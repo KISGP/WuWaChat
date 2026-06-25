@@ -1,4 +1,4 @@
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
 import { cn } from '@renderer/utils'
 
 export const PROVIDER_OPTIONS = [
