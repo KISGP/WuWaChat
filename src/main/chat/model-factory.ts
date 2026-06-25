@@ -1,15 +1,8 @@
 import { ChatDeepSeek } from '@langchain/deepseek'
 import { ChatOpenAI } from '@langchain/openai'
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
+import { requireValue } from '@main/utils/value'
 
-function requireValue(value: string, label: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error(`${label} is required`)
-  }
-
-  return trimmed
-}
 
 export function createChatModel(profile: ModelProfile): ChatOpenAI | ChatDeepSeek {
   if (profile.provider === 'deepseek') {

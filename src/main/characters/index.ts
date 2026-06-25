@@ -5,7 +5,7 @@ import type {
   CharacterPromptDocument,
   CharacterSummary,
   RemoteCharacterEntry
-} from '../../shared/ai'
+} from '@shared/chat'
 import {
   getCharacterAvatarPath,
   getCharactersCachePath,
@@ -20,7 +20,7 @@ import {
   readImageDataUrl,
   readOptionalFile,
   writeJsonFileAtomic
-} from '../utils'
+} from '@main/utils'
 import { PROMPT_FILE_NAME } from './constants'
 import { normalizeCharacterVersion, pickDisplayText } from './mappers'
 import {

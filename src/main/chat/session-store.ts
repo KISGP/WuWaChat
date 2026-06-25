@@ -5,7 +5,7 @@ import type {
   ConversationSession,
   MessageStatus,
   SessionStatus
-} from '@shared/ai'
+} from '@shared/chat'
 import { getSessionsPath, pathExists, writeJsonFileAtomic } from '@main/utils'
 
 function now(): string {

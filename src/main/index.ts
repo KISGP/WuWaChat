@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerAppEvents } from '@main/app/events'
-import { initializeAi } from '@main/ai'
+import { initializeAi } from '@main/chat'
 import { bootstrapAppData } from '@main/app/bootstrap-data'
 import { registerIpc } from '@main/ipc'
 import { logger } from '@main/logging'

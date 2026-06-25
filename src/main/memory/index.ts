@@ -4,7 +4,7 @@ import AdmZip from 'adm-zip'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ConversationSession, MemoryEntry } from '@shared/ai'
+import type { ConversationSession, MemoryEntry } from '@shared/chat'
 import type {
   CharacterMemoryIndexStatus,
   MemoryDebugRetrieveRequest,
@@ -36,12 +36,15 @@ import {
 import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
 import {
   createLocalEmbeddingFingerprint,
-  getEmbeddingFingerprintKey,
   isSameEmbeddingFingerprint
 } from '@main/embedding/fingerprint'
-import { cosineSimilarity, parseVectorJson, scoreTextMatch } from './retrieval'
 import { readMemoryHardwareInfo } from './hardware'
+import type { RetrievalExecution } from './internal-types'
+import { MemoryIndexRepository } from './index-repository'
+import { MemoryWorkerClient } from './worker-client'
+import { RetrievalQueryService } from './retrieval-query-service'
 import { loadWorldMarkdownEntries, walkMarkdownFiles } from './world'
+import { MemoryWorkerRuntime } from './worker-runtime'
 import { logger } from '@main/logging'
 import { runMonitoredTask } from '@main/observability/monitored-task'
 import {
@@ -55,21 +58,6 @@ import {
   pathExists,
   writeJsonFileAtomic
 } from '@main/utils'
-
-type SearchRow = {
-  id: string
-  text: string
-  sourcePath?: string | null
-  sessionId?: string | null
-  characterId?: string | null
-  vectorJson: string
-}
-
-type RetrievalExecution = {
-  hits: MemoryDebugRetrievalHit[]
-  runtimeModeUsed: WorldIndexStatus['runtimeMode']
-  fallbackReason?: string
-}
 
 type LocalEmbeddingModule = typeof import('../embedding/local')
 
@@ -102,10 +90,15 @@ export class MemoryService {
   private tasks = new Map<string, MemoryTask>()
   private initialized = false
   private db: DatabaseSync | null = null
+  private repository: MemoryIndexRepository | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
   private taskCancellationStates = new Map<string, TaskCancellationState>()
   private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
   private hardwareInfoPromise: Promise<MemoryHardwareInfo> | null = null
+  private readonly retrievalQueryService = new RetrievalQueryService()
+  private readonly workerClient = new MemoryWorkerClient(
+    new MemoryWorkerRuntime(this.retrievalQueryService)
+  )
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -114,7 +107,8 @@ export class MemoryService {
 
     this.settings = await this.loadSettings()
     this.db = new DatabaseSync(getMemoryDatabasePath())
-    this.prepareDatabase()
+    this.repository = new MemoryIndexRepository(this.db)
+    this.repository.prepareDatabase()
 
     try {
       await this.ensureWorldBundleReady()
@@ -141,6 +135,10 @@ export class MemoryService {
 
   setSessions(sessions: ConversationSession[]): void {
     this.sessions = sessions
+  }
+
+  syncSessions(sessions: ConversationSession[]): void {
+    this.setSessions(sessions)
   }
 
   getSettings(): MemorySettingsStore {
@@ -407,9 +405,12 @@ export class MemoryService {
           ? `Generating world embeddings (${runtimeMessage})`
           : 'Generating world embeddings'
       })
-      const vectors = await provider.embedDocuments(
-        this.worldEntries.map((entry) => entry.text),
-        {
+      const buildResult = await this.workerClient.buildVectorIndex({
+        type: 'build-world-vectors',
+        entries: this.worldEntries,
+        provider,
+        createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+        embedOptions: {
           abortSignal: taskControl.controller.signal,
           throwIfAborted: taskControl.throwIfCancelled,
           onProgress: (progress) => {
@@ -421,12 +422,15 @@ export class MemoryService {
             })
           }
         }
-      )
+      })
       taskControl.throwIfCancelled()
-      const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
       updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
       taskControl.throwIfCancelled()
-      this.saveWorldVectors(this.worldEntries, vectors, fingerprint)
+      this.saveWorldVectors(
+        this.worldEntries,
+        buildResult.data.vectors,
+        buildResult.data.fingerprint
+      )
       updateTask(taskId, { progress: 100, message: 'World vector index built successfully' })
     })
   }
@@ -454,9 +458,12 @@ export class MemoryService {
             : 'Generating character memory embeddings',
           characterId
         })
-        const vectors = await provider.embedDocuments(
-          entries.map((entry) => entry.text),
-          {
+        const buildResult = await this.workerClient.buildVectorIndex({
+          type: 'build-character-memory-vectors',
+          entries,
+          provider,
+          createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+          embedOptions: {
             abortSignal: taskControl.controller.signal,
             throwIfAborted: taskControl.throwIfCancelled,
             onProgress: (progress) => {
@@ -469,16 +476,20 @@ export class MemoryService {
               })
             }
           }
-        )
+        })
         taskControl.throwIfCancelled()
-        const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
         updateTask(taskId, {
           progress: 80,
           message: 'Writing character memory index',
           characterId
         })
         taskControl.throwIfCancelled()
-        this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
+        this.saveCharacterMemoryVectors(
+          characterId,
+          entries,
+          buildResult.data.vectors,
+          buildResult.data.fingerprint
+        )
         updateTask(taskId, {
           progress: 100,
           message: 'Current character memory rebuilt',
@@ -496,7 +507,6 @@ export class MemoryService {
       async (taskId, updateTask, taskControl) => {
         const provider = await this.requireVectorEmbeddingProvider()
         const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
-        let lastDimensions: number | undefined
         const runtimeMessage = await this.describeEmbeddingRuntime(provider)
 
         for (let index = 0; index < characterIds.length; index += 1) {
@@ -512,9 +522,12 @@ export class MemoryService {
           const entries = this.buildCharacterMemoryEntries(characterId)
           const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
           const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
-          const vectors = await provider.embedDocuments(
-            entries.map((entry) => entry.text),
-            {
+          const buildResult = await this.workerClient.buildVectorIndex({
+            type: 'build-character-memory-vectors',
+            entries,
+            provider,
+            createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+            embedOptions: {
               abortSignal: taskControl.controller.signal,
               throwIfAborted: taskControl.throwIfCancelled,
               onProgress: (progress) => {
@@ -527,12 +540,16 @@ export class MemoryService {
                 })
               }
             }
+          })
+          taskControl.throwIfCancelled()
+          const fingerprint = buildResult.data.fingerprint
+          taskControl.throwIfCancelled()
+          this.saveCharacterMemoryVectors(
+            characterId,
+            entries,
+            buildResult.data.vectors,
+            fingerprint
           )
-          taskControl.throwIfCancelled()
-          lastDimensions = vectors[0]?.length || lastDimensions
-          const fingerprint = await this.createActiveEmbeddingFingerprint(lastDimensions)
-          taskControl.throwIfCancelled()
-          this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
         }
 
         updateTask(taskId, {
@@ -640,68 +657,12 @@ export class MemoryService {
     return runtime.actualDevice === 'gpu' ? 'Using GPU for this build' : 'Using CPU for this build'
   }
 
-  private getDatabase(): DatabaseSync {
-    if (!this.db) {
-      throw new Error('Memory database is not initialized')
+  private getRepository(): MemoryIndexRepository {
+    if (!this.repository) {
+      throw new Error('Memory index repository is not initialized')
     }
 
-    return this.db
-  }
-
-  private prepareDatabase(): void {
-    const db = this.getDatabase()
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS world_chunks (
-        id TEXT PRIMARY KEY,
-        source_path TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS world_embeddings (
-        chunk_id TEXT PRIMARY KEY,
-        vector_json TEXT NOT NULL,
-        fingerprint_key TEXT NOT NULL,
-        built_at TEXT NOT NULL,
-        FOREIGN KEY (chunk_id) REFERENCES world_chunks(id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS memory_entries (
-        id TEXT PRIMARY KEY,
-        character_id TEXT,
-        session_id TEXT,
-        source_type TEXT NOT NULL,
-        text TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS memory_embeddings (
-        entry_id TEXT PRIMARY KEY,
-        vector_json TEXT NOT NULL,
-        fingerprint_key TEXT NOT NULL,
-        built_at TEXT NOT NULL,
-        FOREIGN KEY (entry_id) REFERENCES memory_entries(id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS index_manifests (
-        scope TEXT NOT NULL,
-        target_id TEXT,
-        fingerprint_key TEXT NOT NULL,
-        fingerprint_json TEXT NOT NULL,
-        status TEXT NOT NULL,
-        entry_count INTEGER NOT NULL,
-        data_version TEXT,
-        built_at TEXT,
-        message TEXT,
-        PRIMARY KEY (scope, target_id)
-      );
-    `)
-
-    const manifestColumns = db.prepare('PRAGMA table_info(index_manifests)').all() as {
-      name: string
-    }[]
-    if (!manifestColumns.some((column) => column.name === 'data_version')) {
-      db.exec('ALTER TABLE index_manifests ADD COLUMN data_version TEXT')
-    }
-
-    this.normalizeLegacyManifestRows()
+    return this.repository
   }
 
   private async loadSettings(): Promise<MemorySettingsStore> {
@@ -934,23 +895,12 @@ export class MemoryService {
     query: string,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    return this.worldEntries
-      .map((entry) => ({
-        entry,
-        score: scoreTextMatch(query, `${entry.sourcePath || ''}\n${entry.text}`)
-      }))
-      .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.worldTopK)
-      .map((item, index) => ({
-        id: item.entry.id,
-        scope: WORLD_SCOPE,
-        text: item.entry.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: runtimeModeUsed,
-        sourcePath: item.entry.sourcePath || null
-      }))
+    return this.retrievalQueryService.buildWorldStringHits(
+      query,
+      this.worldEntries,
+      this.settings.worldTopK,
+      runtimeModeUsed
+    )
   }
 
   private buildMemoryStringHits(
@@ -958,65 +908,30 @@ export class MemoryService {
     session: ConversationSession,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    const entries = this.getMemoryEntriesForSession(session)
-
-    return entries
-      .map((entry) => ({
-        entry,
-        score: scoreTextMatch(query, entry.text)
-      }))
-      .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.memoryTopK)
-      .map((item, index) => ({
-        id: item.entry.id,
-        scope: MEMORY_SCOPE,
-        text: item.entry.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: runtimeModeUsed,
-        sessionId: item.entry.sessionId || null,
-        characterId: item.entry.characterId || null
-      }))
+    return this.retrievalQueryService.buildMemoryStringHits(
+      query,
+      this.getMemoryEntriesForSession(session),
+      this.settings.memoryTopK,
+      runtimeModeUsed
+    )
   }
 
   private async buildWorldVectorHits(query: string): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
-    const queryVector = await provider.embedQuery(query)
     const manifest = this.getManifest(WORLD_SCOPE)
     if (!manifest) {
       return []
     }
 
-    const rows = this.getDatabase()
-      .prepare(
-        `
-          SELECT world_chunks.id AS id, world_chunks.text AS text, world_chunks.source_path AS sourcePath, world_embeddings.vector_json AS vectorJson
-          FROM world_chunks
-          INNER JOIN world_embeddings ON world_embeddings.chunk_id = world_chunks.id
-          WHERE world_embeddings.fingerprint_key = ?
-        `
-      )
-      .all(manifest.fingerprintKey) as SearchRow[]
+    const response = await this.workerClient.retrieveWorldVectorHits({
+      type: 'retrieve-world-vectors',
+      query,
+      provider,
+      rows: this.getRepository().getWorldVectorRows(manifest.fingerprintKey),
+      topK: this.settings.worldTopK
+    })
 
-    return rows
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        sourcePath: row.sourcePath || null,
-        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
-      }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.worldTopK)
-      .map((item, index) => ({
-        id: item.id,
-        scope: WORLD_SCOPE,
-        text: item.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: 'vector',
-        sourcePath: item.sourcePath
-      }))
+    return response.data
   }
 
   private async buildMemoryVectorHits(
@@ -1024,47 +939,25 @@ export class MemoryService {
     session: ConversationSession
   ): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
-    const queryVector = await provider.embedQuery(query)
     const targetId = this.settings.crossSessionCharacterMemory ? session.characterId : session.id
     const manifest = this.getManifest(MEMORY_SCOPE, targetId)
     if (!manifest) {
       return []
     }
 
-    const whereClause = this.settings.crossSessionCharacterMemory
-      ? 'character_id = ?'
-      : 'session_id = ?'
-    const rows = this.getDatabase()
-      .prepare(
-        `
-          SELECT memory_entries.id AS id, memory_entries.text AS text, memory_entries.session_id AS sessionId, memory_entries.character_id AS characterId, memory_embeddings.vector_json AS vectorJson
-          FROM memory_entries
-          INNER JOIN memory_embeddings ON memory_embeddings.entry_id = memory_entries.id
-          WHERE memory_embeddings.fingerprint_key = ? AND ${whereClause}
-        `
-      )
-      .all(manifest.fingerprintKey, targetId) as SearchRow[]
+    const response = await this.workerClient.retrieveMemoryVectorHits({
+      type: 'retrieve-memory-vectors',
+      query,
+      provider,
+      rows: this.getRepository().getMemoryVectorRows(
+        manifest.fingerprintKey,
+        targetId,
+        this.settings.crossSessionCharacterMemory
+      ),
+      topK: this.settings.memoryTopK
+    })
 
-    return rows
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        sessionId: row.sessionId || null,
-        characterId: row.characterId || null,
-        score: cosineSimilarity(queryVector, parseVectorJson(row.vectorJson))
-      }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, this.settings.memoryTopK)
-      .map((item, index) => ({
-        id: item.id,
-        scope: MEMORY_SCOPE,
-        text: item.text,
-        score: item.score,
-        rank: index + 1,
-        retrievalModeUsed: 'vector',
-        sessionId: item.sessionId,
-        characterId: item.characterId
-      }))
+    return response.data
   }
 
   private buildCharacterMemoryEntries(characterId: string): MemoryEntry[] {
@@ -1111,57 +1004,7 @@ export class MemoryService {
     vectors: number[][],
     fingerprint: EmbeddingFingerprint
   ): void {
-    const db = this.getDatabase()
-    const key = getEmbeddingFingerprintKey(fingerprint)
-    const insertChunk = db.prepare(
-      'INSERT OR REPLACE INTO world_chunks (id, source_path, chunk_index, text, updated_at) VALUES (?, ?, ?, ?, ?)'
-    )
-    const insertEmbedding = db.prepare(
-      'INSERT OR REPLACE INTO world_embeddings (chunk_id, vector_json, fingerprint_key, built_at) VALUES (?, ?, ?, ?)'
-    )
-
-    db.exec('BEGIN')
-    try {
-      db.prepare('DELETE FROM world_embeddings').run()
-      db.prepare('DELETE FROM world_chunks').run()
-
-      entries.forEach((entry, index) => {
-        insertChunk.run(
-          entry.id,
-          entry.sourcePath || '',
-          entry.chunkIndex || 0,
-          entry.text,
-          entry.updatedAt
-        )
-        insertEmbedding.run(entry.id, JSON.stringify(vectors[index] || []), key, now())
-      })
-
-      this.saveManifest({
-        scope: WORLD_SCOPE,
-        targetId: null,
-        fingerprintKey: key,
-        status: 'ready',
-        entryCount: entries.length,
-        builtAt: now(),
-        message: 'World vector index is ready',
-        fingerprint
-      })
-
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      this.saveManifest({
-        scope: WORLD_SCOPE,
-        targetId: null,
-        fingerprintKey: key,
-        status: 'failed',
-        entryCount: 0,
-        builtAt: now(),
-        message: error instanceof Error ? error.message : String(error),
-        fingerprint
-      })
-      throw error
-    }
+    this.getRepository().saveWorldVectors(entries, vectors, fingerprint)
   }
 
   private saveCharacterMemoryVectors(
@@ -1170,157 +1013,20 @@ export class MemoryService {
     vectors: number[][],
     fingerprint: EmbeddingFingerprint
   ): void {
-    const db = this.getDatabase()
-    const key = getEmbeddingFingerprintKey(fingerprint)
-    const insertEntry = db.prepare(
-      'INSERT OR REPLACE INTO memory_entries (id, character_id, session_id, source_type, text, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-    const insertEmbedding = db.prepare(
-      'INSERT OR REPLACE INTO memory_embeddings (entry_id, vector_json, fingerprint_key, built_at) VALUES (?, ?, ?, ?)'
-    )
-
-    db.exec('BEGIN')
-    try {
-      db.prepare(
-        `
-          DELETE FROM memory_embeddings
-          WHERE entry_id IN (
-            SELECT id FROM memory_entries WHERE character_id = ?
-          )
-        `
-      ).run(characterId)
-      db.prepare('DELETE FROM memory_entries WHERE character_id = ?').run(characterId)
-
-      entries.forEach((entry, index) => {
-        insertEntry.run(
-          entry.id,
-          entry.characterId || null,
-          entry.sessionId || null,
-          entry.sourceType,
-          entry.text,
-          entry.updatedAt
-        )
-        insertEmbedding.run(entry.id, JSON.stringify(vectors[index] || []), key, now())
-      })
-
-      this.saveManifest({
-        scope: MEMORY_SCOPE,
-        targetId: characterId,
-        fingerprintKey: key,
-        status: 'ready',
-        entryCount: entries.length,
-        builtAt: now(),
-        message: 'Character memory vector index is ready',
-        fingerprint
-      })
-
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      this.saveManifest({
-        scope: MEMORY_SCOPE,
-        targetId: characterId,
-        fingerprintKey: key,
-        status: 'failed',
-        entryCount: 0,
-        builtAt: now(),
-        message: error instanceof Error ? error.message : String(error),
-        fingerprint
-      })
-      throw error
-    }
-  }
-
-  private saveManifest(input: IndexManifestRecord & { fingerprint: EmbeddingFingerprint }): void {
-    const db = this.getDatabase()
-    db.prepare('DELETE FROM index_manifests WHERE scope = ? AND target_id IS ?').run(
-      input.scope,
-      input.targetId || null
-    )
-    db.prepare(
-      `
-        INSERT INTO index_manifests
-        (scope, target_id, fingerprint_key, fingerprint_json, status, entry_count, data_version, built_at, message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      input.scope,
-      input.targetId || null,
-      input.fingerprintKey,
-      JSON.stringify(input.fingerprint),
-      input.status,
-      input.entryCount,
-      input.dataVersion || null,
-      input.builtAt || null,
-      input.message || null
-    )
+    this.getRepository().saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
   }
 
   private getManifest(
     scope: 'world' | 'character-memory',
     targetId?: string | null
   ): IndexManifestRecord | null {
-    const row = this.getDatabase()
-      .prepare(
-        `
-          SELECT
-            scope,
-            target_id AS targetId,
-            fingerprint_key AS fingerprintKey,
-            status,
-            entry_count AS entryCount,
-            data_version AS dataVersion,
-            built_at AS builtAt,
-            message
-          FROM index_manifests
-          WHERE scope = ? AND target_id IS ?
-          ORDER BY built_at DESC, rowid DESC
-          LIMIT 1
-        `
-      )
-      .get(scope, targetId || null) as
-      | (IndexManifestRecord & { targetId?: string | null })
-      | undefined
-
-    return row || null
+    return this.getRepository().getManifest(scope, targetId)
   }
 
   private fingerprintFromManifest(
     manifest: IndexManifestRecord & { targetId?: string | null }
   ): EmbeddingFingerprint | null {
-    const row = this.getDatabase()
-      .prepare(
-        `
-          SELECT fingerprint_json AS fingerprintJson
-          FROM index_manifests
-          WHERE scope = ? AND target_id IS ?
-          ORDER BY built_at DESC, rowid DESC
-          LIMIT 1
-        `
-      )
-      .get(manifest.scope, manifest.targetId || null) as { fingerprintJson: string } | undefined
-
-    return row ? (JSON.parse(row.fingerprintJson) as EmbeddingFingerprint) : null
-  }
-
-  private normalizeLegacyManifestRows(): void {
-    const db = this.getDatabase()
-    db.exec(`
-      DELETE FROM index_manifests
-      WHERE rowid NOT IN (
-        SELECT rowid
-        FROM (
-          SELECT
-            rowid,
-            ROW_NUMBER() OVER (
-              PARTITION BY scope, target_id
-              ORDER BY built_at DESC, rowid DESC
-            ) AS row_number
-          FROM index_manifests
-        )
-        WHERE row_number = 1
-      )
-    `)
+    return this.getRepository().fingerprintFromManifest(manifest)
   }
 
   private getExpectedFingerprint(): EmbeddingFingerprint | null {
@@ -1646,25 +1352,14 @@ export class MemoryService {
   }
 
   private countMemoryEntries(characterId: string | null): number {
-    if (characterId) {
-      const field = this.settings.crossSessionCharacterMemory ? 'character_id' : 'session_id'
-      const result = this.getDatabase()
-        .prepare(`SELECT COUNT(*) AS count FROM memory_entries WHERE ${field} = ?`)
-        .get(characterId) as { count: number }
-      return result.count
-    }
-
-    const result = this.getDatabase()
-      .prepare('SELECT COUNT(*) AS count FROM memory_entries')
-      .get() as { count: number }
-    return result.count
+    return this.getRepository().countMemoryEntries(
+      characterId,
+      this.settings.crossSessionCharacterMemory
+    )
   }
 
   private countIndexedCharacters(): number {
-    const result = this.getDatabase()
-      .prepare('SELECT COUNT(DISTINCT character_id) AS count FROM memory_entries')
-      .get() as { count: number }
-    return result.count
+    return this.getRepository().countIndexedCharacters()
   }
 
   private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {

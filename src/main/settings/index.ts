@@ -1,6 +1,6 @@
 import { safeStorage } from 'electron'
 import { copyFile, readFile } from 'fs/promises'
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
 import {
   type OpenAIProfileConnectionTestResult,
   type ProfilesStore,

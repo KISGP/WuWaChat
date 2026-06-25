@@ -1,4 +1,4 @@
-import type { ModelProfile } from '@shared/ai'
+import type { ModelProfile } from '@shared/chat'
 import type { ProfilesStore } from '@shared/model-settings'
 import { getProfiles, saveProfiles, testProfile } from '@main/settings'
 import { handleLogged } from './logged-handler'

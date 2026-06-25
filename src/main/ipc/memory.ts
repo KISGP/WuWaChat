@@ -1,6 +1,6 @@
 import { is } from '@electron-toolkit/utils'
 import type { MemoryDebugRetrieveRequest, MemorySettingsStore } from '@shared/memory-settings'
-import { getMemoryService } from '@main/ai'
+import { getMemoryService } from '@main/chat'
 import { handleLogged } from './logged-handler'
 
 export function registerMemoryIpc(): void {

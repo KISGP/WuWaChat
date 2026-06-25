@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '@shared/ai'
+import type { ChatRunEvent, ChatRunRequest, ModelProfile } from '@shared/chat'
 import type { RendererLogEventPayload } from '@shared/logging'
 import type {
   MemoryDebugRetrieveRequest,

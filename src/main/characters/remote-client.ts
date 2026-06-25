@@ -1,5 +1,5 @@
-import type { CharacterInfo } from '@shared/ai'
-import { joinUrl } from '../utils'
+import type { CharacterInfo } from '@shared/chat'
+import { joinUrl } from '@main/utils'
 import { CHARACTER_REPO_API_URL, PROMPT_FILE_NAME, REMOTE_REPOSITORY_ROOT } from './constants'
 import { normalizeCharacterVersion } from './mappers'
 import type { RemoteCharacterRecord } from './types'

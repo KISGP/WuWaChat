@@ -1,4 +1,4 @@
-import type { ChatRunRequest } from '@shared/ai'
+import type { ChatRunRequest } from '@shared/chat'
 import {
   abortRun,
   getCharacterPrompt,
@@ -6,7 +6,7 @@ import {
   getSessions,
   saveCharacterPrompt,
   sendMessage
-} from '../ai'
+} from '../chat'
 import { handleLogged } from './logged-handler'
 
 export function registerAiIpc(): void {
