@@ -82,6 +82,17 @@ type WorldBundleMetadata = {
   updatedAt: string
 }
 
+type TaskCancellationState = {
+  controller: AbortController
+  throwIfCancelled: () => void
+}
+
+class MemoryTaskCancelledError extends Error {
+  constructor() {
+    super('Task cancelled')
+  }
+}
+
 export class MemoryService {
   private settings = createDefaultMemorySettingsStore()
   private sessions: ConversationSession[] = []
@@ -92,6 +103,7 @@ export class MemoryService {
   private initialized = false
   private db: DatabaseSync | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
+  private taskCancellationStates = new Map<string, TaskCancellationState>()
   private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
   private hardwareInfoPromise: Promise<MemoryHardwareInfo> | null = null
 
@@ -324,55 +336,71 @@ export class MemoryService {
   }
 
   async startWorldBundleDownload(): Promise<MemoryTask> {
-    return this.runTask('world-bundle-download', 'world', async (taskId, updateTask) => {
-      updateTask(taskId, {
-        progress: 10,
-        message: 'Checking local world update time'
-      })
-      const localUpdatedAt = await this.getLocalWorldUpdatedAt()
+    return this.runTask(
+      'world-bundle-download',
+      'world',
+      async (taskId, updateTask, taskControl) => {
+        taskControl.throwIfCancelled()
+        updateTask(taskId, {
+          progress: 10,
+          message: 'Checking local world update time'
+        })
+        const localUpdatedAt = await this.getLocalWorldUpdatedAt()
+        taskControl.throwIfCancelled()
 
-      updateTask(taskId, {
-        progress: 25,
-        message: 'Fetching remote world update time'
-      })
-      const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt()
+        updateTask(taskId, {
+          progress: 25,
+          message: 'Fetching remote world update time'
+        })
+        const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt(taskControl.controller.signal)
+        taskControl.throwIfCancelled()
 
-      if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
-        this.worldUpdatedAt = localUpdatedAt
-        this.worldBundleError = null
+        if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
+          this.worldUpdatedAt = localUpdatedAt
+          this.worldBundleError = null
+          this.worldEntries = await this.loadWorldEntries()
+          updateTask(taskId, {
+            progress: 100,
+            message: `World bundle is already up to date (${localUpdatedAt}).`
+          })
+          return
+        }
+
+        updateTask(taskId, {
+          progress: 45,
+          message: 'Downloading latest world bundle archive'
+        })
+        const installedVersion = await this.downloadAndInstallWorldBundle(
+          remoteUpdatedAt,
+          taskControl.controller.signal,
+          taskControl.throwIfCancelled
+        )
+        taskControl.throwIfCancelled()
+
+        updateTask(taskId, {
+          progress: 90,
+          message: 'Reloading local world bundle content'
+        })
         this.worldEntries = await this.loadWorldEntries()
+        taskControl.throwIfCancelled()
+        this.worldBundleError = null
         updateTask(taskId, {
           progress: 100,
-          message: `World bundle is already up to date (${localUpdatedAt}).`
+          message: `World bundle updated to ${installedVersion}. Rebuild world vectors if you use vector retrieval.`
         })
-        return
       }
-
-      updateTask(taskId, {
-        progress: 45,
-        message: 'Downloading latest world bundle archive'
-      })
-      const installedVersion = await this.downloadAndInstallWorldBundle(remoteUpdatedAt)
-
-      updateTask(taskId, {
-        progress: 90,
-        message: 'Reloading local world bundle content'
-      })
-      this.worldEntries = await this.loadWorldEntries()
-      this.worldBundleError = null
-      updateTask(taskId, {
-        progress: 100,
-        message: `World bundle updated to ${installedVersion}. Rebuild world vectors if you use vector retrieval.`
-      })
-    })
+    )
   }
 
   async startWorldVectorBuild(): Promise<MemoryTask> {
-    return this.runTask('world-vector-build', 'world', async (taskId, updateTask) => {
+    return this.runTask('world-vector-build', 'world', async (taskId, updateTask, taskControl) => {
       const provider = await this.requireVectorEmbeddingProvider()
+      taskControl.throwIfCancelled()
       updateTask(taskId, { progress: 10, message: 'Scanning world markdown files' })
       this.worldEntries = await this.loadWorldEntries()
+      taskControl.throwIfCancelled()
       const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+      taskControl.throwIfCancelled()
       updateTask(taskId, {
         progress: 25,
         message: runtimeMessage
@@ -382,6 +410,8 @@ export class MemoryService {
       const vectors = await provider.embedDocuments(
         this.worldEntries.map((entry) => entry.text),
         {
+          abortSignal: taskControl.controller.signal,
+          throwIfAborted: taskControl.throwIfCancelled,
           onProgress: (progress) => {
             updateTask(taskId, {
               progress: this.mapEmbeddingProgress(progress, 25, 70),
@@ -392,8 +422,10 @@ export class MemoryService {
           }
         }
       )
+      taskControl.throwIfCancelled()
       const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
       updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
+      taskControl.throwIfCancelled()
       this.saveWorldVectors(this.worldEntries, vectors, fingerprint)
       updateTask(taskId, { progress: 100, message: 'World vector index built successfully' })
     })
@@ -403,15 +435,18 @@ export class MemoryService {
     return this.runTask(
       'character-memory-build',
       'character-memory',
-      async (taskId, updateTask) => {
+      async (taskId, updateTask, taskControl) => {
         const provider = await this.requireVectorEmbeddingProvider()
+        taskControl.throwIfCancelled()
         updateTask(taskId, {
           progress: 15,
           message: 'Collecting current character memory',
           characterId
         })
         const entries = this.buildCharacterMemoryEntries(characterId)
+        taskControl.throwIfCancelled()
         const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+        taskControl.throwIfCancelled()
         updateTask(taskId, {
           progress: 45,
           message: runtimeMessage
@@ -422,6 +457,8 @@ export class MemoryService {
         const vectors = await provider.embedDocuments(
           entries.map((entry) => entry.text),
           {
+            abortSignal: taskControl.controller.signal,
+            throwIfAborted: taskControl.throwIfCancelled,
             onProgress: (progress) => {
               updateTask(taskId, {
                 progress: this.mapEmbeddingProgress(progress, 45, 80),
@@ -433,12 +470,14 @@ export class MemoryService {
             }
           }
         )
+        taskControl.throwIfCancelled()
         const fingerprint = await this.createActiveEmbeddingFingerprint(vectors[0]?.length)
         updateTask(taskId, {
           progress: 80,
           message: 'Writing character memory index',
           characterId
         })
+        taskControl.throwIfCancelled()
         this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
         updateTask(taskId, {
           progress: 100,
@@ -451,48 +490,57 @@ export class MemoryService {
   }
 
   async startAllMemoryBuild(): Promise<MemoryTask> {
-    return this.runTask('all-memory-build', 'character-memory', async (taskId, updateTask) => {
-      const provider = await this.requireVectorEmbeddingProvider()
-      const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
-      let lastDimensions: number | undefined
-      const runtimeMessage = await this.describeEmbeddingRuntime(provider)
+    return this.runTask(
+      'all-memory-build',
+      'character-memory',
+      async (taskId, updateTask, taskControl) => {
+        const provider = await this.requireVectorEmbeddingProvider()
+        const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
+        let lastDimensions: number | undefined
+        const runtimeMessage = await this.describeEmbeddingRuntime(provider)
 
-      for (let index = 0; index < characterIds.length; index += 1) {
-        const characterId = characterIds[index]
-        updateTask(taskId, {
-          progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
-          message: runtimeMessage
-            ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
-            : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
-          characterId
-        })
-        const entries = this.buildCharacterMemoryEntries(characterId)
-        const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
-        const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
-        const vectors = await provider.embedDocuments(
-          entries.map((entry) => entry.text),
-          {
-            onProgress: (progress) => {
-              updateTask(taskId, {
-                progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
-                message: runtimeMessage
-                  ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
-                  : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
-                characterId
-              })
+        for (let index = 0; index < characterIds.length; index += 1) {
+          taskControl.throwIfCancelled()
+          const characterId = characterIds[index]
+          updateTask(taskId, {
+            progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
+            message: runtimeMessage
+              ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+              : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+            characterId
+          })
+          const entries = this.buildCharacterMemoryEntries(characterId)
+          const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
+          const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
+          const vectors = await provider.embedDocuments(
+            entries.map((entry) => entry.text),
+            {
+              abortSignal: taskControl.controller.signal,
+              throwIfAborted: taskControl.throwIfCancelled,
+              onProgress: (progress) => {
+                updateTask(taskId, {
+                  progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
+                  message: runtimeMessage
+                    ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
+                    : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
+                  characterId
+                })
+              }
             }
-          }
-        )
-        lastDimensions = vectors[0]?.length || lastDimensions
-        const fingerprint = await this.createActiveEmbeddingFingerprint(lastDimensions)
-        this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
-      }
+          )
+          taskControl.throwIfCancelled()
+          lastDimensions = vectors[0]?.length || lastDimensions
+          const fingerprint = await this.createActiveEmbeddingFingerprint(lastDimensions)
+          taskControl.throwIfCancelled()
+          this.saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
+        }
 
-      updateTask(taskId, {
-        progress: 100,
-        message: 'All character memory indices rebuilt'
-      })
-    })
+        updateTask(taskId, {
+          progress: 100,
+          message: 'All character memory indices rebuilt'
+        })
+      }
+    )
   }
 
   cancelTask(taskId: string): boolean {
@@ -500,6 +548,8 @@ export class MemoryService {
     if (!task || task.status === 'completed' || task.status === 'failed') {
       return false
     }
+
+    this.taskCancellationStates.get(taskId)?.controller.abort()
 
     const nextTask = {
       ...task,
@@ -698,10 +748,11 @@ export class MemoryService {
     return this.normalizeWorldVersion(metadata?.updatedAt)
   }
 
-  private async fetchRemoteWorldUpdatedAt(): Promise<string> {
+  private async fetchRemoteWorldUpdatedAt(signal?: AbortSignal): Promise<string> {
     const response = await this.fetchWorldResource(
       WORLD_BUNDLE_REPO_URL,
-      'fetch world repo metadata'
+      'fetch world repo metadata',
+      signal
     )
     const payload = (await response.json()) as { pushed_at?: unknown }
     const updatedAt =
@@ -713,7 +764,11 @@ export class MemoryService {
     return updatedAt
   }
 
-  private async downloadAndInstallWorldBundle(updatedAt: string): Promise<string> {
+  private async downloadAndInstallWorldBundle(
+    updatedAt: string,
+    signal?: AbortSignal,
+    throwIfCancelled?: () => void
+  ): Promise<string> {
     const tempRoot = join(getAppDataRoot(), 'tmp', `world-bundle-${randomUUID()}`)
     const archivePath = join(tempRoot, 'world.zip')
     const extractRoot = join(tempRoot, 'extracted')
@@ -724,15 +779,20 @@ export class MemoryService {
     await mkdir(extractRoot, { recursive: true })
 
     try {
+      throwIfCancelled?.()
       const response = await this.fetchWorldResource(
         WORLD_BUNDLE_ZIP_URL,
-        'download world bundle archive'
+        'download world bundle archive',
+        signal
       )
+      throwIfCancelled?.()
       const archiveBuffer = Buffer.from(await response.arrayBuffer())
+      throwIfCancelled?.()
       await writeFile(archivePath, archiveBuffer)
 
       const zip = new AdmZip(archivePath)
       zip.extractAllTo(extractRoot, true)
+      throwIfCancelled?.()
 
       const bundleRoot = await this.findWorldBundleRoot(extractRoot)
       if (!bundleRoot) {
@@ -740,14 +800,18 @@ export class MemoryService {
       }
 
       await rename(bundleRoot, stagedWorldRoot)
+      throwIfCancelled?.()
       await this.replaceWorldDirectory(stagedWorldRoot, targetRoot, backupRoot)
+      throwIfCancelled?.()
       await this.writeWorldBundleMetadata(updatedAt)
 
       this.worldUpdatedAt = updatedAt
       this.worldBundleError = null
       return updatedAt
     } catch (error) {
-      this.worldBundleError = error instanceof Error ? error.message : String(error)
+      if (!(error instanceof MemoryTaskCancelledError)) {
+        this.worldBundleError = error instanceof Error ? error.message : String(error)
+      }
       throw error
     } finally {
       await rm(tempRoot, { recursive: true, force: true })
@@ -836,15 +900,22 @@ export class MemoryService {
     } satisfies WorldBundleMetadata)
   }
 
-  private async fetchWorldResource(url: string, action: string): Promise<Response> {
+  private async fetchWorldResource(
+    url: string,
+    action: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
     try {
-      const response = await fetch(url)
+      const response = await fetch(url, { signal })
       if (!response.ok) {
         throw new Error(`${action} failed (${response.status} ${response.statusText})`)
       }
 
       return response
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new MemoryTaskCancelledError()
+      }
       const reason = error instanceof Error ? error.message : String(error)
       throw new Error(`${action} failed for ${url}: ${reason}`)
     }
@@ -1713,7 +1784,8 @@ export class MemoryService {
     scope: MemoryTask['scope'],
     callback: (
       taskId: string,
-      updateTask: (taskId: string, patch: Partial<MemoryTask>) => void
+      updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
+      taskControl: TaskCancellationState
     ) => Promise<void>,
     characterId?: string
   ): Promise<MemoryTask> {
@@ -1730,6 +1802,17 @@ export class MemoryService {
 
     this.tasks.set(task.taskId, task)
     this.taskLogStates.delete(task.taskId)
+    const controller = new AbortController()
+    const taskControl: TaskCancellationState = {
+      controller,
+      throwIfCancelled: () => {
+        const currentTask = this.tasks.get(task.taskId)
+        if (controller.signal.aborted || currentTask?.status === 'cancelled') {
+          throw new MemoryTaskCancelledError()
+        }
+      }
+    }
+    this.taskCancellationStates.set(task.taskId, taskControl)
     this.emitTask(task)
 
     void (async () => {
@@ -1745,13 +1828,15 @@ export class MemoryService {
             scope,
             characterId
           },
+          shouldCaptureError: (error) => !(error instanceof MemoryTaskCancelledError),
           run: async () => {
             this.updateTask(task.taskId, {
               status: 'running',
               progress: 5,
               message: this.getTaskStartMessage(taskType)
             })
-            await callback(task.taskId, (id, patch) => this.updateTask(id, patch))
+            taskControl.throwIfCancelled()
+            await callback(task.taskId, (id, patch) => this.updateTask(id, patch), taskControl)
             const current = this.tasks.get(task.taskId)
             if (current?.status !== 'cancelled') {
               this.updateTask(task.taskId, {
@@ -1763,10 +1848,22 @@ export class MemoryService {
           }
         })
       } catch (error) {
-        this.updateTask(task.taskId, {
-          status: 'failed',
-          message: this.formatTaskError(taskType, error)
-        })
+        if (error instanceof MemoryTaskCancelledError) {
+          const current = this.tasks.get(task.taskId)
+          if (current?.status !== 'cancelled') {
+            this.updateTask(task.taskId, {
+              status: 'cancelled',
+              message: current?.message || 'Task cancelled'
+            })
+          }
+        } else {
+          this.updateTask(task.taskId, {
+            status: 'failed',
+            message: this.formatTaskError(taskType, error)
+          })
+        }
+      } finally {
+        this.taskCancellationStates.delete(task.taskId)
       }
     })()
 

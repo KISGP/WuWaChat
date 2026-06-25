@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon } from 'lucide-react'
+import { type LucideIcon, InfoIcon, Clock10Icon, BugIcon, XCircle } from 'lucide-react'
 import { cn } from '@renderer/utils'
 
 export function ActionCard({
@@ -25,6 +25,8 @@ export function ActionCard({
   disabledReason?: string
   onClick: () => Promise<void>
 }): ReactElement {
+  const actionLabel = Icon === XCircle ? '中止构建' : title
+
   return (
     <div
       className={cn(
@@ -88,7 +90,7 @@ export function ActionCard({
         )}
       >
         <Icon className="size-4" />
-        {title}
+        {actionLabel}
       </button>
     </div>
   )

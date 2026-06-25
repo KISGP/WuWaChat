@@ -69,7 +69,14 @@ export async function embedTextBatches(
   let completed = 0
 
   for (const batch of createBatches(texts, batchSize)) {
+    options?.throwIfAborted?.()
+    if (options?.abortSignal?.aborted) {
+      options.throwIfAborted?.()
+      return vectors
+    }
+
     const batchVectors = await runFeatureExtraction(extractor, batch)
+    options?.throwIfAborted?.()
     vectors.push(...batchVectors)
     completed += batch.length
     options?.onProgress?.({

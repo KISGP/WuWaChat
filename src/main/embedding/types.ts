@@ -13,6 +13,8 @@ export type EmbeddingBatchProgress = {
 
 export type EmbedDocumentsOptions = {
   onProgress?: (progress: EmbeddingBatchProgress) => void
+  abortSignal?: AbortSignal
+  throwIfAborted?: () => void
 }
 
 export type EmbeddingProvider = {
