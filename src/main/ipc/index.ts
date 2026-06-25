@@ -1,4 +1,4 @@
-import { registerAiIpc } from './ai'
+import { registerChatIpc } from './chat'
 import { registerCharacterIpc } from './characters'
 import { registerLogIpc } from './logs'
 import { registerMemoryIpc } from './memory'
@@ -7,7 +7,7 @@ import { registerWindowIpc } from './window'
 
 export function registerIpc(): void {
   registerWindowIpc()
-  registerAiIpc()
+  registerChatIpc()
   registerCharacterIpc()
   registerSettingsIpc()
   registerMemoryIpc()
