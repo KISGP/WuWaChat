@@ -18,6 +18,13 @@ import {
 } from './runtime'
 import type { LocalEmbeddingRuntimeSettings, ProgressReporter } from './types'
 
+/**
+ * @description 下载并安装本地 embedding 模型，验证安装文件并写入安装清单。
+ * @param modelId 要下载的 catalog 模型 ID。
+ * @param settings 用于初始下载和验证加载的运行时设置。
+ * @param onProgress 可选的进度回调，用于 UI 显示。
+ * @returns 已安装的本地 embedding 模型元数据。
+ */
 export async function downloadLocalEmbeddingModel(
   modelId: string,
   settings: LocalEmbeddingRuntimeSettings,
@@ -27,50 +34,62 @@ export async function downloadLocalEmbeddingModel(
   const model = catalog.find((item) => item.id === modelId)
   if (!model) {
     throw createStructuredError(
-      '模型不存在',
-      '解析模型清单',
-      `未在 embedding.json 中找到模型：${modelId}`,
-      ['请刷新模型列表后重试。', '如果修改过 embedding.json，请确认 id 与卡片模型一致。']
+      'Model not found',
+      'Resolve embedding catalog entry',
+      `Could not find model "${modelId}" in embedding.json.`,
+      [
+        'Refresh the model list and try again.',
+        'If you edited embedding.json, make sure the id matches the model card entry.'
+      ]
     )
   }
 
   await ensureWritableModelRoot()
 
   try {
-    onProgress?.(5, `准备下载 ${model.label}`)
+    onProgress?.(5, `Preparing download for ${model.label}`)
     await loadFeatureExtractionPipeline(model, settings, {
       allowRemoteModels: true,
       onProgress
     })
-    onProgress?.(96, '校验本地模型文件')
+    onProgress?.(96, 'Validating downloaded local model files')
 
     const installedModel = await writeInstalledManifest(model)
     const validation = await validateInstalledModel(installedModel, model)
     if (!validation.ok) {
       throw createStructuredError(
-        '模型文件校验失败',
-        '校验自动下载结果',
-        validation.message || '自动下载后的模型文件不完整。',
-        ['请重新下载该模型。', '请确认模型目录内包含 Transformers.js 所需文件。']
+        'Model validation failed',
+        'Validate downloaded model files',
+        validation.message || 'Downloaded model files are incomplete or invalid.',
+        [
+          'Download the model again.',
+          'Confirm the installed directory contains the required Transformers.js files.'
+        ]
       )
     }
 
-    onProgress?.(100, `${model.label} 下载完成`)
+    onProgress?.(100, `${model.label} downloaded successfully`)
+    clearPipelineCacheForModel(model, true, settings)
     return installedModel
   } catch (error) {
     clearPipelineCacheForModel(model, true, settings)
     throw createStructuredError(
-      '模型下载失败',
-      'Transformers.js 自动下载',
+      'Model download failed',
+      'Transformers.js automatic download',
       normalizeErrorMessage(error),
       [
-        '请检查网络是否可以访问 huggingface.co。',
-        '如果模型是私有或受限仓库，请先配置 HF_TOKEN 环境变量。'
+        'Check whether the current network can reach huggingface.co.',
+        'If the model is private or restricted, configure HF_TOKEN before retrying.'
       ]
     )
   }
 }
 
+/**
+ * @description 删除已安装的本地 embedding 模型，并清除匹配的运行时缓存条目。
+ * @param modelId 要移除的已安装模型 ID。
+ * @returns 如果模型已从磁盘移除则返回 `true`。
+ */
 export async function removeLocalEmbeddingModel(modelId: string): Promise<boolean> {
   const manifest = await readInstalledManifest(modelId)
   if (!manifest) {

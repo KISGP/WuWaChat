@@ -60,6 +60,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     localModels,
     localModelUiState,
     tasks,
+    setIsLoaded,
     refreshStatus,
     refreshLocalModels,
     saveSettings,
@@ -85,6 +86,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       localModels: state.localModels,
       localModelUiState: state.localModelUiState,
       tasks: state.tasks,
+      setIsLoaded: state.setIsLoaded,
       refreshStatus: state.refreshStatus,
       refreshLocalModels: state.refreshLocalModels,
       saveSettings: state.saveSettings,
@@ -179,10 +181,12 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
   useMemoryTabLifecycle({
     isActive,
+    isLoaded,
     activeCharacterId: activateChar?.id || null,
     buildLaunchNotice,
     refreshStatus,
     refreshLocalModels,
+    setIsLoaded,
     clearBuildLaunchNotice
   })
 

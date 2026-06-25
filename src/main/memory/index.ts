@@ -88,7 +88,10 @@ export class MemoryService {
   private worldUpdatedAt: string | null = null
   private worldBundleError: string | null = null
   private tasks = new Map<string, MemoryTask>()
+  private settingsLoaded = false
   private initialized = false
+  private settingsPromise: Promise<void> | null = null
+  private initializationPromise: Promise<void> | null = null
   private db: DatabaseSync | null = null
   private repository: MemoryIndexRepository | null = null
   private taskLogStates = new Map<string, MemoryTaskStatus>()
@@ -100,37 +103,101 @@ export class MemoryService {
     new MemoryWorkerRuntime(this.retrievalQueryService)
   )
 
+  async initializeSettings(): Promise<void> {
+    await this.ensureSettingsLoaded()
+  }
+
   async initialize(): Promise<void> {
+    await this.ensureInitialized('manual')
+  }
+
+  private async ensureSettingsLoaded(): Promise<void> {
+    if (this.settingsLoaded) {
+      return
+    }
+
+    if (!this.settingsPromise) {
+      this.settingsPromise = this.loadSettings().then((settings) => {
+        this.settings = settings
+        this.settingsLoaded = true
+      })
+    }
+
+    await this.settingsPromise
+  }
+
+  private async ensureInitialized(
+    trigger:
+      | 'manual'
+      | 'memory-ipc'
+      | 'memory-status'
+      | 'memory-local-models'
+      | 'chat-world-retrieval'
+      | 'chat-memory-retrieval'
+      | 'memory-hardware'
+      | 'memory-build'
+      | 'memory-debug'
+      | 'memory-embedding'
+  ): Promise<void> {
     if (this.initialized) {
       return
     }
 
-    this.settings = await this.loadSettings()
-    this.db = new DatabaseSync(getMemoryDatabasePath())
-    this.repository = new MemoryIndexRepository(this.db)
-    this.repository.prepareDatabase()
+    await this.ensureSettingsLoaded()
 
-    try {
-      await this.ensureWorldBundleReady()
-    } catch (error) {
-      this.worldBundleError = error instanceof Error ? error.message : String(error)
-      void logger.error(
-        'memory',
-        'world-bundle-initialize-failed',
-        'Failed to prepare world bundle during initialization',
-        {
-          error: this.worldBundleError
+    if (!this.initializationPromise) {
+      const startedAt = Date.now()
+      void logger.info('memory', 'lazy-init-started', 'Starting lazy memory initialization', {
+        trigger,
+        retrievalMode: this.settings.retrievalMode
+      })
+
+      this.initializationPromise = (async () => {
+        this.db = new DatabaseSync(getMemoryDatabasePath())
+        this.repository = new MemoryIndexRepository(this.db)
+        this.repository.prepareDatabase()
+
+        try {
+          const worldBootstrapStartedAt = Date.now()
+          await this.ensureWorldBundleReady()
+          void logger.info(
+            'memory',
+            'world-bundle-ready',
+            'World bundle prepared during lazy memory initialization',
+            {
+              durationMs: Date.now() - worldBootstrapStartedAt,
+              worldUpdatedAt: this.worldUpdatedAt
+            }
+          )
+        } catch (error) {
+          this.worldBundleError = error instanceof Error ? error.message : String(error)
+          void logger.error(
+            'memory',
+            'world-bundle-initialize-failed',
+            'Failed to prepare world bundle during lazy memory initialization',
+            {
+              trigger,
+              error: this.worldBundleError
+            }
+          )
         }
-      )
+
+        this.worldEntries = await this.loadWorldEntries()
+        this.initialized = true
+        void logger.info('memory', 'lazy-init-completed', 'Lazy memory initialization completed', {
+          trigger,
+          retrievalMode: this.settings.retrievalMode,
+          durationMs: Date.now() - startedAt,
+          worldEntryCount: this.worldEntries.length,
+          worldUpdatedAt: this.worldUpdatedAt
+        })
+      })().catch((error) => {
+        this.initializationPromise = null
+        throw error
+      })
     }
 
-    this.worldEntries = await this.loadWorldEntries()
-    this.initialized = true
-    void logger.info('memory', 'initialized', 'Memory service initialized', {
-      retrievalMode: this.settings.retrievalMode,
-      worldEntryCount: this.worldEntries.length,
-      worldUpdatedAt: this.worldUpdatedAt
-    })
+    await this.initializationPromise
   }
 
   setSessions(sessions: ConversationSession[]): void {
@@ -146,8 +213,17 @@ export class MemoryService {
   }
 
   async saveSettings(store: MemorySettingsStore): Promise<MemorySettingsStore> {
+    await this.ensureSettingsLoaded()
+    const previousSettings = this.settings
     this.settings = normalizeMemorySettingsStore(store)
     await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+
+    this.settingsLoaded = true
+
+    if (this.shouldClearLocalEmbeddingPipelines(previousSettings, this.settings)) {
+      await this.clearLocalEmbeddingPipelines()
+    }
+
     void logger.info('memory', 'settings-saved', 'Memory settings saved', {
       retrievalMode: this.settings.retrievalMode,
       worldSearchEnabled: this.settings.worldSearchEnabled,
@@ -158,11 +234,13 @@ export class MemoryService {
   }
 
   async listLocalModels(): Promise<LocalEmbeddingCatalogItem[]> {
+    await this.ensureInitialized('memory-local-models')
     const { listLocalEmbeddingModels } = await this.getLocalEmbeddingModule()
     return listLocalEmbeddingModels(this.settings.localEmbedding.model)
   }
 
   async downloadLocalModel(modelId: string): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'local-model-download',
       'character-memory',
@@ -194,6 +272,7 @@ export class MemoryService {
             }
           })
           await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+          this.settingsLoaded = true
         }
       },
       modelId
@@ -201,6 +280,7 @@ export class MemoryService {
   }
 
   async selectLocalModel(modelId: string): Promise<MemorySettingsStore> {
+    await this.ensureInitialized('memory-local-models')
     const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const installedModel = await getInstalledLocalEmbeddingModel(modelId)
     if (!installedModel) {
@@ -217,10 +297,13 @@ export class MemoryService {
       }
     })
     await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+    this.settingsLoaded = true
+    await this.clearLocalEmbeddingPipelines()
     return this.settings
   }
 
   async removeLocalModel(modelId: string): Promise<boolean> {
+    await this.ensureInitialized('memory-local-models')
     const { removeLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
     const removed = await removeLocalEmbeddingModel(modelId)
     if (!removed) {
@@ -236,12 +319,15 @@ export class MemoryService {
         }
       })
       await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
+      this.settingsLoaded = true
     }
 
+    await this.clearLocalEmbeddingPipelines()
     return true
   }
 
   async testEmbeddingConnection(): Promise<EmbeddingConnectionTestResult> {
+    await this.ensureInitialized('memory-embedding')
     const startedAt = Date.now()
     void logger.info('memory', 'embedding-test-started', 'Embedding connection test started', {
       retrievalMode: this.settings.retrievalMode
@@ -267,11 +353,20 @@ export class MemoryService {
     }
   }
 
-  getEmbeddingCompatibility(characterId?: string | null): EmbeddingCompatibilityStatus[] {
+  async getEmbeddingCompatibility(
+    characterId?: string | null
+  ): Promise<EmbeddingCompatibilityStatus[]> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildEmbeddingCompatibility(characterId)
+  }
+
+  private buildEmbeddingCompatibility(
+    characterId?: string | null
+  ): EmbeddingCompatibilityStatus[] {
     return [this.getWorldCompatibility(), this.getMemoryCompatibility(characterId || null)]
   }
 
-  getWorldIndexStatus(): WorldIndexStatus {
+  private buildWorldIndexStatus(): WorldIndexStatus {
     const manifest = this.getManifest(WORLD_SCOPE)
     const compatibility = this.getWorldCompatibility()
     const availability = this.getWorldAvailability(manifest, compatibility)
@@ -288,7 +383,12 @@ export class MemoryService {
     }
   }
 
-  getMemoryIndexStatus(characterId?: string | null): CharacterMemoryIndexStatus {
+  async getWorldIndexStatus(): Promise<WorldIndexStatus> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildWorldIndexStatus()
+  }
+
+  private buildMemoryIndexStatus(characterId?: string | null): CharacterMemoryIndexStatus {
     const manifest = this.getManifest(MEMORY_SCOPE, characterId || null)
     const compatibility = this.getMemoryCompatibility(characterId || null)
     const availability = this.getMemoryAvailability(manifest, compatibility)
@@ -304,17 +404,24 @@ export class MemoryService {
     }
   }
 
+  async getMemoryIndexStatus(characterId?: string | null): Promise<CharacterMemoryIndexStatus> {
+    await this.ensureInitialized('memory-ipc')
+    return this.buildMemoryIndexStatus(characterId)
+  }
+
   async getStatus(characterId?: string | null): Promise<MemoryStatusSnapshot> {
+    await this.ensureInitialized('memory-status')
     return {
       settings: this.settings,
-      worldIndex: this.getWorldIndexStatus(),
-      memoryIndex: this.getMemoryIndexStatus(characterId),
+      worldIndex: this.buildWorldIndexStatus(),
+      memoryIndex: this.buildMemoryIndexStatus(characterId),
       tasks: this.getTasks(),
       hardware: await this.getHardwareInfo()
     }
   }
 
   private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
+    await this.ensureInitialized('memory-hardware')
     if (!this.hardwareInfoPromise) {
       this.hardwareInfoPromise = readMemoryHardwareInfo().catch((error) => {
         void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
@@ -334,6 +441,7 @@ export class MemoryService {
   }
 
   async startWorldBundleDownload(): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'world-bundle-download',
       'world',
@@ -391,6 +499,7 @@ export class MemoryService {
   }
 
   async startWorldVectorBuild(): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask('world-vector-build', 'world', async (taskId, updateTask, taskControl) => {
       const provider = await this.requireVectorEmbeddingProvider()
       taskControl.throwIfCancelled()
@@ -436,6 +545,7 @@ export class MemoryService {
   }
 
   async startCharacterMemoryBuild(characterId: string): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'character-memory-build',
       'character-memory',
@@ -501,6 +611,7 @@ export class MemoryService {
   }
 
   async startAllMemoryBuild(): Promise<MemoryTask> {
+    await this.ensureInitialized('memory-build')
     return this.runTask(
       'all-memory-build',
       'character-memory',
@@ -580,16 +691,19 @@ export class MemoryService {
   }
 
   async retrieveWorldContext(query: string): Promise<string[]> {
+    await this.ensureInitialized('chat-world-retrieval')
     const result = await this.retrieveWorldDebugHits(query)
     return result.hits.map((hit) => hit.text)
   }
 
   async retrieveMemoryContext(query: string, session: ConversationSession): Promise<string[]> {
+    await this.ensureInitialized('chat-memory-retrieval')
     const result = await this.retrieveMemoryDebugHits(query, session)
     return result.hits.map((hit) => hit.text)
   }
 
   async debugRetrieve(request: MemoryDebugRetrieveRequest): Promise<MemoryDebugRetrieveResult> {
+    await this.ensureInitialized('memory-debug')
     const query = request.query.trim()
     const scope = request.scope
     const session = this.resolveDebugSession(request.characterId || null, request.sessionId || null)
@@ -597,7 +711,7 @@ export class MemoryService {
       scope === 'character-memory'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(this.getWorldIndexStatus().availability),
+            runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
             fallbackReason: 'World retrieval was not requested.'
           }
         : await this.retrieveWorldDebugHits(query)
@@ -606,7 +720,7 @@ export class MemoryService {
         ? {
             hits: [],
             runtimeModeUsed: this.getRuntimeMode(
-              this.getMemoryIndexStatus(session?.characterId || null).availability
+              this.buildMemoryIndexStatus(session?.characterId || null).availability
             ),
             fallbackReason: 'Character memory retrieval was not requested.'
           }
@@ -1246,7 +1360,7 @@ export class MemoryService {
   }
 
   private buildWorldRuntimeSummary(result: RetrievalExecution): MemoryDebugRuntimeDetail {
-    const worldIndex = this.getWorldIndexStatus()
+    const worldIndex = this.buildWorldIndexStatus()
     return {
       scope: WORLD_SCOPE,
       enabled: this.settings.worldSearchEnabled,
@@ -1261,7 +1375,7 @@ export class MemoryService {
     result: RetrievalExecution,
     session: ConversationSession | null
   ): MemoryDebugRuntimeDetail {
-    const memoryIndex = this.getMemoryIndexStatus(
+    const memoryIndex = this.buildMemoryIndexStatus(
       session
         ? this.settings.crossSessionCharacterMemory
           ? session.characterId
@@ -1281,7 +1395,7 @@ export class MemoryService {
   }
 
   private getWorldCompatibilityReason(compatibility: EmbeddingCompatibilityStatus): string {
-    const worldIndex = this.getWorldIndexStatus()
+    const worldIndex = this.buildWorldIndexStatus()
     if (worldIndex.availability === 'missing') {
       return 'World vector index is missing, so the query fell back to keyword matching.'
     }
@@ -1304,7 +1418,7 @@ export class MemoryService {
     compatibility: EmbeddingCompatibilityStatus,
     session: ConversationSession
   ): string {
-    const memoryIndex = this.getMemoryIndexStatus(
+    const memoryIndex = this.buildMemoryIndexStatus(
       this.settings.crossSessionCharacterMemory ? session.characterId : session.id
     )
     if (memoryIndex.availability === 'missing') {
@@ -1360,6 +1474,34 @@ export class MemoryService {
 
   private countIndexedCharacters(): number {
     return this.getRepository().countIndexedCharacters()
+  }
+
+  private shouldClearLocalEmbeddingPipelines(
+    previousSettings: MemorySettingsStore,
+    nextSettings: MemorySettingsStore
+  ): boolean {
+    const previousUsesLocal = previousSettings.retrievalMode === 'vector-local'
+    const nextUsesLocal = nextSettings.retrievalMode === 'vector-local'
+
+    if (!previousUsesLocal && !nextUsesLocal) {
+      return false
+    }
+
+    return (
+      previousSettings.retrievalMode !== nextSettings.retrievalMode ||
+      previousSettings.localEmbedding.model !== nextSettings.localEmbedding.model ||
+      previousSettings.localEmbedding.modelPath !== nextSettings.localEmbedding.modelPath ||
+      previousSettings.localEmbedding.useGpu !== nextSettings.localEmbedding.useGpu ||
+      previousSettings.localEmbedding.useHuggingFaceMirror !==
+        nextSettings.localEmbedding.useHuggingFaceMirror ||
+      previousSettings.localEmbedding.huggingFaceMirrorUrl !==
+        nextSettings.localEmbedding.huggingFaceMirrorUrl
+    )
+  }
+
+  private async clearLocalEmbeddingPipelines(): Promise<void> {
+    const { clearAllPipelineCaches } = await this.getLocalEmbeddingModule()
+    clearAllPipelineCaches()
   }
 
   private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {

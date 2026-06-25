@@ -1,4 +1,5 @@
 export { listLocalEmbeddingModels, getInstalledLocalEmbeddingModel } from './catalog'
 export { downloadLocalEmbeddingModel, removeLocalEmbeddingModel } from './install'
 export { LocalEmbeddingProvider } from './provider'
+export { clearAllPipelineCaches } from './runtime'
 export type { LocalChunker } from './types'
