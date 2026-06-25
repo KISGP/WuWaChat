@@ -1,9 +1,15 @@
-import type { ChatRunRequest } from '@shared/chat'
+import type {
+  ChatDeleteMessageRequest,
+  ChatPromptPreviewRequest,
+  ChatRunRequest
+} from '@shared/chat'
 import {
   abortRun,
+  deleteMessage,
   getCharacterPrompt,
   getCharacters,
   getSessions,
+  previewModelInput,
   saveCharacterPrompt,
   sendMessage
 } from '@main/chat'
@@ -27,6 +33,16 @@ export function registerChatIpc(): void {
   )
   handleLogged('chat:getSessions', () => getSessions())
   handleLogged(
+    'chat:previewModelInput',
+    (_event, request: ChatPromptPreviewRequest) => previewModelInput(request),
+    (request) => ({
+      sessionId: request.sessionId,
+      characterId: request.characterId,
+      profileId: request.profileId,
+      messageLength: request.userMessage.length
+    })
+  )
+  handleLogged(
     'chat:sendMessage',
     (_event, request: ChatRunRequest) => sendMessage(request),
     (request) => ({
@@ -35,6 +51,14 @@ export function registerChatIpc(): void {
       characterId: request.characterId,
       profileId: request.profileId,
       messageLength: request.userMessage.length
+    })
+  )
+  handleLogged(
+    'chat:deleteMessage',
+    (_event, request: ChatDeleteMessageRequest) => deleteMessage(request),
+    (request) => ({
+      sessionId: request.sessionId,
+      messageId: request.messageId
     })
   )
   handleLogged(

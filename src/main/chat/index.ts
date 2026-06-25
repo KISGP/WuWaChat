@@ -1,4 +1,12 @@
-import type { ChatRunAccepted, ChatRunRequest, ConversationSession } from '@shared/chat'
+import type {
+  ChatDeleteMessageRequest,
+  ChatDeleteMessageResult,
+  ChatPromptPreviewRequest,
+  ChatPromptPreviewResult,
+  ChatRunAccepted,
+  ChatRunRequest,
+  ConversationSession
+} from '@shared/chat'
 import {
   getCharacterPrompt,
   getCharacterSummaryById,
@@ -21,6 +29,7 @@ const runtime = new ChatRuntime(
     getRecentMessageCount: () => memoryService.getRecentMessageCount(),
     retrieveWorldContext: (query) => memoryService.retrieveWorldContext(query),
     retrieveMemoryContext: (query, session) => memoryService.retrieveMemoryContext(query, session),
+    previewPromptContext: (query, session) => memoryService.previewPromptContext(query, session),
     syncSessions: (sessions) => memoryService.syncSessions(sessions)
   }
 )
@@ -50,6 +59,26 @@ export function getSessions(): ConversationSession[] {
  */
 export function sendMessage(request: ChatRunRequest): ChatRunAccepted {
   return runtime.sendMessage(request)
+}
+
+/**
+ * @description 删除一条会话消息；若目标为用户消息，则同时删除该轮紧随其后的角色回复。
+ * @param request 删除请求，包含会话 ID 与消息 ID。
+ * @returns 删除后的最新会话快照。
+ */
+export function deleteMessage(request: ChatDeleteMessageRequest): ChatDeleteMessageResult {
+  return runtime.deleteMessage(request)
+}
+
+/**
+ * @description 生成一次只读的聊天提示词预览，不触发模型请求或会话写入。
+ * @param request 预览请求，包含角色、配置、会话与模拟用户输入。
+ * @returns 提示词拆分结果与最终模型消息列表。
+ */
+export async function previewModelInput(
+  request: ChatPromptPreviewRequest
+): Promise<ChatPromptPreviewResult> {
+  return runtime.previewModelInput(request)
 }
 
 /**

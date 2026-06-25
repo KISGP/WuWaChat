@@ -14,7 +14,7 @@ type MemoryTabActionDependencies = {
   updateCloudEmbedding: (patch: Partial<CloudEmbeddingSettings>) => void
   updateDraft: (patch: Partial<MemorySettingsStore>) => void
   flushPendingChanges: () => Promise<void>
-  activeCharacterId: string | null
+  selectedCharacterId: string | null
   clearLocalModelUiState: (modelId: string) => void
   downloadLocalModel: (modelId: string) => Promise<void>
   selectLocalModel: (modelId: string) => Promise<void>
@@ -33,6 +33,12 @@ type BuildLaunchNotice = {
   message: string
 } | null
 
+/**
+ * @description 在切换云端 embedding 提供方时，生成需要同步更新的关联字段补丁。
+ * @param draft 当前 memory 设置草稿。
+ * @param provider 新选择的云端 embedding 提供方。
+ * @returns 与目标提供方匹配的配置补丁。
+ */
 function createCloudProviderPatch(
   draft: MemorySettingsStore,
   provider: CloudEmbeddingSettings['provider']
@@ -76,12 +82,17 @@ function createCloudProviderPatch(
   }
 }
 
+/**
+ * @description 封装 Memory 页的异步动作与构建前置处理，统一管理临时状态和失败提示。
+ * @param dependencies Memory 页动作依赖。
+ * @returns 供界面直接绑定的状态与事件处理函数。
+ */
 export function useMemoryTabActions({
   draft,
   updateCloudEmbedding,
   updateDraft,
   flushPendingChanges,
-  activeCharacterId,
+  selectedCharacterId,
   clearLocalModelUiState,
   downloadLocalModel,
   selectLocalModel,
@@ -171,7 +182,7 @@ export function useMemoryTabActions({
   }, [startWorldVectorBuild, withBuildPreparation])
 
   const handleStartCharacterMemoryBuild = useCallback(async (): Promise<void> => {
-    if (!activeCharacterId) {
+    if (!selectedCharacterId) {
       setBuildLaunchNotice({
         type: 'error',
         title: '未选择角色',
@@ -182,10 +193,10 @@ export function useMemoryTabActions({
 
     await withBuildPreparation(
       'character-memory-build',
-      () => startCharacterMemoryBuild(activeCharacterId),
+      () => startCharacterMemoryBuild(selectedCharacterId),
       '重建当前角色记忆失败'
     )
-  }, [activeCharacterId, startCharacterMemoryBuild, withBuildPreparation])
+  }, [selectedCharacterId, startCharacterMemoryBuild, withBuildPreparation])
 
   const handleStartAllMemoryBuild = useCallback(async (): Promise<void> => {
     await withBuildPreparation(

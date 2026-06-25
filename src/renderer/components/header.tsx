@@ -3,8 +3,8 @@ import Icon1 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_1.png'
 import Icon2 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_2.png'
 import Icon3 from '@renderer/assets/SP_IconBreakthroughDetail.png'
 import CloseIcon from './close'
-import Info from '@renderer/assets/T_BtnHelpInfoNor.png'
-import Dialog from '@renderer/components/dialog'
+import InfoIcon from '@renderer/assets/T_BtnHelpInfoNor.png'
+import Info from '@renderer/components/info'
 import { useState, type ReactElement } from 'react'
 
 export default function Header({
@@ -14,10 +14,10 @@ export default function Header({
   onOpenSettings?: () => void
   onOpenDisplay?: () => void
 }): ReactElement {
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isInfoOpen, setIsInfoOpen] = useState(false)
 
-  const openDialog = (): void => {
-    setIsDialogOpen(true)
+  const openInfo = (): void => {
+    setIsInfoOpen(true)
   }
 
   // const handleMinimize = (): void => {
@@ -57,17 +57,17 @@ export default function Header({
           onClick={onOpenDisplay}
         />
         <img
-          src={Info}
+          src={InfoIcon}
           className="no-drag pointer-events-auto z-10 size-10 cursor-pointer transition-transform duration-200 hover:scale-106"
           draggable="false"
-          onClick={openDialog}
+          onClick={openInfo}
         />
 
         {/* <MinIcon onClick={handleMinimize} /> */}
         <CloseIcon onClick={handleClose} />
       </div>
 
-      <Dialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} />
+      <Info isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
+import BgIcon from '@renderer/assets/T_WhileBgPatternB.png'
 
 export function SettingItem({
   title,
@@ -18,13 +19,14 @@ export function SettingItem({
 
   return (
     <Collapsible open={isOpenDescription} onOpenChange={setIsOpenDescription}>
-      <div className="rounded border-2 border-[rgb(51,51,51)] p-px">
+      <div className="relative rounded border-2 border-[rgb(51,51,51)] p-px">
         <CollapsibleTrigger asChild>
           <div className="flex items-center justify-between rounded bg-[rgb(4,4,4,0.5)] px-6 py-4">
             <h3 className="text-lg font-medium text-white">{title}</h3>
             {children}
           </div>
         </CollapsibleTrigger>
+        <img src={BgIcon} className="absolute top-0 left-0 z-100 h-full" />
       </div>
 
       {description && (

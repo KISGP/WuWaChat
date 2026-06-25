@@ -187,6 +187,11 @@ export type MemoryDebugRetrieveRequest = {
   sessionId?: string | null
 }
 
+export type MemoryTargetSelection = {
+  characterId?: string | null
+  sessionId?: string | null
+}
+
 export type MemoryDebugRetrieveResult = {
   query: string
   scope: MemoryDebugScope
@@ -207,6 +212,8 @@ export type WorldIndexStatus = {
 export type CharacterMemoryIndexStatus = {
   scope: 'character-memory'
   characterId?: string | null
+  targetCharacterId?: string | null
+  targetSessionId?: string | null
   availability: IndexAvailability
   runtimeMode: IndexRuntimeMode
   entryCount: number

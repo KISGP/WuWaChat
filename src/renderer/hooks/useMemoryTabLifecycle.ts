@@ -1,11 +1,12 @@
+import type { MemoryTargetSelection } from '@shared/memory-settings'
 import { useEffect, useRef } from 'react'
 
 type UseMemoryTabLifecycleArgs = {
   isActive: boolean
   isLoaded: boolean
-  activeCharacterId?: string | null
+  selection?: MemoryTargetSelection | null
   buildLaunchNotice: unknown
-  refreshStatus: (characterId?: string | null) => Promise<void>
+  refreshStatus: (selection?: MemoryTargetSelection | null) => Promise<void>
   refreshLocalModels: () => Promise<void>
   setIsLoaded: (isLoaded: boolean) => void
   clearBuildLaunchNotice: () => void
@@ -17,7 +18,7 @@ type UseMemoryTabLifecycleArgs = {
 export function useMemoryTabLifecycle({
   isActive,
   isLoaded,
-  activeCharacterId,
+  selection,
   buildLaunchNotice,
   refreshStatus,
   refreshLocalModels,
@@ -34,7 +35,7 @@ export function useMemoryTabLifecycle({
     let cancelled = false
     hasInitializedRef.current = true
 
-    Promise.all([refreshStatus(activeCharacterId || null), refreshLocalModels()])
+    Promise.all([refreshStatus(selection || null), refreshLocalModels()])
       .catch((error) => {
         console.error('Failed to load memory status', error)
       })
@@ -49,15 +50,15 @@ export function useMemoryTabLifecycle({
     return () => {
       cancelled = true
     }
-  }, [activeCharacterId, isActive, refreshLocalModels, refreshStatus, setIsLoaded])
+  }, [isActive, refreshLocalModels, refreshStatus, selection, setIsLoaded])
 
   useEffect(() => {
     if (!isActive || !hasInitializedRef.current || !isLoaded) {
       return
     }
 
-    void refreshStatus(activeCharacterId || null)
-  }, [activeCharacterId, isActive, isLoaded, refreshStatus])
+    void refreshStatus(selection || null)
+  }, [isActive, isLoaded, refreshStatus, selection])
 
   useEffect(() => {
     if (!isActive || !hasInitializedRef.current || !isLoaded) {

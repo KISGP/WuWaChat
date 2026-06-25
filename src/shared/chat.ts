@@ -1,3 +1,5 @@
+import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeSummary } from './memory-settings'
+
 export type ProviderKind = 'openai' | 'deepseek'
 
 export type ModelProfile = {
@@ -95,10 +97,46 @@ export type ChatRunRequest = {
   profileId: string
 }
 
+export type ChatDeleteMessageRequest = {
+  sessionId: string
+  messageId: string
+}
+
+export type ChatPromptPreviewRequest = {
+  sessionId?: string | null
+  characterId: string
+  userMessage: string
+  profileId: string
+}
+
+export type ChatPromptPreviewMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export type ChatPromptPreviewHit = MemoryDebugRetrievalHit
+
+export type ChatPromptPreviewResult = {
+  sessionId: string | null
+  characterId: string
+  profileId: string
+  userMessage: string
+  prompt: string
+  worldContextHits: ChatPromptPreviewHit[]
+  memoryContextHits: ChatPromptPreviewHit[]
+  runtimeSummary: MemoryDebugRuntimeSummary
+  systemPromptText: string
+  messages: ChatPromptPreviewMessage[]
+}
+
 export type ChatRunAccepted = {
   requestId: string
   sessionId: string
   messageId: string
+}
+
+export type ChatDeleteMessageResult = {
+  session: ConversationSession
 }
 
 export type ChatRunStartedEvent = {
