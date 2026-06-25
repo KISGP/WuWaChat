@@ -1,31 +1,31 @@
 import BgHeader from '@renderer/assets/T_PhoneSystemModel02.png'
 import Icon1 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_1.png'
 import Icon2 from '@renderer/assets/T_TPI_UiPhoneSystem_Main1_UIAtlas_2.png'
+import Icon3 from '@renderer/assets/SP_IconBreakthroughDetail.png'
 import CloseIcon from './close'
-import MinIcon from './min'
 import Info from '@renderer/assets/T_BtnHelpInfoNor.png'
-import Dialog from './dialog'
+import Dialog from '@renderer/components/dialog'
 import { useState, type ReactElement } from 'react'
 
-export default function Header({ onOpenSettings }: { onOpenSettings?: () => void }): ReactElement {
+export default function Header({
+  onOpenSettings,
+  onOpenDisplay
+}: {
+  onOpenSettings?: () => void
+  onOpenDisplay?: () => void
+}): ReactElement {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-
-  const openSettings = (): void => {
-    if (onOpenSettings) {
-      onOpenSettings()
-    }
-  }
 
   const openDialog = (): void => {
     setIsDialogOpen(true)
   }
 
-  const handleMinimize = (): void => {
-    if (window.api?.minimize) {
-      window.api.minimize()
-      return
-    }
-  }
+  // const handleMinimize = (): void => {
+  //   if (window.api?.minimize) {
+  //     window.api.minimize()
+  //     return
+  //   }
+  // }
 
   const handleClose = (): void => {
     window.close()
@@ -45,10 +45,16 @@ export default function Header({ onOpenSettings }: { onOpenSettings?: () => void
 
       <div className="no-drag pointer-events-auto absolute top-3.5 right-6 z-100 flex gap-6">
         <img
+          src={Icon3}
+          className="no-drag pointer-events-auto z-10 size-10 cursor-pointer transition-transform duration-200 hover:scale-105"
+          draggable="false"
+          onClick={onOpenSettings}
+        />
+        <img
           src={Icon2}
           className="no-drag pointer-events-auto z-10 size-10 scale-90 cursor-pointer transition-transform duration-200 hover:scale-95"
           draggable="false"
-          onClick={openSettings}
+          onClick={onOpenDisplay}
         />
         <img
           src={Info}
@@ -57,7 +63,7 @@ export default function Header({ onOpenSettings }: { onOpenSettings?: () => void
           onClick={openDialog}
         />
 
-        <MinIcon onClick={handleMinimize} />
+        {/* <MinIcon onClick={handleMinimize} /> */}
         <CloseIcon onClick={handleClose} />
       </div>
 

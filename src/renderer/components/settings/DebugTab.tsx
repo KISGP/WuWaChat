@@ -5,17 +5,17 @@ import type {
   MemoryDebugRuntimeDetail,
   MemoryDebugScope
 } from '@shared/memory-settings'
+import { Textarea } from '@renderer/components/ui/textarea'
 import { trackUiEvent } from '@renderer/logging'
 import { useCharacterStore } from '@renderer/stores/characterStore'
 import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
-import { cardClassName, formatDateTime, inputClassName } from './memory/helpers'
-import { Textarea } from '@renderer/components/textarea'
+import { formatDateTime } from './memory/helpers'
 
 const SCOPE_OPTIONS: Array<{ value: MemoryDebugScope; label: string; description: string }> = [
   {
     value: 'all',
     label: '全部',
-    description: '同时检查 world 和长期记忆'
+    description: '同时检查 world 与长期记忆'
   },
   {
     value: 'world',
@@ -29,10 +29,21 @@ const SCOPE_OPTIONS: Array<{ value: MemoryDebugScope; label: string; description
   }
 ]
 
+/**
+ * @description 将分数格式化为更易读的文本。
+ * @param score 检索命中分数。
+ * @returns 格式化后的分数字符串。
+ */
 function formatScore(score: number): string {
   return Number.isInteger(score) ? String(score) : score.toFixed(4)
 }
 
+/**
+ * @description 渲染单个运行时状态卡片。
+ * @param props.detail 当前作用域的运行时明细。
+ * @param props.title 卡片标题。
+ * @returns 运行时状态卡片。
+ */
 function RuntimeCard({
   detail,
   title
@@ -66,6 +77,11 @@ function RuntimeCard({
   )
 }
 
+/**
+ * @description 渲染单条检索命中结果。
+ * @param props.hit 检索命中项。
+ * @returns 命中详情卡片。
+ */
 function HitCard({ hit }: { hit: MemoryDebugRetrievalHit }): ReactElement {
   return (
     <div className="rounded border border-white/10 bg-black/20 p-3">
@@ -95,6 +111,10 @@ function HitCard({ hit }: { hit: MemoryDebugRetrievalHit }): ReactElement {
   )
 }
 
+/**
+ * @description 渲染开发环境下的记忆检索调试页。
+ * @returns 调试工具页内容。
+ */
 export default function DebugTab(): ReactElement {
   const activateChar = useCharacterStore((state) => state.activateChar)
   const currentSessionId = useSessionStore((state) => state.currentSessionId)
@@ -151,155 +171,149 @@ export default function DebugTab(): ReactElement {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-4">
-      <section className={cardClassName()}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-base font-medium text-white/90">RAG 检索调试</h2>
-            <p className="mt-1 text-xs text-white/45">
-              仅开发环境可见。直接输入 query，查看 world 与长期记忆的实际检索结果。
-            </p>
-          </div>
-          <div className="rounded border border-[#e8c690]/30 bg-[#e8c690]/10 px-2 py-1 text-xs text-[#f2d5a8]">
-            DEV ONLY
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 text-xs text-white/60 md:grid-cols-2">
-          <div className="rounded border border-white/10 bg-black/20 px-3 py-2">
-            当前角色: {selectedCharacterId || '未选择'}
-          </div>
-          <div className="rounded border border-white/10 bg-black/20 px-3 py-2">
-            当前会话: {selectedSessionId || '未选择'}
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <Textarea
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="输入一句想测试的查询，例如：今州黑海岸发生了什么？"
-            className={`${inputClassName()} min-h-24 resize-y bg-black/20`}
-          />
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {SCOPE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setScope(option.value)}
-              className={
-                scope === option.value
-                  ? 'rounded border border-[#e8c690]/60 bg-white/10 px-3 py-3 text-left text-[#e8c690]'
-                  : 'rounded border border-white/10 bg-black/20 px-3 py-3 text-left text-white/70 hover:bg-white/5'
-              }
-            >
-              <div className="text-sm font-medium">{option.label}</div>
-              <div className="mt-1 text-xs leading-5 text-white/45">{option.description}</div>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void handleRun()}
-            disabled={isLoading || !query.trim()}
-            className="rounded border border-[#e8c690]/50 bg-[#e8c690]/10 px-4 py-2 text-sm text-[#f2d5a8] transition-colors hover:bg-[#e8c690]/15 disabled:cursor-not-allowed disabled:opacity-50"
+    <div className="h-full overflow-y-auto pr-2">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 pb-6">
+        {/* <SettingsSection
+            title="调试查询"
+            description="输入 Query、选择作用域，然后查看实际检索路径与命中内容。"
           >
-            {isLoading ? '检索中...' : '执行检索'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setQuery('')
-              setErrorMessage('')
-              setResult(null)
-            }}
-            disabled={isLoading && !result}
-            className="rounded border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 disabled:opacity-50"
-          >
-            清空结果
-          </button>
-          {result && (
-            <div className="text-xs text-white/45">
-              本次模式: {result.runtimeSummary.requestedMode} | 命中 {result.results.length} 条
-            </div>
-          )}
-        </div>
-      </section>
-
-      {errorMessage && (
-        <div className="rounded border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-          调试检索失败: {errorMessage}
-        </div>
-      )}
-
-      {result && (
-        <>
-          <section className={cardClassName()}>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-medium text-white/90">运行摘要</h3>
-                <p className="mt-1 text-xs text-white/45">
-                  检索时间: {formatDateTime(new Date().toISOString())}
-                </p>
+            <div className="grid gap-4">
+              <div className="grid gap-3 text-xs text-white/60 md:grid-cols-2">
+                <div className="rounded border border-white/10 bg-black/20 px-3 py-2">
+                  当前角色: {selectedCharacterId || '未选择'}
+                </div>
+                <div className="rounded border border-white/10 bg-black/20 px-3 py-2">
+                  当前会话: {selectedSessionId || '未选择'}
+                </div>
               </div>
-              <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
-                scope: {result.scope}
+
+              <Textarea
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="输入一句想测试的查询，例如：今州黑海岸发生了什么？"
+                className={`${inputClassName()} min-h-24 resize-y bg-black/20`}
+              />
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {SCOPE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setScope(option.value)}
+                    className={
+                      scope === option.value
+                        ? 'rounded border border-[#e8c690]/60 bg-white/10 px-3 py-3 text-left text-[#e8c690]'
+                        : 'rounded border border-white/10 bg-black/20 px-3 py-3 text-left text-white/70 hover:bg-white/5'
+                    }
+                  >
+                    <div className="text-sm font-medium">{option.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-white/45">{option.description}</div>
+                  </button>
+                ))}
               </div>
-            </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <RuntimeCard detail={result.runtimeSummary.world} title="世界知识" />
-              <RuntimeCard detail={result.runtimeSummary.memory} title="长期记忆" />
-            </div>
-          </section>
-
-          <section className={cardClassName()}>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-medium text-white/90">命中结果</h3>
-                <p className="mt-1 text-xs text-white/45">
-                  query:{' '}
-                  <span className="font-mono text-white/70">{result.query || '(empty)'}</span>
-                </p>
-              </div>
-            </div>
-
-            {result.results.length === 0 ? (
-              <div className="mt-4 rounded border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
-                没有命中结果。你可以换一个 query，或者先确认 world / memory 索引状态是否可用。
-              </div>
-            ) : (
-              <div className="mt-4 space-y-5">
-                {groupedHits.world.length > 0 && (
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-white/85">世界知识</div>
-                    <div className="space-y-3">
-                      {groupedHits.world.map((hit) => (
-                        <HitCard key={hit.id} hit={hit} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {groupedHits.memory.length > 0 && (
-                  <div>
-                    <div className="mb-3 text-sm font-medium text-white/85">长期记忆</div>
-                    <div className="space-y-3">
-                      {groupedHits.memory.map((hit) => (
-                        <HitCard key={hit.id} hit={hit} />
-                      ))}
-                    </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleRun()}
+                  disabled={isLoading || !query.trim()}
+                  className="rounded border border-[#e8c690]/50 bg-[#e8c690]/10 px-4 py-2 text-sm text-[#f2d5a8] transition-colors hover:bg-[#e8c690]/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isLoading ? '检索中...' : '执行检索'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('')
+                    setErrorMessage('')
+                    setResult(null)
+                  }}
+                  disabled={isLoading && !result}
+                  className="rounded border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 disabled:opacity-50"
+                >
+                  清空结果
+                </button>
+                {result && (
+                  <div className="text-xs text-white/45">
+                    本次模式: {result.runtimeSummary.requestedMode} | 命中 {result.results.length}{' '}
+                    条
                   </div>
                 )}
               </div>
-            )}
-          </section>
-        </>
-      )}
+            </div>
+          </SettingsSection> */}
+
+        {errorMessage && (
+          <div className="rounded border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            调试检索失败: {errorMessage}
+          </div>
+        )}
+
+        {result && (
+          <>
+            <section className={''}>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-medium text-white/90">运行摘要</h3>
+                  <p className="mt-1 text-xs text-white/45">
+                    检索时间: {formatDateTime(new Date().toISOString())}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/70">
+                  scope: {result.scope}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <RuntimeCard detail={result.runtimeSummary.world} title="世界知识" />
+                <RuntimeCard detail={result.runtimeSummary.memory} title="长期记忆" />
+              </div>
+            </section>
+
+            <section className={''}>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-medium text-white/90">命中结果</h3>
+                  <p className="mt-1 text-xs text-white/45">
+                    query:{' '}
+                    <span className="font-mono text-white/70">{result.query || '(empty)'}</span>
+                  </p>
+                </div>
+              </div>
+
+              {result.results.length === 0 ? (
+                <div className="mt-4 rounded border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
+                  没有命中结果。你可以换一个 query，或者先确认 world / memory 索引状态是否可用。
+                </div>
+              ) : (
+                <div className="mt-4 space-y-5">
+                  {groupedHits.world.length > 0 && (
+                    <div>
+                      <div className="mb-3 text-sm font-medium text-white/85">世界知识</div>
+                      <div className="space-y-3">
+                        {groupedHits.world.map((hit) => (
+                          <HitCard key={hit.id} hit={hit} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {groupedHits.memory.length > 0 && (
+                    <div>
+                      <div className="mb-3 text-sm font-medium text-white/85">长期记忆</div>
+                      <div className="space-y-3">
+                        {groupedHits.memory.map((hit) => (
+                          <HitCard key={hit.id} hit={hit} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </div>
     </div>
   )
 }

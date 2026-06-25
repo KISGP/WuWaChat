@@ -360,9 +360,7 @@ export class MemoryService {
     return this.buildEmbeddingCompatibility(characterId)
   }
 
-  private buildEmbeddingCompatibility(
-    characterId?: string | null
-  ): EmbeddingCompatibilityStatus[] {
+  private buildEmbeddingCompatibility(characterId?: string | null): EmbeddingCompatibilityStatus[] {
     return [this.getWorldCompatibility(), this.getMemoryCompatibility(characterId || null)]
   }
 

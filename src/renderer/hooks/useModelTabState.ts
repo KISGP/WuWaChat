@@ -1,12 +1,9 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import type { ModelProfile } from '@shared/chat'
 import type { OpenAIProfileConnectionTestResult } from '@shared/model-settings'
-import {
-  connectionFingerprint,
-  isValidUrl,
-  type ModelOptionsCache
-} from '@renderer/components/settings/model/helpers'
+import { type ModelOptionsCache } from '@renderer/components/settings/model/helpers'
 import { trackUiEvent } from '@renderer/logging'
+import { connectionFingerprint, isValidUrl } from '@renderer/utils'
 
 type UseModelTabStateArgs = {
   currentProfile?: ModelProfile

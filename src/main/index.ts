@@ -42,11 +42,7 @@ app.whenReady().then(() => {
       return initializeChat()
     })
     .then(() => {
-      void logger.info(
-        'main',
-        'chat-bootstrap-success',
-        'Lightweight chat bootstrap completed'
-      )
+      void logger.info('main', 'chat-bootstrap-success', 'Lightweight chat bootstrap completed')
       registerIpc()
       void logger.info('main', 'ipc-registered', 'IPC handlers registered')
       void logger.info('main', 'window-create-start', 'Creating main window')
