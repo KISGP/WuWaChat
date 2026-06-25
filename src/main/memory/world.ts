@@ -2,13 +2,7 @@ import { readdir, readFile } from 'fs/promises'
 import { join, relative } from 'path'
 import type { MemoryEntry } from '@shared/ai'
 import { now, pathExists } from '@main/utils'
-
-export function splitMarkdownIntoChunks(content: string): string[] {
-  return content
-    .split(/\n\s*\n/g)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-}
+import { markdownParagraphChunker } from './chunking'
 
 export async function walkMarkdownFiles(rootPath: string): Promise<string[]> {
   if (!(await pathExists(rootPath))) {
@@ -38,7 +32,7 @@ export async function loadWorldMarkdownEntries(worldRoot: string): Promise<Memor
       const content = await readFile(filePath, 'utf-8')
       const sourcePath = relative(worldRoot, filePath).replace(/\\/g, '/')
 
-      return splitMarkdownIntoChunks(content).map((text, chunkIndex) => ({
+      return markdownParagraphChunker.split(content).map((text, chunkIndex) => ({
         id: `world:${relative(worldRoot, filePath)}:${chunkIndex}`,
         text,
         sourceType: 'world' as const,

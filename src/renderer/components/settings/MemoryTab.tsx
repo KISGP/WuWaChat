@@ -548,6 +548,19 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                 />
               </label>
 
+              <NumberInput
+                label="Local Embedding Batch Size"
+                value={draft.localEmbedding.batchSize}
+                onChange={(value) =>
+                  updateDraft({
+                    localEmbedding: {
+                      ...draft.localEmbedding,
+                      batchSize: value
+                    }
+                  })
+                }
+              />
+
               <div className="grid grid-cols-2 gap-3">
                 {localModels.map((model) => (
                   <LocalModelCard
