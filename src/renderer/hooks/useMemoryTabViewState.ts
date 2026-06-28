@@ -4,6 +4,7 @@ import type {
   EmbeddingCompatibilityStatus,
   MemorySettingsStore,
   MemoryTask,
+  WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
 import { CLOUD_PROVIDER_OPTIONS } from '@renderer/components/settings/memory/constants'
@@ -17,6 +18,8 @@ type UseMemoryTabViewStateArgs = {
   compatibility: EmbeddingCompatibilityStatus[]
   tasks: MemoryTask[]
   worldIndex: WorldIndexStatus | null
+  storyStatus: WorldKnowledgeRouteStatus | null
+  glossaryStatus: WorldKnowledgeRouteStatus | null
   memoryIndex: CharacterMemoryIndexStatus | null
 }
 
@@ -42,7 +45,9 @@ type UseMemoryTabViewStateResult = {
   activeWorldVectorTaskId: string | null
   activeCharacterMemoryTaskId: string | null
   activeAllMemoryTaskId: string | null
-  worldIndexNeedsBuild: boolean
+  storyNeedsBuild: boolean
+  glossaryNeedsBuild: boolean
+  worldRoutesNeedBuild: boolean
   memoryIndexNeedsBuild: boolean
   memoryIndexMissingWithEntries: boolean
   memoryIndexMissingWithoutEntries: boolean
@@ -55,6 +60,8 @@ export function useMemoryTabViewState({
   compatibility,
   tasks,
   worldIndex,
+  storyStatus,
+  glossaryStatus,
   memoryIndex
 }: UseMemoryTabViewStateArgs): UseMemoryTabViewStateResult {
   const [providerListOpen, setProviderListOpen] = useState(false)
@@ -98,7 +105,19 @@ export function useMemoryTabViewState({
   const worldVectorBusy = hasRunningTask(tasks, 'world-vector-build')
   const characterMemoryBusy = hasRunningMemoryBuildTask(tasks)
 
-  const worldIndexNeedsBuild =
+  const storyNeedsBuild =
+    vectorModeSelected &&
+    (!storyStatus ||
+      storyStatus.indexAvailability === 'missing' ||
+      storyStatus.indexAvailability === 'failed' ||
+      storyStatus.indexAvailability === 'incompatible')
+  const glossaryNeedsBuild =
+    vectorModeSelected &&
+    (!glossaryStatus ||
+      glossaryStatus.indexAvailability === 'missing' ||
+      glossaryStatus.indexAvailability === 'failed' ||
+      glossaryStatus.indexAvailability === 'incompatible')
+  const worldRoutesNeedBuild =
     vectorModeSelected &&
     (!worldIndex ||
       worldIndex.availability === 'missing' ||
@@ -124,8 +143,8 @@ export function useMemoryTabViewState({
   const operationTips = useMemo(
     () =>
       [
-        worldIndexNeedsBuild
-          ? '当前世界知识索引还不可直接用于向量检索，建议先更新知识包，再构建世界知识向量。'
+        worldRoutesNeedBuild
+          ? '当前故事或名词索引还不可直接用于向量检索，建议先更新知识包，再构建对应向量。'
           : null,
         memoryIndex?.availability === 'incompatible'
           ? '当前角色记忆索引与正在使用的 embedding 配置不一致，建议重建当前角色或全部角色记忆。'
@@ -148,7 +167,7 @@ export function useMemoryTabViewState({
       memoryIndexMissingWithEntries,
       memoryIndexMissingWithoutEntries,
       vectorModeSelected,
-      worldIndexNeedsBuild
+      worldRoutesNeedBuild
     ]
   )
 
@@ -174,7 +193,9 @@ export function useMemoryTabViewState({
     activeWorldVectorTaskId,
     activeCharacterMemoryTaskId,
     activeAllMemoryTaskId,
-    worldIndexNeedsBuild,
+    storyNeedsBuild,
+    glossaryNeedsBuild,
+    worldRoutesNeedBuild,
     memoryIndexNeedsBuild,
     memoryIndexMissingWithEntries,
     memoryIndexMissingWithoutEntries,

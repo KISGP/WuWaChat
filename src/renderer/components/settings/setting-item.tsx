@@ -1,11 +1,9 @@
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { type ReactElement, type ReactNode, useState } from 'react'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
-import BgIcon from '@renderer/assets/T_WhileBgPatternB.png'
 
 type SettingItemProps = {
   title: string

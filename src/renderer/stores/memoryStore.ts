@@ -8,6 +8,7 @@ import type {
   MemoryStatusSnapshot,
   MemoryTargetSelection,
   MemoryTask,
+  WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
 import { createDefaultMemorySettingsStore } from '@shared/memory-settings'
@@ -29,6 +30,8 @@ type MemoryStore = {
   settings: MemorySettingsStore
   isLoaded: boolean
   worldIndex: WorldIndexStatus | null
+  storyStatus: WorldKnowledgeRouteStatus | null
+  glossaryStatus: WorldKnowledgeRouteStatus | null
   memoryIndex: CharacterMemoryIndexStatus | null
   compatibility: EmbeddingCompatibilityStatus[]
   embeddingTestResult: EmbeddingConnectionTestResult | null
@@ -210,6 +213,8 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
   settings: createDefaultMemorySettingsStore(),
   isLoaded: false,
   worldIndex: null,
+  storyStatus: null,
+  glossaryStatus: null,
   memoryIndex: null,
   compatibility: [],
   embeddingTestResult: null,
@@ -222,6 +227,8 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     set({
       settings: snapshot.settings,
       worldIndex: snapshot.worldIndex,
+      storyStatus: snapshot.storyStatus,
+      glossaryStatus: snapshot.glossaryStatus,
       memoryIndex: snapshot.memoryIndex,
       tasks: snapshot.tasks,
       hardware: snapshot.hardware

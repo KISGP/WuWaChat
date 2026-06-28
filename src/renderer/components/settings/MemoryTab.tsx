@@ -18,6 +18,7 @@ import type {
   CloudEmbeddingSettings,
   MemoryRetrievalMode,
   MemoryTargetSelection,
+  WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
 import { HUGGING_FACE_INFERENCE_PROVIDERS } from '@shared/memory-settings'
@@ -30,6 +31,7 @@ import { useMemoryStore } from '@renderer/stores/memoryStore'
 import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
 import { cn } from '@renderer/utils'
 import { CharacterSessionSelect } from '@renderer/components/settings/CharacterSessionSelect'
+import { StatusCard } from '@renderer/components/settings/memory/StatusCard'
 import {
   CLOUD_PROVIDER_OPTIONS,
   RETRIEVAL_OPTIONS
@@ -61,6 +63,7 @@ type MemoryTabProps = {
 }
 
 type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
+type RouteStatus = WorldKnowledgeRouteStatus | null
 
 /**
  * @description 渲染索引管理区内的轻量状态行。
@@ -157,6 +160,46 @@ function IndexTipList({ tips }: { tips: string[] }): ReactElement | null {
 }
 
 /**
+ * @description 渲染 world 细分路由的状态卡。
+ * @param props 标题与路由状态。
+ * @returns 状态卡节点。
+ */
+function WorldRouteStatusCard({
+  title,
+  status
+}: {
+  title: string
+  status: RouteStatus
+}): ReactElement {
+  const routeIndex = status
+    ? {
+        scope: 'world' as const,
+        availability: status.indexAvailability,
+        runtimeMode: status.retrievalModeUsed,
+        updatedAt: null,
+        entryCount: status.entryCount,
+        fingerprint: status.fingerprint || null,
+        builtAt: status.builtAt || null
+      }
+    : null
+
+  return (
+    <div className="space-y-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+      <StatusCard
+        title={title}
+        index={routeIndex}
+        metadataLabel="条目来源"
+        metadataValue={title}
+        emptyHint={`${title}索引尚未生成。`}
+      />
+      <div className="rounded border border-white/10 bg-black/25 px-3 py-2 text-xs leading-5 text-white/55">
+        {status?.message || '暂无状态说明。'}
+      </div>
+    </div>
+  )
+}
+
+/**
  * @description 计算 Memory 页的初始本地角色 / 会话选择。
  * @param activeCharacter 当前主页面角色。
  * @param currentSession 当前主页面会话。
@@ -228,6 +271,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     settings,
     isLoaded,
     worldIndex,
+    storyStatus,
+    glossaryStatus,
     memoryIndex,
     compatibility,
     embeddingTestResult,
@@ -254,6 +299,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       settings: state.settings,
       isLoaded: state.isLoaded,
       worldIndex: state.worldIndex,
+      storyStatus: state.storyStatus,
+      glossaryStatus: state.glossaryStatus,
       memoryIndex: state.memoryIndex,
       compatibility: state.compatibility,
       embeddingTestResult: state.embeddingTestResult,
@@ -316,7 +363,9 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     activeWorldVectorTaskId,
     activeCharacterMemoryTaskId,
     activeAllMemoryTaskId,
-    worldIndexNeedsBuild,
+    storyNeedsBuild,
+    glossaryNeedsBuild,
+    worldRoutesNeedBuild,
     shouldSuggestMemoryBuild,
     operationTips
   } = useMemoryTabViewState({
@@ -324,6 +373,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     compatibility: compatibilityForView,
     tasks,
     worldIndex,
+    storyStatus,
+    glossaryStatus,
     memoryIndex: memoryIndexForView
   })
 
@@ -430,13 +481,18 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const generalIndexTips = operationTipsForView
     .filter((tip) => tip.includes('字符串检索模式'))
     .slice(0, 1)
-  const worldIndexTips = operationTipsForView.filter((tip) => tip.includes('世界知识')).slice(0, 2)
+  const worldIndexTips = operationTipsForView
+    .filter((tip) => tip.includes('故事') || tip.includes('名词'))
+    .slice(0, 2)
+  const storyIndexTips = operationTipsForView.filter((tip) => tip.includes('故事')).slice(0, 2)
+  const glossaryIndexTips = operationTipsForView.filter((tip) => tip.includes('名词')).slice(0, 2)
   const memoryIndexTips = operationTipsForView
     .filter((tip) => !tip.includes('世界知识') && !tip.includes('字符串检索模式'))
     .slice(0, 2)
   const hasIncompatibleIndex =
     draft.retrievalMode !== 'string' &&
-    (worldIndex?.availability === 'incompatible' ||
+    (storyStatus?.indexAvailability === 'incompatible' ||
+      glossaryStatus?.indexAvailability === 'incompatible' ||
       memoryIndexForView?.availability === 'incompatible')
 
   return (
@@ -475,7 +531,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       <SectionCard title="检索设置">
         <SettingItem
           title="启用世界知识检索"
-          description="从内置 world 知识库中检索相关内容，并追加到提示词上下文里。"
+          description="从内置故事与名词知识库中检索相关内容，并追加到提示词上下文里。"
         >
           <Switch
             id="switch-world"
@@ -825,7 +881,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             }}
           />
         </SettingItem>
-        <SettingItem title="World TopK">
+        <SettingItem title="故事 / 名词 TopK">
           <Input
             value={draft.worldTopK}
             onChange={(value) => {
@@ -834,7 +890,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             }}
           />
         </SettingItem>
-        <SettingItem title="Memory TopK">
+        <SettingItem title="历史记录 TopK">
           <Input
             value={draft.memoryTopK}
             onChange={(value) => {
@@ -865,25 +921,42 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
           <IndexTipList tips={generalIndexTips} />
 
-          <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+          <div className="space-y-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-medium text-white/90">世界知识</div>
+              <div className="text-sm font-medium text-white/90">故事与名词</div>
               <IndexStatusLine
                 index={worldIndex}
-                metadataLabel="更新时间"
+                metadataLabel="知识包更新时间"
                 metadataValue={formatDateTime(worldIndex?.updatedAt)}
               />
             </div>
 
-            <div className="mt-3">
-              <IndexTipList tips={worldIndexTips} />
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div>
+                <WorldRouteStatusCard title="故事" status={storyStatus} />
+                <div className="mt-3">
+                  <IndexTipList tips={storyIndexTips.length > 0 ? storyIndexTips : worldIndexTips} />
+                </div>
+              </div>
+              <div>
+                <WorldRouteStatusCard title="名词" status={glossaryStatus} />
+                <div className="mt-3">
+                  <IndexTipList
+                    tips={glossaryIndexTips.length > 0 ? glossaryIndexTips : worldIndexTips}
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/55">
+              下方构建操作会同时作用于故事与名词两部分 world 知识。
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <IndexActionButton
                 icon={worldBundleBusy ? XCircle : Download}
-                label={worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新世界知识包'}
-                highlight={worldBundleBusy || worldIndexNeedsBuild}
+                label={worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新故事/名词知识包'}
+                highlight={worldBundleBusy || worldRoutesNeedBuild}
                 disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
                 disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
                 onClick={
@@ -895,9 +968,13 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               <IndexActionButton
                 icon={worldVectorPending ? XCircle : RefreshCw}
                 label={
-                  worldVectorPending && activeWorldVectorTaskId ? '中止构建' : '构建世界知识向量'
+                  worldVectorPending && activeWorldVectorTaskId
+                    ? '中止构建'
+                    : '构建故事/名词向量'
                 }
-                highlight={worldVectorPending || worldIndexNeedsBuild}
+                highlight={
+                  worldVectorPending || worldRoutesNeedBuild || storyNeedsBuild || glossaryNeedsBuild
+                }
                 disabled={
                   (worldVectorPending && !activeWorldVectorTaskId) ||
                   (!worldVectorPending && !vectorModeSelected)

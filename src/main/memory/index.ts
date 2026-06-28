@@ -26,6 +26,7 @@ import type {
   MemoryTask,
   MemoryTaskStatus,
   MemoryTaskEvent,
+  WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
 import {
@@ -48,10 +49,14 @@ import { MemoryWorkerClient } from './worker-client'
 import { RetrievalQueryService } from './retrieval-query-service'
 import { loadWorldKnowledgeEntries, walkMarkdownFiles } from './world'
 import { MemoryWorkerRuntime } from './worker-runtime'
+import { buildGlossaryStatus, getGlossaryAvailability, getGlossaryCompatibilityReason } from './glossary'
 import { logger } from '@main/logging'
 import { runMonitoredTask } from '@main/observability/monitored-task'
+import { buildStoryStatus, getStoryAvailability, getStoryCompatibilityReason } from './story'
 import {
+  describeVectorFailure,
   getAppDataRoot,
+  getIndexRuntimeMode,
   getMemoryDatabasePath,
   getMemorySettingsPath,
   getWorldMetadataPath,
@@ -398,10 +403,61 @@ export class MemoryService {
   }
 
   /**
+   * @description 判断当前是否存在 world 相关构建任务。
+   * @returns 若 world 包更新或 world 向量构建正在进行则返回 `true`。
+   */
+  private hasRunningWorldTask(): boolean {
+    return this.getTasks().some(
+      (task) =>
+        task.scope === 'world' && (task.status === 'queued' || task.status === 'running')
+    )
+  }
+
+  /**
+   * @description 构造 story route 的独立状态，供设置页直接展示。
+   * @returns story route 当前状态。
+   */
+  private buildStoryStatus(): WorldKnowledgeRouteStatus {
+    const manifest = this.getManifest(STORY_SCOPE)
+    return buildStoryStatus({
+      enabled: this.settings.worldSearchEnabled,
+      retrievalMode: this.settings.retrievalMode,
+      entries: this.storyEntries,
+      manifest,
+      compatible: this.isKnowledgeScopeCompatible(STORY_SCOPE),
+      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
+      worldBundleError: this.worldBundleError,
+      worldEntryCount: this.getWorldEntryCount(),
+      isBuilding: this.hasRunningWorldTask()
+    })
+  }
+
+  /**
+   * @description 构造 glossary route 的独立状态，供设置页直接展示。
+   * @returns glossary route 当前状态。
+   */
+  private buildGlossaryStatus(): WorldKnowledgeRouteStatus {
+    const manifest = this.getManifest(GLOSSARY_SCOPE)
+    return buildGlossaryStatus({
+      enabled: this.settings.worldSearchEnabled,
+      retrievalMode: this.settings.retrievalMode,
+      entries: this.glossaryEntries,
+      manifest,
+      compatible: this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE),
+      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
+      worldBundleError: this.worldBundleError,
+      worldEntryCount: this.getWorldEntryCount(),
+      isBuilding: this.hasRunningWorldTask()
+    })
+  }
+
+  /**
    * @description 汇总剧情与名词解释两个知识索引，生成兼容旧设置页的 world 状态。
    * @returns world 索引状态快照。
    */
   private buildWorldIndexStatus(): WorldIndexStatus {
+    const storyStatus = this.buildStoryStatus()
+    const glossaryStatus = this.buildGlossaryStatus()
     const storyManifest = this.getManifest(STORY_SCOPE)
     const glossaryManifest = this.getManifest(GLOSSARY_SCOPE)
     const compatibility = this.getWorldCompatibility()
@@ -410,13 +466,13 @@ export class MemoryService {
     return {
       scope: 'world',
       availability,
-      runtimeMode: this.getRuntimeMode(availability),
+      runtimeMode: getIndexRuntimeMode(this.settings.retrievalMode, availability),
       updatedAt: this.worldUpdatedAt,
       entryCount: compatibility.compatible
         ? (storyManifest?.entryCount || 0) + (glossaryManifest?.entryCount || 0)
         : combinedEntryCount,
-      storyEntryCount: this.storyEntries.length,
-      glossaryEntryCount: this.glossaryEntries.length,
+      storyEntryCount: storyStatus.entryCount,
+      glossaryEntryCount: glossaryStatus.entryCount,
       fingerprint: storyManifest ? this.fingerprintFromManifest(storyManifest) : null,
       builtAt: storyManifest?.builtAt || glossaryManifest?.builtAt || null
     }
@@ -445,7 +501,7 @@ export class MemoryService {
       targetCharacterId: resolvedTarget.characterId,
       targetSessionId: resolvedTarget.sessionId,
       availability,
-      runtimeMode: this.getRuntimeMode(availability),
+      runtimeMode: getIndexRuntimeMode(this.settings.retrievalMode, availability),
       entryCount: manifest?.entryCount || this.countMemoryEntries(resolvedTarget),
       indexedCharacterCount: this.countIndexedCharacters(),
       fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
@@ -475,6 +531,8 @@ export class MemoryService {
     return {
       settings: this.settings,
       worldIndex: this.buildWorldIndexStatus(),
+      storyStatus: this.buildStoryStatus(),
+      glossaryStatus: this.buildGlossaryStatus(),
       memoryIndex: this.buildMemoryIndexStatus(selection),
       tasks: this.getTasks(),
       hardware: await this.getHardwareInfo()
@@ -826,7 +884,10 @@ export class MemoryService {
       scope === 'glossary' || scope === 'chat-memory'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
+            runtimeModeUsed: getIndexRuntimeMode(
+              this.settings.retrievalMode,
+              this.buildStoryStatus().indexAvailability
+            ),
             fallbackReason: 'Story retrieval was not requested.'
           }
         : await this.retrieveStoryDebugHits(query)
@@ -834,7 +895,10 @@ export class MemoryService {
       scope === 'story' || scope === 'chat-memory'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
+            runtimeModeUsed: getIndexRuntimeMode(
+              this.settings.retrievalMode,
+              this.buildGlossaryStatus().indexAvailability
+            ),
             fallbackReason: 'Glossary retrieval was not requested.'
           }
         : await this.retrieveGlossaryDebugHits(query)
@@ -842,7 +906,8 @@ export class MemoryService {
       scope === 'story' || scope === 'glossary'
         ? {
             hits: [],
-            runtimeModeUsed: this.getRuntimeMode(
+            runtimeModeUsed: getIndexRuntimeMode(
+              this.settings.retrievalMode,
               this.buildMemoryIndexStatus(
                 session
                   ? {
@@ -1513,28 +1578,31 @@ export class MemoryService {
     scope: MemoryKnowledgeScope,
     manifest: IndexManifestRecord | null
   ): WorldIndexStatus['availability'] {
-    const entries = this.getKnowledgeEntries(scope)
-    if (this.worldBundleError && this.getWorldEntryCount() === 0) {
-      return 'failed'
+    if (scope === STORY_SCOPE) {
+      return getStoryAvailability({
+        enabled: this.settings.worldSearchEnabled,
+        retrievalMode: this.settings.retrievalMode,
+        entries: this.storyEntries,
+        manifest,
+        compatible: this.isKnowledgeScopeCompatible(STORY_SCOPE),
+        fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
+        worldBundleError: this.worldBundleError,
+        worldEntryCount: this.getWorldEntryCount(),
+        isBuilding: this.hasRunningWorldTask()
+      })
     }
 
-    if (this.settings.retrievalMode === 'string') {
-      return entries.length > 0 ? 'ready' : 'missing'
-    }
-
-    if (entries.length === 0) {
-      return 'missing'
-    }
-
-    if (!manifest) {
-      return 'missing'
-    }
-
-    if (manifest.status === 'failed') {
-      return 'failed'
-    }
-
-    return this.isKnowledgeScopeCompatible(scope) ? 'ready' : 'incompatible'
+    return getGlossaryAvailability({
+      enabled: this.settings.worldSearchEnabled,
+      retrievalMode: this.settings.retrievalMode,
+      entries: this.glossaryEntries,
+      manifest,
+      compatible: this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE),
+      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
+      worldBundleError: this.worldBundleError,
+      worldEntryCount: this.getWorldEntryCount(),
+      isBuilding: this.hasRunningWorldTask()
+    })
   }
 
   /**
@@ -1610,16 +1678,6 @@ export class MemoryService {
     return compatibility.compatible ? 'ready' : 'incompatible'
   }
 
-  private getRuntimeMode(
-    availability: WorldIndexStatus['availability'] | CharacterMemoryIndexStatus['availability']
-  ): WorldIndexStatus['runtimeMode'] {
-    if (this.settings.retrievalMode === 'string') {
-      return 'string'
-    }
-
-    return availability === 'ready' ? 'vector' : 'degraded'
-  }
-
   /**
    * @description 按知识 scope 执行调试检索，优先向量，失败时降级到字符串匹配。
    * @param scope 知识范围。
@@ -1633,7 +1691,7 @@ export class MemoryService {
     if (!this.settings.worldSearchEnabled) {
       return {
         hits: [],
-        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
         fallbackReason: 'World retrieval is disabled in the current memory settings.'
       }
     }
@@ -1653,23 +1711,18 @@ export class MemoryService {
               ? this.buildStoryStringHits(query, 'degraded')
               : this.buildGlossaryStringHits(query, 'degraded'),
           runtimeModeUsed: 'degraded',
-          fallbackReason: this.describeVectorFailure(error)
+          fallbackReason: describeVectorFailure(error)
         }
       }
     }
 
+    const degradedRuntimeMode = getIndexRuntimeMode(this.settings.retrievalMode, availability)
     return {
       hits:
         scope === STORY_SCOPE
-          ? this.buildStoryStringHits(
-              query,
-              this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
-            )
-          : this.buildGlossaryStringHits(
-              query,
-              this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
-            ),
-      runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+          ? this.buildStoryStringHits(query, degradedRuntimeMode)
+          : this.buildGlossaryStringHits(query, degradedRuntimeMode),
+      runtimeModeUsed: degradedRuntimeMode,
       fallbackReason:
         this.settings.retrievalMode === 'string'
           ? undefined
@@ -1708,7 +1761,7 @@ export class MemoryService {
     if (!this.settings.memorySearchEnabled) {
       return {
         hits: [],
-        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
         fallbackReason: 'Chat memory retrieval is disabled in the current memory settings.'
       }
     }
@@ -1716,7 +1769,7 @@ export class MemoryService {
     if (!session) {
       return {
         hits: [],
-        runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
         fallbackReason:
           'No matching session was found for the selected character, so chat memory cannot be inspected yet.'
       }
@@ -1738,18 +1791,21 @@ export class MemoryService {
         return {
           hits: this.buildChatMemoryStringHits(query, session, 'degraded'),
           runtimeModeUsed: 'degraded',
-          fallbackReason: this.describeVectorFailure(error)
+          fallbackReason: describeVectorFailure(error)
         }
       }
     }
 
+    const memoryRuntimeMode = getIndexRuntimeMode(
+      this.settings.retrievalMode,
+      this.buildMemoryIndexStatus({
+        characterId: session.characterId,
+        sessionId: session.id
+      }).availability
+    )
     return {
-      hits: this.buildChatMemoryStringHits(
-        query,
-        session,
-        this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
-      ),
-      runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
+      hits: this.buildChatMemoryStringHits(query, session, memoryRuntimeMode),
+      runtimeModeUsed: memoryRuntimeMode,
       fallbackReason:
         this.settings.retrievalMode === 'string'
           ? undefined
@@ -1818,20 +1874,9 @@ export class MemoryService {
     scope: MemoryKnowledgeScope,
     availability: WorldIndexStatus['availability']
   ): string {
-    const scopeLabel = scope === STORY_SCOPE ? 'Story' : 'Glossary'
-    if (availability === 'missing') {
-      return `${scopeLabel} vector index is missing, so the query fell back to keyword matching.`
-    }
-
-    if (availability === 'failed') {
-      return `${scopeLabel} vector index is marked as failed, so the query fell back to keyword matching.`
-    }
-
-    if (availability === 'building') {
-      return `${scopeLabel} vector index is still building, so the query fell back to keyword matching.`
-    }
-
-    return `${scopeLabel} vector retrieval is unavailable, so the query fell back to keyword matching.`
+    return scope === STORY_SCOPE
+      ? getStoryCompatibilityReason(availability)
+      : getGlossaryCompatibilityReason(availability)
   }
 
   private getMemoryCompatibilityReason(
@@ -1917,16 +1962,6 @@ export class MemoryService {
       ...item,
       rank: index + 1
     }))
-  }
-
-  /**
-   * @description 将运行时向量检索异常转换为可展示的降级说明。
-   * @param error 捕获到的异常。
-   * @returns 降级原因文本。
-   */
-  private describeVectorFailure(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error)
-    return `Vector retrieval failed at runtime, so the query fell back to keyword matching. ${message}`
   }
 
   /**

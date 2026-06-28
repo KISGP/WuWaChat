@@ -23,7 +23,7 @@ import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStor
 import { selectActiveProfile, useSettingsStore } from '@renderer/stores/settingsStore'
 import { cn } from '@renderer/utils'
 
-type SystemSectionId = 'prompt' | 'retrieval'
+type SystemSectionId = 'prompt' | 'story' | 'glossary'
 type PromptPreviewViewMode = 'preview' | 'raw'
 
 /**
@@ -94,7 +94,8 @@ function getInitialSelection(
 function createInitialOpenSections(): Record<SystemSectionId, boolean> {
   return {
     prompt: true,
-    retrieval: true
+    story: true,
+    glossary: true
   }
 }
 
@@ -111,18 +112,21 @@ function formatRetrievalHit(hit: ChatPromptPreviewHit): string {
 }
 
 /**
- * @description 根据预览结果提取 system 区域中“检索”区块的展示文本。
+ * @description 根据预览结果提取 system 区域中 story 区块的展示文本。
  * @param result 当前 prompt 预览结果。
- * @returns 检索区块文本；为空时返回 `(empty)`。
+ * @returns story 区块文本；为空时返回 `(empty)`。
  */
-function buildRetrievalPreviewText(result: ChatPromptPreviewResult): string {
-  const retrievalBlocks = [
-    ...result.glossaryContextHits.map(formatRetrievalHit),
-    ...result.storyContextHits.map(formatRetrievalHit),
-    ...result.chatMemoryContextHits.map(formatRetrievalHit)
-  ]
+function buildStoryPreviewText(result: ChatPromptPreviewResult): string {
+  return result.storyContextHits.map(formatRetrievalHit).join('\n\n').trim() || '(empty)'
+}
 
-  return retrievalBlocks.join('\n\n').trim() || '(empty)'
+/**
+ * @description 根据预览结果提取 system 区域中 glossary 区块的展示文本。
+ * @param result 当前 prompt 预览结果。
+ * @returns glossary 区块文本；为空时返回 `(empty)`。
+ */
+function buildGlossaryPreviewText(result: ChatPromptPreviewResult): string {
+  return result.glossaryContextHits.map(formatRetrievalHit).join('\n\n').trim() || '(empty)'
 }
 
 /**
@@ -215,9 +219,14 @@ function SystemPreviewCard({
       content: result.prompt.trim() || '(empty)'
     },
     {
-      id: 'retrieval' as const,
-      title: '检索结果',
-      content: buildRetrievalPreviewText(result)
+      id: 'story' as const,
+      title: '故事',
+      content: buildStoryPreviewText(result)
+    },
+    {
+      id: 'glossary' as const,
+      title: '名词',
+      content: buildGlossaryPreviewText(result)
     }
   ]
 

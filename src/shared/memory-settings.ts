@@ -218,6 +218,17 @@ export type WorldIndexStatus = {
   builtAt?: string | null
 }
 
+export type WorldKnowledgeRouteStatus = {
+  scope: MemoryKnowledgeScope
+  enabled: boolean
+  entryCount: number
+  indexAvailability: IndexAvailability
+  retrievalModeUsed: IndexRuntimeMode
+  builtAt?: string | null
+  fingerprint?: EmbeddingFingerprint | null
+  message?: string
+}
+
 export type CharacterMemoryIndexStatus = {
   scope: 'character-memory'
   characterId?: string | null
@@ -261,6 +272,8 @@ export type MemoryTaskEvent = {
 export type MemoryStatusSnapshot = {
   settings: MemorySettingsStore
   worldIndex: WorldIndexStatus
+  storyStatus: WorldKnowledgeRouteStatus
+  glossaryStatus: WorldKnowledgeRouteStatus
   memoryIndex: CharacterMemoryIndexStatus
   tasks: MemoryTask[]
   hardware: MemoryHardwareInfo
