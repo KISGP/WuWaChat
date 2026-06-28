@@ -3,7 +3,7 @@ import CloseIcon from '@renderer/components/close'
 import { LogTab } from './LogTab'
 import { ModelTab } from './ModelTab'
 import { ToolsTab } from './tools'
-import { Bot, Brain, Wrench, ScrollText, BugPlay, FileCode2, HardDrive } from 'lucide-react'
+import { Bot, Brain, Wrench, ScrollText, FileCode2, HardDrive } from 'lucide-react'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 
@@ -18,7 +18,6 @@ const CharacterTab = lazy(() =>
 const StorageTab = lazy(() =>
   import('./StorageTab').then((module) => ({ default: module.StorageTab }))
 )
-const DebugTab = ENABLE_DEBUG_TAB ? lazy(() => import('./DebugTab')) : null
 const PromptPreviewTab = ENABLE_DEBUG_TAB ? lazy(() => import('./PromptPreviewTab')) : null
 
 const TABS = [
@@ -30,12 +29,8 @@ const TABS = [
   { id: 'tools', label: '工具', icon: Wrench }
 ] as const
 
-const ALL_TABS = DebugTab
-  ? [
-      ...TABS,
-      { id: 'debug', label: 'Debug', icon: BugPlay },
-      { id: 'prompt-preview', label: 'Prompt', icon: FileCode2 }
-    ]
+const ALL_TABS = PromptPreviewTab
+  ? [...TABS, { id: 'prompt-preview', label: 'Prompt', icon: FileCode2 }]
   : TABS
 
 type SettingsTabId = (typeof ALL_TABS)[number]['id']
@@ -87,16 +82,6 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
         )
       case 'log':
         return <LogTab />
-      case 'debug':
-        return DebugTab ? (
-          <Suspense fallback={<TabLoadingFallback />}>
-            <DebugTab />
-          </Suspense>
-        ) : (
-          <div className="flex h-full items-center justify-center rounded border border-white/10 bg-white/3 px-6 py-4 text-sm text-white/60">
-            Debug tools unavailable.
-          </div>
-        )
       case 'prompt-preview':
         return PromptPreviewTab ? (
           <Suspense fallback={<TabLoadingFallback />}>
