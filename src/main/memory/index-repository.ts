@@ -1,9 +1,18 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { MemoryEntry } from '@shared/chat'
-import type { EmbeddingFingerprint, IndexManifestRecord } from '@shared/memory-settings'
+import type {
+  EmbeddingFingerprint,
+  IndexManifestRecord,
+  MemoryKnowledgeScope
+} from '@shared/memory-settings'
 import { getEmbeddingFingerprintKey } from '@main/embedding/fingerprint'
 import { now } from '@main/utils'
 import type { MemorySearchRow } from './internal-types'
+
+const KNOWLEDGE_SCOPE_TO_SOURCE_TYPE: Record<MemoryKnowledgeScope, MemoryEntry['sourceType']> = {
+  story: 'story',
+  glossary: 'glossary'
+}
 
 export class MemoryIndexRepository {
   constructor(private readonly db: DatabaseSync) {}
@@ -12,8 +21,11 @@ export class MemoryIndexRepository {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS world_chunks (
         id TEXT PRIMARY KEY,
+        source_type TEXT NOT NULL DEFAULT 'story',
         source_path TEXT NOT NULL,
         chunk_index INTEGER NOT NULL,
+        term TEXT,
+        references_json TEXT,
         text TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -53,6 +65,8 @@ export class MemoryIndexRepository {
       );
     `)
 
+    this.ensureWorldChunkColumns()
+
     const manifestColumns = this.db.prepare('PRAGMA table_info(index_manifests)').all() as {
       name: string
     }[]
@@ -63,17 +77,25 @@ export class MemoryIndexRepository {
     this.normalizeLegacyManifestRows()
   }
 
-  getWorldVectorRows(fingerprintKey: string): MemorySearchRow[] {
+  getKnowledgeVectorRows(scope: MemoryKnowledgeScope, fingerprintKey: string): MemorySearchRow[] {
+    const sourceType = KNOWLEDGE_SCOPE_TO_SOURCE_TYPE[scope]
     return this.db
       .prepare(
         `
-          SELECT world_chunks.id AS id, world_chunks.text AS text, world_chunks.source_path AS sourcePath, world_embeddings.vector_json AS vectorJson
+          SELECT
+            world_chunks.id AS id,
+            world_chunks.text AS text,
+            world_chunks.source_type AS sourceType,
+            world_chunks.source_path AS sourcePath,
+            world_chunks.term AS term,
+            world_chunks.references_json AS referencesJson,
+            world_embeddings.vector_json AS vectorJson
           FROM world_chunks
           INNER JOIN world_embeddings ON world_embeddings.chunk_id = world_chunks.id
-          WHERE world_embeddings.fingerprint_key = ?
+          WHERE world_embeddings.fingerprint_key = ? AND world_chunks.source_type = ?
         `
       )
-      .all(fingerprintKey) as MemorySearchRow[]
+      .all(fingerprintKey, sourceType) as MemorySearchRow[]
   }
 
   getMemoryVectorRows(
@@ -86,7 +108,13 @@ export class MemoryIndexRepository {
     return this.db
       .prepare(
         `
-          SELECT memory_entries.id AS id, memory_entries.text AS text, memory_entries.session_id AS sessionId, memory_entries.character_id AS characterId, memory_embeddings.vector_json AS vectorJson
+          SELECT
+            memory_entries.id AS id,
+            memory_entries.text AS text,
+            memory_entries.source_type AS sourceType,
+            memory_entries.session_id AS sessionId,
+            memory_entries.character_id AS characterId,
+            memory_embeddings.vector_json AS vectorJson
           FROM memory_entries
           INNER JOIN memory_embeddings ON memory_embeddings.entry_id = memory_entries.id
           WHERE memory_embeddings.fingerprint_key = ? AND ${whereClause}
@@ -95,14 +123,20 @@ export class MemoryIndexRepository {
       .all(fingerprintKey, targetId) as MemorySearchRow[]
   }
 
-  saveWorldVectors(
+  saveKnowledgeVectors(
+    scope: MemoryKnowledgeScope,
     entries: MemoryEntry[],
     vectors: number[][],
     fingerprint: EmbeddingFingerprint
   ): void {
     const key = getEmbeddingFingerprintKey(fingerprint)
+    const sourceType = KNOWLEDGE_SCOPE_TO_SOURCE_TYPE[scope]
     const insertChunk = this.db.prepare(
-      'INSERT OR REPLACE INTO world_chunks (id, source_path, chunk_index, text, updated_at) VALUES (?, ?, ?, ?, ?)'
+      `
+        INSERT OR REPLACE INTO world_chunks
+        (id, source_type, source_path, chunk_index, term, references_json, text, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
     )
     const insertEmbedding = this.db.prepare(
       'INSERT OR REPLACE INTO world_embeddings (chunk_id, vector_json, fingerprint_key, built_at) VALUES (?, ?, ?, ?)'
@@ -110,14 +144,26 @@ export class MemoryIndexRepository {
 
     this.db.exec('BEGIN')
     try {
-      this.db.prepare('DELETE FROM world_embeddings').run()
-      this.db.prepare('DELETE FROM world_chunks').run()
+      this.db
+        .prepare(
+          `
+            DELETE FROM world_embeddings
+            WHERE chunk_id IN (
+              SELECT id FROM world_chunks WHERE source_type = ?
+            )
+          `
+        )
+        .run(sourceType)
+      this.db.prepare('DELETE FROM world_chunks WHERE source_type = ?').run(sourceType)
 
       entries.forEach((entry, index) => {
         insertChunk.run(
           entry.id,
+          sourceType,
           entry.sourcePath || '',
           entry.chunkIndex || 0,
+          entry.term || null,
+          entry.references ? JSON.stringify(entry.references) : null,
           entry.text,
           entry.updatedAt
         )
@@ -125,13 +171,13 @@ export class MemoryIndexRepository {
       })
 
       this.saveManifest({
-        scope: 'world',
+        scope,
         targetId: null,
         fingerprintKey: key,
         status: 'ready',
         entryCount: entries.length,
         builtAt: now(),
-        message: 'World vector index is ready',
+        message: `${scope} vector index is ready`,
         fingerprint
       })
 
@@ -139,7 +185,7 @@ export class MemoryIndexRepository {
     } catch (error) {
       this.db.exec('ROLLBACK')
       this.saveManifest({
-        scope: 'world',
+        scope,
         targetId: null,
         fingerprintKey: key,
         status: 'failed',
@@ -221,7 +267,7 @@ export class MemoryIndexRepository {
   }
 
   getManifest(
-    scope: 'world' | 'character-memory',
+    scope: 'story' | 'glossary' | 'character-memory',
     targetId?: string | null
   ): IndexManifestRecord | null {
     const row = this.db
@@ -265,6 +311,14 @@ export class MemoryIndexRepository {
       .get(manifest.scope, manifest.targetId || null) as { fingerprintJson: string } | undefined
 
     return row ? (JSON.parse(row.fingerprintJson) as EmbeddingFingerprint) : null
+  }
+
+  countKnowledgeEntries(scope: MemoryKnowledgeScope): number {
+    const sourceType = KNOWLEDGE_SCOPE_TO_SOURCE_TYPE[scope]
+    const result = this.db
+      .prepare('SELECT COUNT(*) AS count FROM world_chunks WHERE source_type = ?')
+      .get(sourceType) as { count: number }
+    return result.count
   }
 
   countMemoryEntries(characterId: string | null, crossSession: boolean): number {
@@ -312,6 +366,23 @@ export class MemoryIndexRepository {
         input.builtAt || null,
         input.message || null
       )
+  }
+
+  private ensureWorldChunkColumns(): void {
+    const chunkColumns = this.db.prepare('PRAGMA table_info(world_chunks)').all() as {
+      name: string
+    }[]
+    if (!chunkColumns.some((column) => column.name === 'source_type')) {
+      this.db.exec("ALTER TABLE world_chunks ADD COLUMN source_type TEXT NOT NULL DEFAULT 'story'")
+    }
+
+    if (!chunkColumns.some((column) => column.name === 'term')) {
+      this.db.exec('ALTER TABLE world_chunks ADD COLUMN term TEXT')
+    }
+
+    if (!chunkColumns.some((column) => column.name === 'references_json')) {
+      this.db.exec('ALTER TABLE world_chunks ADD COLUMN references_json TEXT')
+    }
   }
 
   private normalizeLegacyManifestRows(): void {

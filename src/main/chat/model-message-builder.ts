@@ -1,5 +1,9 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages'
-import type { ChatPromptPreviewMessage, ConversationMessage } from '@shared/chat'
+import type {
+  ChatPromptPreviewHit,
+  ChatPromptPreviewMessage,
+  ConversationMessage
+} from '@shared/chat'
 import { ASSISTANT_MESSAGE_FORMAT_INSTRUCTION } from './assistant-message-splitter'
 import { contentToText } from './message-content'
 
@@ -36,6 +40,18 @@ export function buildSystemPromptText(prompt: string, retrievalContext: string[]
   systemSections.push(ASSISTANT_MESSAGE_FORMAT_INSTRUCTION)
 
   return systemSections.filter(Boolean).join('\n\n')
+}
+
+/**
+ * @description 将检索命中转换为带来源标签的上下文文本，便于模型区分术语、剧情与聊天记忆。
+ * @param hit 单条检索命中。
+ * @returns 可直接拼入 system prompt 的上下文文本。
+ */
+export function formatRetrievalContextHit(hit: ChatPromptPreviewHit): string {
+  const scopeLabel =
+    hit.scope === 'glossary' ? 'Glossary' : hit.scope === 'story' ? 'Story' : 'Chat Memory'
+  const locationLabel = hit.term ? ` (${hit.term})` : hit.sourcePath ? ` (${hit.sourcePath})` : ''
+  return `[${scopeLabel}${locationLabel}]\n${hit.text}`
 }
 
 /**

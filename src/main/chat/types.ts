@@ -14,15 +14,20 @@ export type ChatRuntimeDependencies = {
 }
 
 export type PromptContextPreview = {
-  worldHits: MemoryDebugRetrievalHit[]
-  memoryHits: MemoryDebugRetrievalHit[]
+  storyHits: MemoryDebugRetrievalHit[]
+  glossaryHits: MemoryDebugRetrievalHit[]
+  chatMemoryHits: MemoryDebugRetrievalHit[]
   runtimeSummary: MemoryDebugRuntimeSummary
 }
 
 export type ChatContextProvider = {
   getRecentMessageCount: () => number
-  retrieveWorldContext: (query: string) => Promise<string[]>
-  retrieveMemoryContext: (query: string, session: ConversationSession) => Promise<string[]>
+  retrieveStoryContext: (query: string) => Promise<MemoryDebugRetrievalHit[]>
+  retrieveGlossaryContext: (query: string) => Promise<MemoryDebugRetrievalHit[]>
+  retrieveChatMemoryContext: (
+    query: string,
+    session: ConversationSession
+  ) => Promise<MemoryDebugRetrievalHit[]>
   previewPromptContext: (
     query: string,
     session: ConversationSession | null

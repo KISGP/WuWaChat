@@ -126,7 +126,7 @@ export type EmbeddingConnectionTestResult = {
 }
 
 export type IndexManifestRecord = {
-  scope: 'world' | 'character-memory'
+  scope: 'story' | 'glossary' | 'character-memory'
   targetId?: string | null
   fingerprintKey: string
   status: IndexAvailability
@@ -149,22 +149,28 @@ export type IndexAvailability = 'missing' | 'ready' | 'building' | 'incompatible
 
 export type IndexRuntimeMode = 'string' | 'vector' | 'degraded'
 
-export type MemoryDebugScope = 'world' | 'character-memory' | 'all'
+export type MemoryKnowledgeScope = 'story' | 'glossary'
+
+export type MemoryRuntimeScope = MemoryKnowledgeScope | 'chat-memory'
+
+export type MemoryDebugScope = MemoryRuntimeScope | 'all'
 
 export type MemoryDebugRetrievalHit = {
   id: string
-  scope: 'world' | 'character-memory'
+  scope: MemoryRuntimeScope
   text: string
   score: number
   rank: number
   retrievalModeUsed: IndexRuntimeMode
+  sourceType?: 'story' | 'glossary' | 'chat' | 'summary'
   sourcePath?: string | null
   sessionId?: string | null
   characterId?: string | null
+  term?: string | null
 }
 
 export type MemoryDebugRuntimeDetail = {
-  scope: 'world' | 'character-memory'
+  scope: MemoryRuntimeScope
   enabled: boolean
   indexAvailability: IndexAvailability
   retrievalModeUsed: IndexRuntimeMode
@@ -176,8 +182,9 @@ export type MemoryDebugRuntimeDetail = {
 
 export type MemoryDebugRuntimeSummary = {
   requestedMode: MemoryRetrievalMode
-  world: MemoryDebugRuntimeDetail
-  memory: MemoryDebugRuntimeDetail
+  story: MemoryDebugRuntimeDetail
+  glossary: MemoryDebugRuntimeDetail
+  chatMemory: MemoryDebugRuntimeDetail
 }
 
 export type MemoryDebugRetrieveRequest = {
@@ -205,6 +212,8 @@ export type WorldIndexStatus = {
   runtimeMode: IndexRuntimeMode
   updatedAt?: string | null
   entryCount: number
+  storyEntryCount?: number
+  glossaryEntryCount?: number
   fingerprint?: EmbeddingFingerprint | null
   builtAt?: string | null
 }

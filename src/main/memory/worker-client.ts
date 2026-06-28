@@ -10,8 +10,8 @@ export class MemoryWorkerClient {
 
   async retrieveWorldVectorHits(
     request: RetrieveWorldVectorRequest
-  ): ReturnType<MemoryWorkerRuntime['retrieveWorldVectorHits']> {
-    return this.runtime.retrieveWorldVectorHits(request)
+  ): ReturnType<MemoryWorkerRuntime['retrieveKnowledgeVectorHits']> {
+    return this.runtime.retrieveKnowledgeVectorHits(request)
   }
 
   async retrieveMemoryVectorHits(

@@ -12,6 +12,7 @@ import type {
   MemoryDebugRetrievalHit,
   MemoryDebugRuntimeDetail,
   MemoryDebugRuntimeSummary,
+  MemoryKnowledgeScope,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
@@ -45,7 +46,7 @@ import type { RetrievalExecution } from './internal-types'
 import { MemoryIndexRepository } from './index-repository'
 import { MemoryWorkerClient } from './worker-client'
 import { RetrievalQueryService } from './retrieval-query-service'
-import { loadWorldMarkdownEntries, walkMarkdownFiles } from './world'
+import { loadWorldKnowledgeEntries, walkMarkdownFiles } from './world'
 import { MemoryWorkerRuntime } from './worker-runtime'
 import { logger } from '@main/logging'
 import { runMonitoredTask } from '@main/observability/monitored-task'
@@ -63,10 +64,12 @@ import {
 
 type LocalEmbeddingModule = typeof import('../embedding/local')
 
-const WORLD_SCOPE = 'world'
+const STORY_SCOPE = 'story'
+const GLOSSARY_SCOPE = 'glossary'
 const MEMORY_SCOPE = 'character-memory'
 const WORLD_BUNDLE_ZIP_URL = 'https://codeload.github.com/KISGP/WuWaChatWorld/zip/refs/heads/main'
 const WORLD_BUNDLE_REPO_URL = 'https://api.github.com/repos/KISGP/WuWaChatWorld'
+const GLOSSARY_REFERENCE_LIMIT = 2
 
 type WorldBundleMetadata = {
   updatedAt: string
@@ -78,8 +81,9 @@ type TaskCancellationState = {
 }
 
 type PromptContextPreviewResult = {
-  worldHits: MemoryDebugRetrievalHit[]
-  memoryHits: MemoryDebugRetrievalHit[]
+  storyHits: MemoryDebugRetrievalHit[]
+  glossaryHits: MemoryDebugRetrievalHit[]
+  chatMemoryHits: MemoryDebugRetrievalHit[]
   runtimeSummary: MemoryDebugRuntimeSummary
 }
 
@@ -99,7 +103,8 @@ class MemoryTaskCancelledError extends Error {
 export class MemoryService {
   private settings = createDefaultMemorySettingsStore()
   private sessions: ConversationSession[] = []
-  private worldEntries: MemoryEntry[] = []
+  private storyEntries: MemoryEntry[] = []
+  private glossaryEntries: MemoryEntry[] = []
   private worldUpdatedAt: string | null = null
   private worldBundleError: string | null = null
   private tasks = new Map<string, MemoryTask>()
@@ -197,13 +202,13 @@ export class MemoryService {
           )
         }
 
-        this.worldEntries = await this.loadWorldEntries()
+        await this.loadWorldEntries()
         this.initialized = true
         void logger.info('memory', 'lazy-init-completed', 'Lazy memory initialization completed', {
           trigger,
           retrievalMode: this.settings.retrievalMode,
           durationMs: Date.now() - startedAt,
-          worldEntryCount: this.worldEntries.length,
+          worldEntryCount: this.getWorldEntryCount(),
           worldUpdatedAt: this.worldUpdatedAt
         })
       })().catch((error) => {
@@ -392,20 +397,28 @@ export class MemoryService {
     return [this.getWorldCompatibility(), this.getMemoryCompatibility(resolvedTarget)]
   }
 
+  /**
+   * @description 汇总剧情与名词解释两个知识索引，生成兼容旧设置页的 world 状态。
+   * @returns world 索引状态快照。
+   */
   private buildWorldIndexStatus(): WorldIndexStatus {
-    const manifest = this.getManifest(WORLD_SCOPE)
+    const storyManifest = this.getManifest(STORY_SCOPE)
+    const glossaryManifest = this.getManifest(GLOSSARY_SCOPE)
     const compatibility = this.getWorldCompatibility()
-    const availability = this.getWorldAvailability(manifest, compatibility)
+    const availability = this.getWorldAvailability(storyManifest, glossaryManifest, compatibility)
+    const combinedEntryCount = this.getWorldEntryCount()
     return {
-      scope: WORLD_SCOPE,
+      scope: 'world',
       availability,
       runtimeMode: this.getRuntimeMode(availability),
       updatedAt: this.worldUpdatedAt,
       entryCount: compatibility.compatible
-        ? manifest?.entryCount || this.worldEntries.length
-        : this.worldEntries.length,
-      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      builtAt: manifest?.builtAt || null
+        ? (storyManifest?.entryCount || 0) + (glossaryManifest?.entryCount || 0)
+        : combinedEntryCount,
+      storyEntryCount: this.storyEntries.length,
+      glossaryEntryCount: this.glossaryEntries.length,
+      fingerprint: storyManifest ? this.fingerprintFromManifest(storyManifest) : null,
+      builtAt: storyManifest?.builtAt || glossaryManifest?.builtAt || null
     }
   }
 
@@ -512,7 +525,7 @@ export class MemoryService {
         if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
           this.worldUpdatedAt = localUpdatedAt
           this.worldBundleError = null
-          this.worldEntries = await this.loadWorldEntries()
+          await this.loadWorldEntries()
           updateTask(taskId, {
             progress: 100,
             message: `World bundle is already up to date (${localUpdatedAt}).`
@@ -535,7 +548,7 @@ export class MemoryService {
           progress: 90,
           message: 'Reloading local world bundle content'
         })
-        this.worldEntries = await this.loadWorldEntries()
+        await this.loadWorldEntries()
         taskControl.throwIfCancelled()
         this.worldBundleError = null
         updateTask(taskId, {
@@ -552,7 +565,7 @@ export class MemoryService {
       const provider = await this.requireVectorEmbeddingProvider()
       taskControl.throwIfCancelled()
       updateTask(taskId, { progress: 10, message: 'Scanning world markdown files' })
-      this.worldEntries = await this.loadWorldEntries()
+      await this.loadWorldEntries()
       taskControl.throwIfCancelled()
       const runtimeMessage = await this.describeEmbeddingRuntime(provider)
       taskControl.throwIfCancelled()
@@ -562,32 +575,30 @@ export class MemoryService {
           ? `Generating world embeddings (${runtimeMessage})`
           : 'Generating world embeddings'
       })
-      const buildResult = await this.workerClient.buildVectorIndex({
-        type: 'build-world-vectors',
-        entries: this.worldEntries,
+      await this.buildKnowledgeScopeVectors(
+        STORY_SCOPE,
+        this.storyEntries,
         provider,
-        createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
-        embedOptions: {
-          abortSignal: taskControl.controller.signal,
-          throwIfAborted: taskControl.throwIfCancelled,
-          onProgress: (progress) => {
-            updateTask(taskId, {
-              progress: this.mapEmbeddingProgress(progress, 25, 70),
-              message: runtimeMessage
-                ? `Generating world embeddings (${runtimeMessage})`
-                : 'Generating world embeddings'
-            })
-          }
-        }
-      })
-      taskControl.throwIfCancelled()
-      updateTask(taskId, { progress: 70, message: 'Writing vectors into local SQLite index' })
-      taskControl.throwIfCancelled()
-      this.saveWorldVectors(
-        this.worldEntries,
-        buildResult.data.vectors,
-        buildResult.data.fingerprint
+        taskId,
+        updateTask,
+        taskControl,
+        runtimeMessage,
+        25,
+        55
       )
+      taskControl.throwIfCancelled()
+      await this.buildKnowledgeScopeVectors(
+        GLOSSARY_SCOPE,
+        this.glossaryEntries,
+        provider,
+        taskId,
+        updateTask,
+        taskControl,
+        runtimeMessage,
+        55,
+        85
+      )
+      taskControl.throwIfCancelled()
       updateTask(taskId, { progress: 100, message: 'World vector index built successfully' })
     })
   }
@@ -738,22 +749,47 @@ export class MemoryService {
     return true
   }
 
-  async retrieveWorldContext(query: string): Promise<string[]> {
+  /**
+   * @description 检索当前 world 剧情上下文。
+   * @param query 用户输入或调试查询。
+   * @returns 剧情检索命中列表。
+   */
+  async retrieveStoryContext(query: string): Promise<MemoryDebugRetrievalHit[]> {
     await this.ensureInitialized('chat-world-retrieval')
-    const result = await this.retrieveWorldDebugHits(query)
-    return result.hits.map((hit) => hit.text)
-  }
-
-  async retrieveMemoryContext(query: string, session: ConversationSession): Promise<string[]> {
-    await this.ensureInitialized('chat-memory-retrieval')
-    const result = await this.retrieveMemoryDebugHits(query, session)
-    return result.hits.map((hit) => hit.text)
+    const result = await this.retrieveStoryDebugHits(query)
+    return result.hits
   }
 
   /**
-   * @description 预览聊天请求将携带的检索上下文，按 world 与角色记忆拆分返回。
+   * @description 检索当前 world 名词解释上下文，并补充命中词条引用的少量嵌套词条。
+   * @param query 用户输入或调试查询。
+   * @returns 名词解释检索命中列表。
+   */
+  async retrieveGlossaryContext(query: string): Promise<MemoryDebugRetrievalHit[]> {
+    await this.ensureInitialized('chat-world-retrieval')
+    const result = await this.retrieveGlossaryDebugHits(query)
+    return result.hits
+  }
+
+  /**
+   * @description 检索指定会话所属目标的聊天记忆上下文。
+   * @param query 用户输入或调试查询。
+   * @param session 当前聊天会话。
+   * @returns 聊天记忆检索命中列表。
+   */
+  async retrieveChatMemoryContext(
+    query: string,
+    session: ConversationSession
+  ): Promise<MemoryDebugRetrievalHit[]> {
+    await this.ensureInitialized('chat-memory-retrieval')
+    const result = await this.retrieveChatMemoryDebugHits(query, session)
+    return result.hits
+  }
+
+  /**
+   * @description 预览聊天请求将携带的检索上下文，按剧情、名词解释与聊天记忆拆分返回。
    * @param query 当前模拟用户输入。
-   * @param session 当前将用于记忆检索的会话；为空时仅返回 world 命中与记忆回退信息。
+   * @param session 当前将用于记忆检索的会话；为空时仅返回剧情与名词命中。
    * @returns 拆分后的检索命中列表与对应运行时摘要。
    */
   async previewPromptContext(
@@ -762,16 +798,21 @@ export class MemoryService {
   ): Promise<PromptContextPreviewResult> {
     await this.ensureInitialized('memory-debug')
     const normalizedQuery = query.trim()
-    const worldResult = await this.retrieveWorldDebugHits(normalizedQuery)
-    const memoryResult = await this.retrieveMemoryDebugHits(normalizedQuery, session)
+    const [storyResult, glossaryResult, chatMemoryResult] = await Promise.all([
+      this.retrieveStoryDebugHits(normalizedQuery),
+      this.retrieveGlossaryDebugHits(normalizedQuery),
+      this.retrieveChatMemoryDebugHits(normalizedQuery, session)
+    ])
 
     return {
-      worldHits: worldResult.hits,
-      memoryHits: memoryResult.hits,
+      storyHits: storyResult.hits,
+      glossaryHits: glossaryResult.hits,
+      chatMemoryHits: chatMemoryResult.hits,
       runtimeSummary: {
         requestedMode: this.settings.retrievalMode,
-        world: this.buildWorldRuntimeSummary(worldResult),
-        memory: this.buildMemoryRuntimeSummary(memoryResult, session)
+        story: this.buildRuntimeSummary(STORY_SCOPE, storyResult),
+        glossary: this.buildRuntimeSummary(GLOSSARY_SCOPE, glossaryResult),
+        chatMemory: this.buildChatMemoryRuntimeSummary(chatMemoryResult, session)
       }
     }
   }
@@ -781,16 +822,24 @@ export class MemoryService {
     const query = request.query.trim()
     const scope = request.scope
     const session = this.resolveDebugSession(request.characterId || null, request.sessionId || null)
-    const worldResult =
-      scope === 'character-memory'
+    const storyResult =
+      scope === 'glossary' || scope === 'chat-memory'
         ? {
             hits: [],
             runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
-            fallbackReason: 'World retrieval was not requested.'
+            fallbackReason: 'Story retrieval was not requested.'
           }
-        : await this.retrieveWorldDebugHits(query)
-    const memoryResult =
-      scope === 'world'
+        : await this.retrieveStoryDebugHits(query)
+    const glossaryResult =
+      scope === 'story' || scope === 'chat-memory'
+        ? {
+            hits: [],
+            runtimeModeUsed: this.getRuntimeMode(this.buildWorldIndexStatus().availability),
+            fallbackReason: 'Glossary retrieval was not requested.'
+          }
+        : await this.retrieveGlossaryDebugHits(query)
+    const chatMemoryResult =
+      scope === 'story' || scope === 'glossary'
         ? {
             hits: [],
             runtimeModeUsed: this.getRuntimeMode(
@@ -803,18 +852,19 @@ export class MemoryService {
                   : null
               ).availability
             ),
-            fallbackReason: 'Character memory retrieval was not requested.'
+            fallbackReason: 'Chat memory retrieval was not requested.'
           }
-        : await this.retrieveMemoryDebugHits(query, session)
+        : await this.retrieveChatMemoryDebugHits(query, session)
 
     return {
       query,
       scope,
-      results: [...worldResult.hits, ...memoryResult.hits],
+      results: [...glossaryResult.hits, ...storyResult.hits, ...chatMemoryResult.hits],
       runtimeSummary: {
         requestedMode: this.settings.retrievalMode,
-        world: this.buildWorldRuntimeSummary(worldResult),
-        memory: this.buildMemoryRuntimeSummary(memoryResult, session)
+        story: this.buildRuntimeSummary(STORY_SCOPE, storyResult),
+        glossary: this.buildRuntimeSummary(GLOSSARY_SCOPE, glossaryResult),
+        chatMemory: this.buildChatMemoryRuntimeSummary(chatMemoryResult, session)
       }
     }
   }
@@ -882,10 +932,16 @@ export class MemoryService {
     }
   }
 
-  private async loadWorldEntries(): Promise<MemoryEntry[]> {
+  /**
+   * @description 从本地 world 目录加载剧情与名词解释条目到内存缓存。
+   * @remarks 该方法只刷新内存条目，不会自动重建 SQLite 向量索引。
+   */
+  private async loadWorldEntries(): Promise<void> {
     const worldRoot = getWorldRoot()
     this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
-    return loadWorldMarkdownEntries(worldRoot)
+    const entries = await loadWorldKnowledgeEntries(worldRoot)
+    this.storyEntries = entries.storyEntries
+    this.glossaryEntries = entries.glossaryEntries
   }
 
   private async ensureWorldBundleReady(): Promise<void> {
@@ -1086,24 +1142,58 @@ export class MemoryService {
     return trimmed || null
   }
 
-  private buildWorldStringHits(
+  /**
+   * @description 使用字符串匹配检索剧情条目。
+   * @param query 查询文本。
+   * @param runtimeModeUsed 本次检索实际采用的运行模式。
+   * @returns 剧情命中列表。
+   */
+  private buildStoryStringHits(
     query: string,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    return this.retrievalQueryService.buildWorldStringHits(
+    return this.retrievalQueryService.buildStoryStringHits(
       query,
-      this.worldEntries,
+      this.storyEntries,
       this.settings.worldTopK,
       runtimeModeUsed
     )
   }
 
-  private buildMemoryStringHits(
+  /**
+   * @description 使用字符串匹配检索名词解释条目，并执行嵌套词条扩展。
+   * @param query 查询文本。
+   * @param runtimeModeUsed 本次检索实际采用的运行模式。
+   * @returns 名词解释命中列表。
+   */
+  private buildGlossaryStringHits(
+    query: string,
+    runtimeModeUsed: WorldIndexStatus['runtimeMode']
+  ): MemoryDebugRetrievalHit[] {
+    return this.expandGlossaryHits(
+      this.retrievalQueryService.buildGlossaryStringHits(
+        query,
+        this.glossaryEntries,
+        this.settings.worldTopK,
+        runtimeModeUsed
+      ),
+      runtimeModeUsed
+    )
+  }
+
+  /**
+   * @description 使用字符串匹配检索指定会话目标的聊天记忆。
+   * @param query 查询文本。
+   * @param session 当前聊天会话。
+   * @param runtimeModeUsed 本次检索实际采用的运行模式。
+   * @returns 聊天记忆命中列表。
+   */
+  private buildChatMemoryStringHits(
     query: string,
     session: ConversationSession,
     runtimeModeUsed: WorldIndexStatus['runtimeMode']
   ): MemoryDebugRetrievalHit[] {
-    return this.retrievalQueryService.buildMemoryStringHits(
+    return this.retrievalQueryService.buildChatMemoryStringHits(
       query,
       this.getMemoryEntriesForSession(session),
       this.settings.memoryTopK,
@@ -1111,25 +1201,43 @@ export class MemoryService {
     )
   }
 
-  private async buildWorldVectorHits(query: string): Promise<MemoryDebugRetrievalHit[]> {
+  /**
+   * @description 使用向量索引检索指定知识 scope 的命中。
+   * @param scope 知识范围，区分剧情与名词解释。
+   * @param query 查询文本。
+   * @returns 对应知识 scope 的向量检索命中列表。
+   */
+  private async buildKnowledgeVectorHits(
+    scope: MemoryKnowledgeScope,
+    query: string
+  ): Promise<MemoryDebugRetrievalHit[]> {
     const provider = await this.requireVectorEmbeddingProvider()
-    const manifest = this.getManifest(WORLD_SCOPE)
+    const manifest = this.getManifest(scope)
     if (!manifest) {
       return []
     }
 
     const response = await this.workerClient.retrieveWorldVectorHits({
-      type: 'retrieve-world-vectors',
+      type: 'retrieve-knowledge-vectors',
+      scope,
       query,
       provider,
-      rows: this.getRepository().getWorldVectorRows(manifest.fingerprintKey),
+      rows: this.getRepository().getKnowledgeVectorRows(scope, manifest.fingerprintKey),
       topK: this.settings.worldTopK
     })
 
-    return response.data
+    return scope === GLOSSARY_SCOPE
+      ? this.expandGlossaryHits(response.data, 'vector')
+      : response.data
   }
 
-  private async buildMemoryVectorHits(
+  /**
+   * @description 使用向量索引检索指定会话目标的聊天记忆命中。
+   * @param query 查询文本。
+   * @param session 当前聊天会话。
+   * @returns 聊天记忆向量检索命中列表。
+   */
+  private async buildChatMemoryVectorHits(
     query: string,
     session: ConversationSession
   ): Promise<MemoryDebugRetrievalHit[]> {
@@ -1194,14 +1302,6 @@ export class MemoryService {
     )
   }
 
-  private saveWorldVectors(
-    entries: MemoryEntry[],
-    vectors: number[][],
-    fingerprint: EmbeddingFingerprint
-  ): void {
-    this.getRepository().saveWorldVectors(entries, vectors, fingerprint)
-  }
-
   private saveCharacterMemoryVectors(
     characterId: string,
     entries: MemoryEntry[],
@@ -1211,8 +1311,94 @@ export class MemoryService {
     this.getRepository().saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
   }
 
+  /**
+   * @description 构建单个知识 scope 的向量索引，并将结果写入本地 SQLite。
+   * @param scope 当前构建的知识范围。
+   * @param entries 待构建的条目列表。
+   * @param provider 当前启用的 embedding provider。
+   * @param taskId 当前任务 ID。
+   * @param updateTask 任务进度更新回调。
+   * @param taskControl 任务取消控制器。
+   * @param runtimeMessage embedding 运行时说明。
+   * @param stageStart 当前 scope 在总进度中的起始位置。
+   * @param stageEnd 当前 scope 在总进度中的结束位置。
+   * @returns 当前 scope 生成的 fingerprint。
+   */
+  private async buildKnowledgeScopeVectors(
+    scope: MemoryKnowledgeScope,
+    entries: MemoryEntry[],
+    provider: EmbeddingProvider,
+    taskId: string,
+    updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
+    taskControl: TaskCancellationState,
+    runtimeMessage: string | null,
+    stageStart: number,
+    stageEnd: number
+  ): Promise<EmbeddingFingerprint> {
+    const scopeLabel = scope === STORY_SCOPE ? 'story' : 'glossary'
+    if (entries.length === 0) {
+      const fingerprint = await this.createActiveEmbeddingFingerprint()
+      this.getRepository().saveKnowledgeVectors(scope, [], [], fingerprint)
+      return fingerprint
+    }
+
+    updateTask(taskId, {
+      progress: stageStart,
+      message: runtimeMessage
+        ? `Generating ${scopeLabel} embeddings (${runtimeMessage})`
+        : `Generating ${scopeLabel} embeddings`
+    })
+    const buildResult = await this.workerClient.buildVectorIndex({
+      type: 'build-world-vectors',
+      entries,
+      provider,
+      createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+      embedOptions: {
+        abortSignal: taskControl.controller.signal,
+        throwIfAborted: taskControl.throwIfCancelled,
+        onProgress: (progress) => {
+          updateTask(taskId, {
+            progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
+            message: runtimeMessage
+              ? `Generating ${scopeLabel} embeddings (${runtimeMessage})`
+              : `Generating ${scopeLabel} embeddings`
+          })
+        }
+      }
+    })
+    taskControl.throwIfCancelled()
+    updateTask(taskId, {
+      progress: stageEnd,
+      message: `Writing ${scopeLabel} vectors into local SQLite index`
+    })
+    this.getRepository().saveKnowledgeVectors(
+      scope,
+      entries,
+      buildResult.data.vectors,
+      buildResult.data.fingerprint
+    )
+    return buildResult.data.fingerprint
+  }
+
+  /**
+   * @description 返回指定知识 scope 当前加载到内存中的条目列表。
+   * @param scope 知识范围。
+   * @returns 对应 scope 的条目数组。
+   */
+  private getKnowledgeEntries(scope: MemoryKnowledgeScope): MemoryEntry[] {
+    return scope === STORY_SCOPE ? this.storyEntries : this.glossaryEntries
+  }
+
+  /**
+   * @description 统计当前 world 知识总条目数，包含剧情与名词解释。
+   * @returns 当前内存中的 world 条目总量。
+   */
+  private getWorldEntryCount(): number {
+    return this.storyEntries.length + this.glossaryEntries.length
+  }
+
   private getManifest(
-    scope: 'world' | 'character-memory',
+    scope: MemoryKnowledgeScope | 'character-memory',
     targetId?: string | null
   ): IndexManifestRecord | null {
     return this.getRepository().getManifest(scope, targetId)
@@ -1242,21 +1428,50 @@ export class MemoryService {
     return null
   }
 
-  private getWorldCompatibility(): EmbeddingCompatibilityStatus {
-    const manifest = this.getManifest(WORLD_SCOPE)
+  /**
+   * @description 判断指定知识 scope 的向量索引是否与当前 embedding 配置兼容。
+   * @param scope 知识范围。
+   * @returns 兼容则返回 `true`。
+   */
+  private isKnowledgeScopeCompatible(scope: MemoryKnowledgeScope): boolean {
+    if (this.settings.retrievalMode === 'string') {
+      return true
+    }
+
+    const entries = this.getKnowledgeEntries(scope)
+    if (entries.length === 0) {
+      return true
+    }
+
+    const manifest = this.getManifest(scope)
     const expected = this.getExpectedFingerprint()
     const active = manifest ? this.fingerprintFromManifest(manifest) : null
+    return isSameEmbeddingFingerprint(active, expected)
+  }
+
+  /**
+   * @description 汇总剧情与名词解释索引的 embedding 兼容性。
+   * @returns 兼容旧接口的 world 兼容性状态。
+   */
+  private getWorldCompatibility(): EmbeddingCompatibilityStatus {
+    const storyManifest = this.getManifest(STORY_SCOPE)
+    const glossaryManifest = this.getManifest(GLOSSARY_SCOPE)
+    const expected = this.getExpectedFingerprint()
+    const storyActive = storyManifest ? this.fingerprintFromManifest(storyManifest) : null
+    const glossaryActive = glossaryManifest ? this.fingerprintFromManifest(glossaryManifest) : null
     const compatible =
-      this.settings.retrievalMode === 'string' || isSameEmbeddingFingerprint(active, expected)
+      this.settings.retrievalMode === 'string' ||
+      (this.isKnowledgeScopeCompatible(STORY_SCOPE) &&
+        this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE))
 
     return {
-      scope: WORLD_SCOPE,
+      scope: 'world',
       compatible,
       expectedFingerprint: expected,
-      activeFingerprint: active,
+      activeFingerprint: storyActive || glossaryActive,
       message:
         this.settings.retrievalMode !== 'string' && !compatible
-          ? 'Current world index does not match the active embedding model and needs to be rebuilt.'
+          ? 'Current story/glossary indices do not match the active embedding model and need to be rebuilt.'
           : undefined
     }
   }
@@ -1288,8 +1503,50 @@ export class MemoryService {
     }
   }
 
+  /**
+   * @description 计算单个知识 scope 的索引可用性。
+   * @param scope 知识范围。
+   * @param manifest 该 scope 对应的索引 manifest。
+   * @returns 当前可用性状态。
+   */
+  private getKnowledgeScopeAvailability(
+    scope: MemoryKnowledgeScope,
+    manifest: IndexManifestRecord | null
+  ): WorldIndexStatus['availability'] {
+    const entries = this.getKnowledgeEntries(scope)
+    if (this.worldBundleError && this.getWorldEntryCount() === 0) {
+      return 'failed'
+    }
+
+    if (this.settings.retrievalMode === 'string') {
+      return entries.length > 0 ? 'ready' : 'missing'
+    }
+
+    if (entries.length === 0) {
+      return 'missing'
+    }
+
+    if (!manifest) {
+      return 'missing'
+    }
+
+    if (manifest.status === 'failed') {
+      return 'failed'
+    }
+
+    return this.isKnowledgeScopeCompatible(scope) ? 'ready' : 'incompatible'
+  }
+
+  /**
+   * @description 根据剧情与名词解释的独立状态计算兼容旧 UI 的 world 可用性。
+   * @param storyManifest 剧情索引 manifest。
+   * @param glossaryManifest 名词解释索引 manifest。
+   * @param compatibility world 兼容性聚合结果。
+   * @returns world 级别可用性状态。
+   */
   private getWorldAvailability(
-    manifest: IndexManifestRecord | null,
+    storyManifest: IndexManifestRecord | null,
+    glossaryManifest: IndexManifestRecord | null,
     compatibility: EmbeddingCompatibilityStatus
   ): WorldIndexStatus['availability'] {
     const runningTask = this.getTasks().find(
@@ -1299,20 +1556,28 @@ export class MemoryService {
       return 'building'
     }
 
-    if (this.worldBundleError && this.worldEntries.length === 0) {
+    const storyAvailability = this.getKnowledgeScopeAvailability(STORY_SCOPE, storyManifest)
+    const glossaryAvailability = this.getKnowledgeScopeAvailability(
+      GLOSSARY_SCOPE,
+      glossaryManifest
+    )
+
+    if (storyAvailability === 'failed' || glossaryAvailability === 'failed') {
       return 'failed'
     }
 
     if (this.settings.retrievalMode === 'string') {
-      return this.worldEntries.length > 0 ? 'ready' : 'missing'
+      return this.getWorldEntryCount() > 0 ? 'ready' : 'missing'
     }
 
-    if (!manifest) {
+    const storyNeedsIndex = this.storyEntries.length > 0
+    const glossaryNeedsIndex = this.glossaryEntries.length > 0
+    const anyPopulatedScopeMissing =
+      (storyNeedsIndex && storyAvailability === 'missing') ||
+      (glossaryNeedsIndex && glossaryAvailability === 'missing')
+
+    if (this.getWorldEntryCount() === 0 || anyPopulatedScopeMissing) {
       return 'missing'
-    }
-
-    if (manifest.status === 'failed') {
-      return 'failed'
     }
 
     return compatibility.compatible ? 'ready' : 'incompatible'
@@ -1355,7 +1620,16 @@ export class MemoryService {
     return availability === 'ready' ? 'vector' : 'degraded'
   }
 
-  private async retrieveWorldDebugHits(query: string): Promise<RetrievalExecution> {
+  /**
+   * @description 按知识 scope 执行调试检索，优先向量，失败时降级到字符串匹配。
+   * @param scope 知识范围。
+   * @param query 查询文本。
+   * @returns 检索执行结果与降级原因。
+   */
+  private async retrieveKnowledgeDebugHits(
+    scope: MemoryKnowledgeScope,
+    query: string
+  ): Promise<RetrievalExecution> {
     if (!this.settings.worldSearchEnabled) {
       return {
         hits: [],
@@ -1364,16 +1638,20 @@ export class MemoryService {
       }
     }
 
-    const compatibility = this.getWorldCompatibility()
-    if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
+    const manifest = this.getManifest(scope)
+    const availability = this.getKnowledgeScopeAvailability(scope, manifest)
+    if (this.settings.retrievalMode !== 'string' && availability === 'ready') {
       try {
         return {
-          hits: await this.buildWorldVectorHits(query),
+          hits: await this.buildKnowledgeVectorHits(scope, query),
           runtimeModeUsed: 'vector'
         }
       } catch (error) {
         return {
-          hits: this.buildWorldStringHits(query, 'degraded'),
+          hits:
+            scope === STORY_SCOPE
+              ? this.buildStoryStringHits(query, 'degraded')
+              : this.buildGlossaryStringHits(query, 'degraded'),
           runtimeModeUsed: 'degraded',
           fallbackReason: this.describeVectorFailure(error)
         }
@@ -1381,19 +1659,49 @@ export class MemoryService {
     }
 
     return {
-      hits: this.buildWorldStringHits(
-        query,
-        this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
-      ),
+      hits:
+        scope === STORY_SCOPE
+          ? this.buildStoryStringHits(
+              query,
+              this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
+            )
+          : this.buildGlossaryStringHits(
+              query,
+              this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
+            ),
       runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
       fallbackReason:
         this.settings.retrievalMode === 'string'
           ? undefined
-          : this.getWorldCompatibilityReason(compatibility)
+          : this.getKnowledgeScopeCompatibilityReason(scope, availability)
     }
   }
 
-  private async retrieveMemoryDebugHits(
+  /**
+   * @description 执行剧情调试检索。
+   * @param query 查询文本。
+   * @returns 剧情检索执行结果。
+   */
+  private async retrieveStoryDebugHits(query: string): Promise<RetrievalExecution> {
+    return this.retrieveKnowledgeDebugHits(STORY_SCOPE, query)
+  }
+
+  /**
+   * @description 执行名词解释调试检索。
+   * @param query 查询文本。
+   * @returns 名词解释检索执行结果。
+   */
+  private async retrieveGlossaryDebugHits(query: string): Promise<RetrievalExecution> {
+    return this.retrieveKnowledgeDebugHits(GLOSSARY_SCOPE, query)
+  }
+
+  /**
+   * @description 执行聊天记忆调试检索，缺少会话时返回可解释的空结果。
+   * @param query 查询文本。
+   * @param session 当前会话；为空时无法检索聊天记忆。
+   * @returns 聊天记忆检索执行结果。
+   */
+  private async retrieveChatMemoryDebugHits(
     query: string,
     session: ConversationSession | null
   ): Promise<RetrievalExecution> {
@@ -1401,7 +1709,7 @@ export class MemoryService {
       return {
         hits: [],
         runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
-        fallbackReason: 'Character memory retrieval is disabled in the current memory settings.'
+        fallbackReason: 'Chat memory retrieval is disabled in the current memory settings.'
       }
     }
 
@@ -1410,7 +1718,7 @@ export class MemoryService {
         hits: [],
         runtimeModeUsed: this.settings.retrievalMode === 'string' ? 'string' : 'degraded',
         fallbackReason:
-          'No matching session was found for the selected character, so character memory cannot be inspected yet.'
+          'No matching session was found for the selected character, so chat memory cannot be inspected yet.'
       }
     }
 
@@ -1423,12 +1731,12 @@ export class MemoryService {
     if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
       try {
         return {
-          hits: await this.buildMemoryVectorHits(query, session),
+          hits: await this.buildChatMemoryVectorHits(query, session),
           runtimeModeUsed: 'vector'
         }
       } catch (error) {
         return {
-          hits: this.buildMemoryStringHits(query, session, 'degraded'),
+          hits: this.buildChatMemoryStringHits(query, session, 'degraded'),
           runtimeModeUsed: 'degraded',
           fallbackReason: this.describeVectorFailure(error)
         }
@@ -1436,7 +1744,7 @@ export class MemoryService {
     }
 
     return {
-      hits: this.buildMemoryStringHits(
+      hits: this.buildChatMemoryStringHits(
         query,
         session,
         this.settings.retrievalMode === 'string' ? 'string' : 'degraded'
@@ -1449,19 +1757,34 @@ export class MemoryService {
     }
   }
 
-  private buildWorldRuntimeSummary(result: RetrievalExecution): MemoryDebugRuntimeDetail {
-    const worldIndex = this.buildWorldIndexStatus()
+  /**
+   * @description 构建单个知识 scope 的调试运行摘要。
+   * @param scope 知识范围。
+   * @param result 检索执行结果。
+   * @returns 调试页可展示的运行摘要。
+   */
+  private buildRuntimeSummary(
+    scope: MemoryKnowledgeScope,
+    result: RetrievalExecution
+  ): MemoryDebugRuntimeDetail {
+    const manifest = this.getManifest(scope)
     return {
-      scope: WORLD_SCOPE,
+      scope,
       enabled: this.settings.worldSearchEnabled,
-      indexAvailability: worldIndex.availability,
+      indexAvailability: this.getKnowledgeScopeAvailability(scope, manifest),
       retrievalModeUsed: result.runtimeModeUsed,
       resultCount: result.hits.length,
       fallbackReason: result.fallbackReason
     }
   }
 
-  private buildMemoryRuntimeSummary(
+  /**
+   * @description 构建聊天记忆检索的调试运行摘要。
+   * @param result 检索执行结果。
+   * @param session 当前调试或预览使用的会话。
+   * @returns 聊天记忆运行摘要。
+   */
+  private buildChatMemoryRuntimeSummary(
     result: RetrievalExecution,
     session: ConversationSession | null
   ): MemoryDebugRuntimeDetail {
@@ -1474,7 +1797,7 @@ export class MemoryService {
         : null
     )
     return {
-      scope: MEMORY_SCOPE,
+      scope: 'chat-memory',
       enabled: this.settings.memorySearchEnabled,
       indexAvailability: memoryIndex.availability,
       retrievalModeUsed: result.runtimeModeUsed,
@@ -1485,24 +1808,30 @@ export class MemoryService {
     }
   }
 
-  private getWorldCompatibilityReason(compatibility: EmbeddingCompatibilityStatus): string {
-    const worldIndex = this.buildWorldIndexStatus()
-    if (worldIndex.availability === 'missing') {
-      return 'World vector index is missing, so the query fell back to keyword matching.'
+  /**
+   * @description 生成知识 scope 从向量检索降级到字符串匹配的原因。
+   * @param scope 知识范围。
+   * @param availability 当前可用性状态。
+   * @returns 面向调试界面的降级说明。
+   */
+  private getKnowledgeScopeCompatibilityReason(
+    scope: MemoryKnowledgeScope,
+    availability: WorldIndexStatus['availability']
+  ): string {
+    const scopeLabel = scope === STORY_SCOPE ? 'Story' : 'Glossary'
+    if (availability === 'missing') {
+      return `${scopeLabel} vector index is missing, so the query fell back to keyword matching.`
     }
 
-    if (worldIndex.availability === 'failed') {
-      return 'World vector index is marked as failed, so the query fell back to keyword matching.'
+    if (availability === 'failed') {
+      return `${scopeLabel} vector index is marked as failed, so the query fell back to keyword matching.`
     }
 
-    if (worldIndex.availability === 'building') {
-      return 'World vector index is still building, so the query fell back to keyword matching.'
+    if (availability === 'building') {
+      return `${scopeLabel} vector index is still building, so the query fell back to keyword matching.`
     }
 
-    return (
-      compatibility.message ||
-      'World vector retrieval is unavailable, so the query fell back to keyword matching.'
-    )
+    return `${scopeLabel} vector retrieval is unavailable, so the query fell back to keyword matching.`
   }
 
   private getMemoryCompatibilityReason(
@@ -1514,23 +1843,87 @@ export class MemoryService {
       sessionId: session.id
     })
     if (memoryIndex.availability === 'missing') {
-      return 'Character memory index is missing, so the query fell back to keyword matching.'
+      return 'Chat memory index is missing, so the query fell back to keyword matching.'
     }
 
     if (memoryIndex.availability === 'failed') {
-      return 'Character memory index is marked as failed, so the query fell back to keyword matching.'
+      return 'Chat memory index is marked as failed, so the query fell back to keyword matching.'
     }
 
     if (memoryIndex.availability === 'building') {
-      return 'Character memory index is still building, so the query fell back to keyword matching.'
+      return 'Chat memory index is still building, so the query fell back to keyword matching.'
     }
 
     return (
       compatibility.message ||
-      'Character memory vector retrieval is unavailable, so the query fell back to keyword matching.'
+      'Chat memory vector retrieval is unavailable, so the query fell back to keyword matching.'
     )
   }
 
+  /**
+   * @description 为已命中的名词解释追加少量被其解释文本引用的嵌套词条。
+   * @param hits 初始名词解释命中。
+   * @param retrievalModeUsed 本次检索实际采用的运行模式。
+   * @returns 已补充引用词条并重新编号的命中列表。
+   */
+  private expandGlossaryHits(
+    hits: MemoryDebugRetrievalHit[],
+    retrievalModeUsed: WorldIndexStatus['runtimeMode']
+  ): MemoryDebugRetrievalHit[] {
+    if (hits.length === 0) {
+      return hits
+    }
+
+    const glossaryEntriesByTerm = new Map(
+      this.glossaryEntries
+        .map((entry) => [entry.term?.trim(), entry] as const)
+        .filter(([term]) => term)
+    )
+    const usedIds = new Set(hits.map((hit) => hit.id))
+    const expanded = [...hits]
+
+    for (const hit of hits) {
+      if (expanded.length >= hits.length + GLOSSARY_REFERENCE_LIMIT) {
+        break
+      }
+
+      const entry = this.glossaryEntries.find((item) => item.id === hit.id)
+      for (const reference of entry?.references || []) {
+        if (expanded.length >= hits.length + GLOSSARY_REFERENCE_LIMIT) {
+          break
+        }
+
+        const linkedEntry = glossaryEntriesByTerm.get(reference)
+        if (!linkedEntry || usedIds.has(linkedEntry.id)) {
+          continue
+        }
+
+        usedIds.add(linkedEntry.id)
+        expanded.push({
+          id: linkedEntry.id,
+          scope: 'glossary',
+          text: linkedEntry.text,
+          score: Math.max(hit.score - 0.001 * expanded.length, 0),
+          rank: expanded.length + 1,
+          retrievalModeUsed,
+          sourceType: linkedEntry.sourceType,
+          sourcePath: linkedEntry.sourcePath || null,
+          term: linkedEntry.term || null
+        })
+      }
+    }
+
+    return expanded.map((item, index) => ({
+      ...item,
+      rank: index + 1
+    }))
+  }
+
+  /**
+   * @description 将运行时向量检索异常转换为可展示的降级说明。
+   * @param error 捕获到的异常。
+   * @returns 降级原因文本。
+   */
   private describeVectorFailure(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error)
     return `Vector retrieval failed at runtime, so the query fell back to keyword matching. ${message}`

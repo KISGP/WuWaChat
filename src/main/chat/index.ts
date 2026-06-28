@@ -27,8 +27,10 @@ const runtime = new ChatRuntime(
   },
   {
     getRecentMessageCount: () => memoryService.getRecentMessageCount(),
-    retrieveWorldContext: (query) => memoryService.retrieveWorldContext(query),
-    retrieveMemoryContext: (query, session) => memoryService.retrieveMemoryContext(query, session),
+    retrieveStoryContext: (query) => memoryService.retrieveStoryContext(query),
+    retrieveGlossaryContext: (query) => memoryService.retrieveGlossaryContext(query),
+    retrieveChatMemoryContext: (query, session) =>
+      memoryService.retrieveChatMemoryContext(query, session),
     previewPromptContext: (query, session) => memoryService.previewPromptContext(query, session),
     syncSessions: (sessions) => memoryService.syncSessions(sessions)
   }

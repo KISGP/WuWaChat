@@ -1,5 +1,6 @@
 import type { MemoryEntry } from '@shared/chat'
 import type {
+  MemoryKnowledgeScope,
   EmbeddingFingerprint,
   MemoryDebugRetrievalHit,
   WorldIndexStatus
@@ -9,9 +10,12 @@ import type { EmbedDocumentsOptions, EmbeddingProvider } from '@main/embedding/t
 export type MemorySearchRow = {
   id: string
   text: string
+  sourceType?: 'story' | 'glossary' | 'chat' | 'summary' | null
   sourcePath?: string | null
   sessionId?: string | null
   characterId?: string | null
+  term?: string | null
+  referencesJson?: string | null
   vectorJson: string
 }
 
@@ -22,7 +26,8 @@ export type RetrievalExecution = {
 }
 
 export type RetrieveWorldVectorRequest = {
-  type: 'retrieve-world-vectors'
+  type: 'retrieve-knowledge-vectors'
+  scope: MemoryKnowledgeScope
   query: string
   provider: EmbeddingProvider
   rows: MemorySearchRow[]

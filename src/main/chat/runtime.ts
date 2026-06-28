@@ -12,7 +12,12 @@ import { logger } from '@main/logging'
 import { SessionStore } from './session-store'
 import { createAiGraph } from './graph-factory'
 import type { GraphStateValue } from './graph-state'
-import { buildSystemPromptText, toLoggableMessages, toModelMessages } from './model-message-builder'
+import {
+  buildSystemPromptText,
+  formatRetrievalContextHit,
+  toLoggableMessages,
+  toModelMessages
+} from './model-message-builder'
 import { handleRunError } from './run-error-handler'
 import { RunEventPublisher } from './run-event-publisher'
 import { RunRegistry } from './run-registry'
@@ -142,8 +147,9 @@ export class ChatRuntime {
     const history = this.buildPreviewHistory(session, userMessage)
     const retrievalPreview = await this.chatContext.previewPromptContext(userMessage, session)
     const retrievalContext = [
-      ...retrievalPreview.worldHits.map((hit) => hit.text),
-      ...retrievalPreview.memoryHits.map((hit) => hit.text)
+      ...retrievalPreview.glossaryHits.map(formatRetrievalContextHit),
+      ...retrievalPreview.storyHits.map(formatRetrievalContextHit),
+      ...retrievalPreview.chatMemoryHits.map(formatRetrievalContextHit)
     ]
     const systemPromptText = buildSystemPromptText(promptDocument.prompt, retrievalContext)
     const messages = toLoggableMessages(
@@ -167,8 +173,11 @@ export class ChatRuntime {
       profileId: profile.id,
       userMessage,
       prompt: promptDocument.prompt,
-      worldContextHits: retrievalPreview.worldHits,
-      memoryContextHits: retrievalPreview.memoryHits,
+      storyContextHits: retrievalPreview.storyHits,
+      glossaryContextHits: retrievalPreview.glossaryHits,
+      chatMemoryContextHits: retrievalPreview.chatMemoryHits,
+      worldContextHits: [...retrievalPreview.glossaryHits, ...retrievalPreview.storyHits],
+      memoryContextHits: retrievalPreview.chatMemoryHits,
       runtimeSummary: retrievalPreview.runtimeSummary,
       systemPromptText,
       messages
@@ -190,12 +199,6 @@ export class ChatRuntime {
     return true
   }
 
-  /**
-   * @description 解析预览请求应使用的会话，优先使用显式 sessionId，否则回退到角色最近会话。
-   * @param sessionId 预览请求携带的会话 ID。
-   * @param characterId 当前角色 ID。
-   * @returns 匹配的会话；若没有可用会话则返回 `null`。
-   */
   /**
    * @description 解析预览请求应使用的会话，仅在显式选择了会话时才返回真实历史。
    * @param sessionId 预览请求携带的会话 ID。

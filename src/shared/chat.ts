@@ -79,11 +79,13 @@ export type ConversationSession = {
 export type MemoryEntry = {
   id: string
   text: string
-  sourceType: 'world' | 'chat' | 'summary'
+  sourceType: 'story' | 'glossary' | 'chat' | 'summary'
   characterId?: string
   sessionId?: string
   sourcePath?: string
   chunkIndex?: number
+  term?: string
+  references?: string[]
   createdAt: string
   updatedAt: string
   visibility?: 'private' | 'shared'
@@ -122,6 +124,9 @@ export type ChatPromptPreviewResult = {
   profileId: string
   userMessage: string
   prompt: string
+  storyContextHits: ChatPromptPreviewHit[]
+  glossaryContextHits: ChatPromptPreviewHit[]
+  chatMemoryContextHits: ChatPromptPreviewHit[]
   worldContextHits: ChatPromptPreviewHit[]
   memoryContextHits: ChatPromptPreviewHit[]
   runtimeSummary: MemoryDebugRuntimeSummary
