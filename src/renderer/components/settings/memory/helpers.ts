@@ -1,36 +1,11 @@
 import type {
   CharacterMemoryIndexStatus,
-  CloudEmbeddingSettings,
   MemoryRetrievalMode,
   MemoryTask,
   WorldIndexStatus
 } from '@shared/memory-settings'
 
 type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
-
-export function getDefaultCloudModel(provider: CloudEmbeddingSettings['provider']): string {
-  if (provider === 'huggingface-inference') {
-    return 'ibm-granite/granite-embedding-97m-multilingual-r2'
-  }
-
-  if (provider === 'volcengine-ark') {
-    return ''
-  }
-
-  return 'text-embedding-3-small'
-}
-
-export function getDefaultCloudBaseUrl(provider: CloudEmbeddingSettings['provider']): string {
-  if (provider === 'openai-compatible') {
-    return 'https://api.openai.com/v1'
-  }
-
-  if (provider === 'volcengine-ark') {
-    return 'https://ark.cn-beijing.volces.com/api/v3'
-  }
-
-  return ''
-}
 
 export function renderStructuredMessage(message: string): string[] {
   return message
@@ -144,8 +119,6 @@ export function getRuntimeModeMeta(runtimeMode?: WorldIndexStatus['runtimeMode']
 
 export function getSelectedEmbeddingModeLabel(mode: MemoryRetrievalMode): string {
   switch (mode) {
-    case 'vector-cloud':
-      return '云端向量检索'
     case 'vector-local':
       return '本地向量检索'
     case 'string':

@@ -1,4 +1,4 @@
-export type MemoryRetrievalMode = 'string' | 'vector-cloud' | 'vector-local'
+export type MemoryRetrievalMode = 'string' | 'vector-local'
 
 export type MemoryScopeMode = 'character-global' | 'session-local'
 
@@ -7,47 +7,6 @@ export type LocalEmbeddingEngine = 'transformers-js'
 export type LocalEmbeddingModelSource = 'builtin'
 
 export type LocalEmbeddingModelStatus = 'not-downloaded' | 'downloading' | 'installed' | 'invalid'
-
-export const HUGGING_FACE_INFERENCE_PROVIDERS = [
-  'auto',
-  'baseten',
-  'black-forest-labs',
-  'cerebras',
-  'clarifai',
-  'cohere',
-  'deepinfra',
-  'fal-ai',
-  'featherless-ai',
-  'fireworks-ai',
-  'groq',
-  'hf-inference',
-  'hyperbolic',
-  'nebius',
-  'novita',
-  'nscale',
-  'nvidia',
-  'openai',
-  'ovhcloud',
-  'publicai',
-  'replicate',
-  'sambanova',
-  'scaleway',
-  'together',
-  'wavespeed',
-  'zai-org'
-] as const
-
-export type HuggingFaceInferenceProvider = (typeof HUGGING_FACE_INFERENCE_PROVIDERS)[number]
-
-export type CloudEmbeddingSettings = {
-  provider: 'openai-compatible' | 'huggingface-inference' | 'volcengine-ark'
-  baseUrl: string
-  apiKey: string
-  model: string
-  inferenceProvider?: HuggingFaceInferenceProvider
-  providerApiKeys?: Partial<Record<CloudEmbeddingSettings['provider'], string>>
-  dimensions?: number | null
-}
 
 export type LocalEmbeddingSettings = {
   engine: LocalEmbeddingEngine
@@ -105,7 +64,6 @@ export type MemorySettingsStore = {
   worldTopK: number
   memoryTopK: number
   summaryTriggerTurns: number
-  cloudEmbedding: CloudEmbeddingSettings
   localEmbedding: LocalEmbeddingSettings
 }
 
@@ -292,15 +250,6 @@ export function createDefaultMemorySettingsStore(): MemorySettingsStore {
     worldTopK: 4,
     memoryTopK: 4,
     summaryTriggerTurns: 12,
-    cloudEmbedding: {
-      provider: 'openai-compatible',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: '',
-      model: 'text-embedding-3-small',
-      inferenceProvider: 'hf-inference',
-      providerApiKeys: {},
-      dimensions: null
-    },
     localEmbedding: {
       engine: 'transformers-js',
       model: 'BAAI/bge-small-zh-v1.5',
@@ -323,17 +272,6 @@ function normalizeInteger(value: unknown, fallback: number, min: number, max: nu
   return Math.max(min, Math.min(max, Math.round(numeric)))
 }
 
-function normalizeHuggingFaceInferenceProvider(value: unknown): HuggingFaceInferenceProvider {
-  if (
-    typeof value === 'string' &&
-    (HUGGING_FACE_INFERENCE_PROVIDERS as readonly string[]).includes(value.trim())
-  ) {
-    return value.trim() as HuggingFaceInferenceProvider
-  }
-
-  return 'hf-inference'
-}
-
 export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStore {
   const defaults = createDefaultMemorySettingsStore()
 
@@ -343,39 +281,7 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
 
   const raw = value as Partial<MemorySettingsStore>
   const retrievalMode: MemoryRetrievalMode =
-    raw.retrievalMode === 'vector-cloud' || raw.retrievalMode === 'vector-local'
-      ? raw.retrievalMode
-      : 'string'
-  const normalizedProvider =
-    raw.cloudEmbedding?.provider === 'huggingface-inference'
-      ? 'huggingface-inference'
-      : raw.cloudEmbedding?.provider === 'volcengine-ark'
-        ? 'volcengine-ark'
-        : 'openai-compatible'
-  const normalizedApiKey =
-    typeof raw.cloudEmbedding?.apiKey === 'string'
-      ? raw.cloudEmbedding.apiKey
-      : defaults.cloudEmbedding.apiKey
-  const normalizedProviderApiKeys =
-    raw.cloudEmbedding?.providerApiKeys && typeof raw.cloudEmbedding.providerApiKeys === 'object'
-      ? {
-          'openai-compatible':
-            typeof raw.cloudEmbedding.providerApiKeys['openai-compatible'] === 'string'
-              ? raw.cloudEmbedding.providerApiKeys['openai-compatible']
-              : '',
-          'huggingface-inference':
-            typeof raw.cloudEmbedding.providerApiKeys['huggingface-inference'] === 'string'
-              ? raw.cloudEmbedding.providerApiKeys['huggingface-inference']
-              : '',
-          'volcengine-ark':
-            typeof raw.cloudEmbedding.providerApiKeys['volcengine-ark'] === 'string'
-              ? raw.cloudEmbedding.providerApiKeys['volcengine-ark']
-              : ''
-        }
-      : {
-          ...defaults.cloudEmbedding.providerApiKeys,
-          [normalizedProvider]: normalizedApiKey
-        }
+    raw.retrievalMode === 'vector-local' ? 'vector-local' : 'string'
 
   return {
     version: MEMORY_SETTINGS_VERSION,
@@ -406,26 +312,6 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
       4,
       100
     ),
-    cloudEmbedding: {
-      provider: normalizedProvider,
-      baseUrl:
-        typeof raw.cloudEmbedding?.baseUrl === 'string'
-          ? raw.cloudEmbedding.baseUrl
-          : defaults.cloudEmbedding.baseUrl,
-      apiKey: normalizedApiKey,
-      model:
-        typeof raw.cloudEmbedding?.model === 'string'
-          ? raw.cloudEmbedding.model
-          : defaults.cloudEmbedding.model,
-      inferenceProvider: normalizeHuggingFaceInferenceProvider(
-        raw.cloudEmbedding?.inferenceProvider
-      ),
-      providerApiKeys: normalizedProviderApiKeys,
-      dimensions:
-        raw.cloudEmbedding?.dimensions == null
-          ? defaults.cloudEmbedding.dimensions
-          : normalizeInteger(raw.cloudEmbedding.dimensions, 0, 1, 8192)
-    },
     localEmbedding: {
       engine: 'transformers-js',
       model:

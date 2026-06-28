@@ -15,13 +15,11 @@ import type { LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type {
   CharacterMemoryIndexStatus,
-  CloudEmbeddingSettings,
   MemoryRetrievalMode,
   MemoryTargetSelection,
   WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
-import { HUGGING_FACE_INFERENCE_PROVIDERS } from '@shared/memory-settings'
 import { useMemorySettingsDraft } from '@renderer/hooks/useMemorySettingsDraft'
 import { useMemoryTabActions } from '@renderer/hooks/useMemoryTabActions'
 import { useMemoryTabLifecycle } from '@renderer/hooks/useMemoryTabLifecycle'
@@ -32,16 +30,11 @@ import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStor
 import { cn } from '@renderer/utils'
 import { CharacterSessionSelect } from '@renderer/components/settings/CharacterSessionSelect'
 import { StatusCard } from '@renderer/components/settings/memory/StatusCard'
-import {
-  CLOUD_PROVIDER_OPTIONS,
-  RETRIEVAL_OPTIONS
-} from '@renderer/components/settings/memory/constants'
+import { RETRIEVAL_OPTIONS } from '@renderer/components/settings/memory/constants'
 import { EmbeddingTestResultBanner } from '@renderer/components/settings/memory/EmbeddingTestResultBanner'
 import {
   formatDateTime,
   getAvailabilityMeta,
-  getDefaultCloudBaseUrl,
-  getDefaultCloudModel,
   getSelectedEmbeddingModeLabel
 } from '@renderer/components/settings/memory/helpers'
 import { LocalModelCard } from '@renderer/components/settings/memory/LocalModelCard'
@@ -330,7 +323,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     autosaveState,
     hasPendingChanges,
     updateDraft,
-    updateCloudEmbedding,
     flushPendingChanges,
     retryAutosave
   } = useMemorySettingsDraft(settings, saveSettings)
@@ -350,11 +342,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const memoryIndexForView = hasMemoryInspectionTarget ? memoryIndex : null
   const compatibilityForView = hasMemoryInspectionTarget ? compatibility : []
   const {
-    providerListOpen,
-    setProviderListOpen,
-    selectedProvider,
-    isHuggingFace,
-    isVolcengineArk,
     vectorModeSelected,
     worldBundleBusy,
     worldVectorBusy,
@@ -389,13 +376,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
     handleCancelTask,
-    handleCloudProviderChange,
     handleDownloadLocalModel,
     handleSelectLocalModel,
     handleRemoveLocalModel
   } = useMemoryTabActions({
     draft,
-    updateCloudEmbedding,
     updateDraft,
     flushPendingChanges,
     selectedCharacterId,
@@ -583,9 +568,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               <div>
                 <h2 className="text-base font-medium text-white/90">向量提供方设置</h2>
                 <p className="mt-1 text-xs text-white/45">
-                  {draft.retrievalMode === 'vector-cloud'
-                    ? '配置远程 embedding 服务，并测试连接状态。'
-                    : '选择、下载并管理本地 Transformers.js embedding 模型。'}
+                  选择、下载并管理本地 Transformers.js embedding 模型。
                 </p>
               </div>
               <button
@@ -598,161 +581,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                 {isTestingEmbedding ? '测试中...' : '测试 embedding'}
               </button>
             </div>
-
-            {draft.retrievalMode === 'vector-cloud' && (
-              <>
-                <div className="mb-3 rounded border border-white/10 bg-black/20">
-                  <button
-                    type="button"
-                    onClick={() => setProviderListOpen((value) => !value)}
-                    className="flex w-full items-center justify-between px-3 py-3 text-left transition-colors hover:bg-white/5"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-white/85">
-                        {selectedProvider.label}
-                      </span>
-                      <span className="block truncate text-xs text-white/45">
-                        {selectedProvider.description}
-                      </span>
-                    </span>
-                    {providerListOpen ? (
-                      <ChevronDown className="size-4 shrink-0 text-white/55" />
-                    ) : (
-                      <ChevronRight className="size-4 shrink-0 text-white/55" />
-                    )}
-                  </button>
-
-                  {providerListOpen && (
-                    <div className="border-t border-white/10 p-2">
-                      <div className="space-y-2">
-                        {CLOUD_PROVIDER_OPTIONS.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              handleCloudProviderChange(option.value)
-                              setProviderListOpen(false)
-                            }}
-                            className={cn(
-                              'block w-full rounded border px-3 py-3 text-left transition-colors',
-                              draft.cloudEmbedding.provider === option.value
-                                ? 'border-[#e8c690]/60 bg-white/10 text-[#e8c690]'
-                                : 'border-white/10 bg-black/20 text-white/70 hover:bg-white/5'
-                            )}
-                          >
-                            <div className="text-sm font-medium">{option.label}</div>
-                            <div className="mt-1 text-xs leading-5 text-white/45">
-                              {option.description}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-xs text-white/55">提供方</span>
-                    <Input value={draft.cloudEmbedding.provider} disabled />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-xs text-white/55">模型</span>
-                    <Input
-                      value={draft.cloudEmbedding.model}
-                      onChange={(event) => updateCloudEmbedding({ model: event.target.value })}
-                      placeholder={getDefaultCloudModel(draft.cloudEmbedding.provider)}
-                    />
-                  </label>
-
-                  {isHuggingFace && (
-                    <label className="col-span-2 flex flex-col gap-1.5">
-                      <span className="text-xs text-white/55">推理提供方</span>
-
-                      <Select
-                        value={draft.cloudEmbedding.inferenceProvider || 'hf-inference'}
-                        onValueChange={(value) =>
-                          updateCloudEmbedding({
-                            inferenceProvider: value as CloudEmbeddingSettings['inferenceProvider']
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-9 w-fit rounded border-white/15 bg-black/35 px-3 text-sm text-white hover:bg-black/45 focus:border-[#e8c690]">
-                          <span data-slot="select-value" className="truncate">
-                            {draft.cloudEmbedding.inferenceProvider}
-                          </span>
-                        </SelectTrigger>
-                        <SelectContent
-                          position="popper"
-                          className="min-w-(--radix-select-trigger-width) rounded border-0"
-                        >
-                          {HUGGING_FACE_INFERENCE_PROVIDERS.map((option) => (
-                            <SelectItem key={option} value={option}>
-                              <div className="flex flex-col">
-                                <span>{option}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </label>
-                  )}
-
-                  {!isHuggingFace && (
-                    <label className="col-span-2 flex flex-col gap-1.5">
-                      <span className="text-xs text-white/55">Base URL</span>
-                      <Input
-                        value={draft.cloudEmbedding.baseUrl}
-                        onChange={(event) => updateCloudEmbedding({ baseUrl: event.target.value })}
-                        placeholder={getDefaultCloudBaseUrl(draft.cloudEmbedding.provider)}
-                      />
-                    </label>
-                  )}
-
-                  <label
-                    className={cn(
-                      'flex flex-col gap-1.5',
-                      (isHuggingFace || isVolcengineArk) && 'col-span-2'
-                    )}
-                  >
-                    <span className="text-xs text-white/55">
-                      {isHuggingFace
-                        ? 'Hugging Face Token'
-                        : isVolcengineArk
-                          ? 'Ark API Key'
-                          : 'API Key'}
-                    </span>
-                    <Input
-                      type="password"
-                      value={draft.cloudEmbedding.apiKey}
-                      onChange={(event) => updateCloudEmbedding({ apiKey: event.target.value })}
-                      placeholder={
-                        isHuggingFace ? 'hf_...' : isVolcengineArk ? 'your-ark-api-key' : 'sk-...'
-                      }
-                    />
-                  </label>
-
-                  <label
-                    className={cn(
-                      'flex flex-col gap-1.5',
-                      (isHuggingFace || isVolcengineArk) && 'col-span-2'
-                    )}
-                  >
-                    <span className="text-xs text-white/55">维度</span>
-                    <Input
-                      type="number"
-                      value={draft.cloudEmbedding.dimensions ?? ''}
-                      onChange={(event) =>
-                        updateCloudEmbedding({
-                          dimensions: event.target.value ? Number(event.target.value) : null
-                        })
-                      }
-                      placeholder="除非服务要求固定维度，否则建议留空。"
-                    />
-                  </label>
-                </div>
-              </>
-            )}
 
             {draft.retrievalMode === 'vector-local' && (
               <div className="space-y-4">

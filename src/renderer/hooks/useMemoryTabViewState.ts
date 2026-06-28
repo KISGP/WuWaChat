@@ -7,7 +7,6 @@ import type {
   WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
-import { CLOUD_PROVIDER_OPTIONS } from '@renderer/components/settings/memory/constants'
 import {
   hasRunningMemoryBuildTask,
   hasRunningTask
@@ -24,8 +23,6 @@ type UseMemoryTabViewStateArgs = {
 }
 
 type UseMemoryTabViewStateResult = {
-  providerListOpen: boolean
-  setProviderListOpen: Dispatch<SetStateAction<boolean>>
   worldSearchInfoOpen: boolean
   setWorldSearchInfoOpen: Dispatch<SetStateAction<boolean>>
   memorySearchInfoOpen: boolean
@@ -34,9 +31,6 @@ type UseMemoryTabViewStateResult = {
   setCrossSessionMemoryInfoOpen: Dispatch<SetStateAction<boolean>>
   worldCompatibility?: EmbeddingCompatibilityStatus
   memoryCompatibility?: EmbeddingCompatibilityStatus
-  selectedProvider: (typeof CLOUD_PROVIDER_OPTIONS)[number]
-  isHuggingFace: boolean
-  isVolcengineArk: boolean
   vectorModeSelected: boolean
   worldBundleBusy: boolean
   worldVectorBusy: boolean
@@ -64,18 +58,12 @@ export function useMemoryTabViewState({
   glossaryStatus,
   memoryIndex
 }: UseMemoryTabViewStateArgs): UseMemoryTabViewStateResult {
-  const [providerListOpen, setProviderListOpen] = useState(false)
   const [worldSearchInfoOpen, setWorldSearchInfoOpen] = useState(false)
   const [memorySearchInfoOpen, setMemorySearchInfoOpen] = useState(false)
   const [crossSessionMemoryInfoOpen, setCrossSessionMemoryInfoOpen] = useState(false)
 
   const worldCompatibility = compatibility.find((item) => item.scope === 'world')
   const memoryCompatibility = compatibility.find((item) => item.scope === 'character-memory')
-  const selectedProvider =
-    CLOUD_PROVIDER_OPTIONS.find((item) => item.value === draft.cloudEmbedding.provider) ||
-    CLOUD_PROVIDER_OPTIONS[0]
-  const isHuggingFace = draft.cloudEmbedding.provider === 'huggingface-inference'
-  const isVolcengineArk = draft.cloudEmbedding.provider === 'volcengine-ark'
   const vectorModeSelected = draft.retrievalMode !== 'string'
   const activeWorldBundleTaskId =
     tasks.find(
@@ -172,8 +160,6 @@ export function useMemoryTabViewState({
   )
 
   return {
-    providerListOpen,
-    setProviderListOpen,
     worldSearchInfoOpen,
     setWorldSearchInfoOpen,
     memorySearchInfoOpen,
@@ -182,9 +168,6 @@ export function useMemoryTabViewState({
     setCrossSessionMemoryInfoOpen,
     worldCompatibility,
     memoryCompatibility,
-    selectedProvider,
-    isHuggingFace,
-    isVolcengineArk,
     vectorModeSelected,
     worldBundleBusy,
     worldVectorBusy,

@@ -1,24 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
-import type { CloudEmbeddingSettings, MemorySettingsStore } from '@shared/memory-settings'
+import type { MemorySettingsStore } from '@shared/memory-settings'
 
 const AUTOSAVE_DELAY_MS = 600
 
 export type MemoryAutosaveState = 'idle' | 'saving' | 'saved' | 'error'
-
-function syncProviderApiKey(
-  current: MemorySettingsStore,
-  provider: CloudEmbeddingSettings['provider'],
-  apiKey: string
-): CloudEmbeddingSettings {
-  return {
-    ...current.cloudEmbedding,
-    apiKey,
-    providerApiKeys: {
-      ...(current.cloudEmbedding.providerApiKeys || {}),
-      [provider]: apiKey
-    }
-  }
-}
 
 function stableSerialize(store: MemorySettingsStore): string {
   return JSON.stringify(store)
@@ -41,7 +26,6 @@ export function useMemorySettingsDraft(
   autosaveError: string | null
   hasPendingChanges: boolean
   updateDraft: (patch: Partial<MemorySettingsStore>) => void
-  updateCloudEmbedding: (patch: Partial<CloudEmbeddingSettings>) => void
   flushPendingChanges: () => Promise<void>
   retryAutosave: () => Promise<void>
 } {
@@ -189,29 +173,6 @@ export function useMemorySettingsDraft(
     [applyDraftUpdate]
   )
 
-  const updateCloudEmbedding = useCallback(
-    (patch: Partial<CloudEmbeddingSettings>): void => {
-      applyDraftUpdate((current) => ({
-        ...current,
-        cloudEmbedding:
-          patch.apiKey != null
-            ? {
-                ...syncProviderApiKey(current, current.cloudEmbedding.provider, patch.apiKey),
-                ...patch,
-                providerApiKeys: {
-                  ...(current.cloudEmbedding.providerApiKeys || {}),
-                  [current.cloudEmbedding.provider]: patch.apiKey
-                }
-              }
-            : {
-                ...current.cloudEmbedding,
-                ...patch
-              }
-      }))
-    },
-    [applyDraftUpdate]
-  )
-
   const retryAutosave = useCallback(async (): Promise<void> => {
     setAutosaveError(null)
     setAutosaveState(hasPendingChangesRef.current ? 'idle' : autosaveState)
@@ -225,7 +186,6 @@ export function useMemorySettingsDraft(
     autosaveError,
     hasPendingChanges,
     updateDraft,
-    updateCloudEmbedding,
     flushPendingChanges,
     retryAutosave
   }

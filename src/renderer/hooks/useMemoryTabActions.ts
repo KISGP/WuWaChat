@@ -1,17 +1,8 @@
 import { useCallback, useState } from 'react'
-import type {
-  CloudEmbeddingSettings,
-  MemorySettingsStore,
-  MemoryTask
-} from '@shared/memory-settings'
-import {
-  getDefaultCloudBaseUrl,
-  getDefaultCloudModel
-} from '@renderer/components/settings/memory/helpers'
+import type { MemorySettingsStore, MemoryTask } from '@shared/memory-settings'
 
 type MemoryTabActionDependencies = {
   draft: MemorySettingsStore
-  updateCloudEmbedding: (patch: Partial<CloudEmbeddingSettings>) => void
   updateDraft: (patch: Partial<MemorySettingsStore>) => void
   flushPendingChanges: () => Promise<void>
   selectedCharacterId: string | null
@@ -34,62 +25,12 @@ type BuildLaunchNotice = {
 } | null
 
 /**
- * @description 在切换云端 embedding 提供方时，生成需要同步更新的关联字段补丁。
- * @param draft 当前 memory 设置草稿。
- * @param provider 新选择的云端 embedding 提供方。
- * @returns 与目标提供方匹配的配置补丁。
- */
-function createCloudProviderPatch(
-  draft: MemorySettingsStore,
-  provider: CloudEmbeddingSettings['provider']
-): Partial<CloudEmbeddingSettings> {
-  const previousProvider = draft.cloudEmbedding.provider
-  const previousModel = draft.cloudEmbedding.model.trim()
-  const providerApiKeys = draft.cloudEmbedding.providerApiKeys || {}
-  const nextModel =
-    !previousModel || previousModel === getDefaultCloudModel(previousProvider)
-      ? getDefaultCloudModel(provider)
-      : previousModel
-  const nextApiKey = providerApiKeys[provider] || ''
-  const nextProviderApiKeys = {
-    ...providerApiKeys,
-    [previousProvider]: draft.cloudEmbedding.apiKey,
-    [provider]: nextApiKey
-  }
-
-  if (provider === 'huggingface-inference') {
-    return {
-      provider,
-      baseUrl: '',
-      apiKey: nextApiKey,
-      inferenceProvider: draft.cloudEmbedding.inferenceProvider || 'hf-inference',
-      model: nextModel,
-      providerApiKeys: nextProviderApiKeys,
-      dimensions: draft.cloudEmbedding.dimensions
-    }
-  }
-
-  return {
-    provider,
-    apiKey: nextApiKey,
-    baseUrl:
-      draft.cloudEmbedding.baseUrl.trim() && previousProvider === provider
-        ? draft.cloudEmbedding.baseUrl
-        : getDefaultCloudBaseUrl(provider),
-    model: nextModel,
-    providerApiKeys: nextProviderApiKeys,
-    dimensions: draft.cloudEmbedding.dimensions
-  }
-}
-
-/**
  * @description 封装 Memory 页的异步动作与构建前置处理，统一管理临时状态和失败提示。
  * @param dependencies Memory 页动作依赖。
  * @returns 供界面直接绑定的状态与事件处理函数。
  */
 export function useMemoryTabActions({
   draft,
-  updateCloudEmbedding,
   updateDraft,
   flushPendingChanges,
   selectedCharacterId,
@@ -114,7 +55,6 @@ export function useMemoryTabActions({
   handleStartCharacterMemoryBuild: () => Promise<void>
   handleStartAllMemoryBuild: () => Promise<void>
   handleCancelTask: (taskId: string) => Promise<void>
-  handleCloudProviderChange: (provider: CloudEmbeddingSettings['provider']) => void
   handleDownloadLocalModel: (modelId: string) => Promise<void>
   handleSelectLocalModel: (modelId: string) => Promise<void>
   handleRemoveLocalModel: (modelId: string) => Promise<void>
@@ -206,13 +146,6 @@ export function useMemoryTabActions({
     )
   }, [startAllMemoryBuild, withBuildPreparation])
 
-  const handleCloudProviderChange = useCallback(
-    (provider: CloudEmbeddingSettings['provider']): void => {
-      updateCloudEmbedding(createCloudProviderPatch(draft, provider))
-    },
-    [draft, updateCloudEmbedding]
-  )
-
   const handleDownloadLocalModel = useCallback(
     async (modelId: string): Promise<void> => {
       clearLocalModelUiState(modelId)
@@ -261,7 +194,6 @@ export function useMemoryTabActions({
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
     handleCancelTask,
-    handleCloudProviderChange,
     handleDownloadLocalModel,
     handleSelectLocalModel,
     handleRemoveLocalModel

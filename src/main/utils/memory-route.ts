@@ -11,7 +11,7 @@ import type {
  * @returns 本次运行将使用的检索模式。
  */
 export function getIndexRuntimeMode(
-  retrievalMode: 'string' | 'vector-cloud' | 'vector-local',
+  retrievalMode: 'string' | 'vector-local',
   availability: IndexAvailability | CharacterMemoryIndexStatus['availability']
 ): IndexRuntimeMode {
   if (retrievalMode === 'string') {

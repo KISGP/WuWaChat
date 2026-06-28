@@ -34,14 +34,10 @@ import {
   normalizeMemorySettingsStore
 } from '@shared/memory-settings'
 import {
-  CloudEmbeddingProvider,
-  createCloudEmbeddingFingerprint
-} from '@main/embedding/cloud-provider'
-import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
-import {
   createLocalEmbeddingFingerprint,
   isSameEmbeddingFingerprint
 } from '@main/embedding/fingerprint'
+import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
 import { readMemoryHardwareInfo } from './hardware'
 import type { RetrievalExecution } from './internal-types'
 import { MemoryIndexRepository } from './index-repository'
@@ -1476,10 +1472,6 @@ export class MemoryService {
   }
 
   private getExpectedFingerprint(): EmbeddingFingerprint | null {
-    if (this.settings.retrievalMode === 'vector-cloud') {
-      return createCloudEmbeddingFingerprint(this.settings.cloudEmbedding)
-    }
-
     if (this.settings.retrievalMode === 'vector-local' && this.settings.localEmbedding.modelPath) {
       return createLocalEmbeddingFingerprint({
         id: this.settings.localEmbedding.model,
@@ -2091,10 +2083,6 @@ export class MemoryService {
   }
 
   private async requireVectorEmbeddingProvider(): Promise<EmbeddingProvider> {
-    if (this.settings.retrievalMode === 'vector-cloud') {
-      return new CloudEmbeddingProvider(this.settings.cloudEmbedding)
-    }
-
     if (this.settings.retrievalMode === 'vector-local') {
       const installedModel = await this.requireInstalledLocalModel()
       const { LocalEmbeddingProvider } = await this.getLocalEmbeddingModule()
@@ -2115,10 +2103,6 @@ export class MemoryService {
   private async createActiveEmbeddingFingerprint(
     dimensions?: number
   ): Promise<EmbeddingFingerprint> {
-    if (this.settings.retrievalMode === 'vector-cloud') {
-      return createCloudEmbeddingFingerprint(this.settings.cloudEmbedding, dimensions)
-    }
-
     const installedModel = await this.requireInstalledLocalModel()
     return createLocalEmbeddingFingerprint({
       id: installedModel.id,
