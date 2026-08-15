@@ -3,9 +3,18 @@ import CloseIcon from '@renderer/components/close'
 import { LogTab } from './LogTab'
 import { ModelTab } from './ModelTab'
 import { ToolsTab } from './tools'
-import { Bot, Brain, Wrench, ScrollText, FileCode2, HardDrive } from 'lucide-react'
+import {
+  Bot,
+  Brain,
+  Wrench,
+  ScrollText,
+  FileCode2,
+  HardDrive,
+  SlidersHorizontal
+} from 'lucide-react'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
+import { GeneralTab } from './GeneralTab'
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
 
@@ -21,6 +30,7 @@ const StorageTab = lazy(() =>
 const PromptPreviewTab = ENABLE_DEBUG_TAB ? lazy(() => import('./PromptPreviewTab')) : null
 
 const TABS = [
+  { id: 'general', label: '通用', icon: SlidersHorizontal },
   { id: 'model', label: '模型', icon: Bot },
   { id: 'memory', label: '记忆', icon: Brain },
   { id: 'character', label: '角色', icon: Bot },
@@ -60,6 +70,8 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
 
   const renderActiveTab = (): ReactElement => {
     switch (activeTab) {
+      case 'general':
+        return <GeneralTab />
       case 'model':
         return <ModelTab />
       case 'memory':

@@ -46,6 +46,10 @@ export function getProfilesPath(): string {
   return join(getAppDataRoot(), 'settings.json')
 }
 
+export function getAppSettingsPath(): string {
+  return join(getAppDataRoot(), 'app-settings.json')
+}
+
 export function getSessionsPath(): string {
   return join(getAppDataRoot(), 'sessions.json')
 }

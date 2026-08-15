@@ -16,6 +16,7 @@ import type {
   MemoryTaskEvent
 } from '@shared/memory-settings'
 import type { ProfilesStore } from '@shared/model-settings'
+import type { AppSettings } from '@shared/app-settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest } from '@shared/tools'
 
@@ -65,6 +66,8 @@ const characters = {
 }
 
 const settings = {
+  getAppSettings: () => ipcRenderer.invoke('settings:getAppSettings'),
+  saveAppSettings: (data: AppSettings) => ipcRenderer.invoke('settings:saveAppSettings', data),
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
   saveProfiles: (data: ProfilesStore) => ipcRenderer.invoke('settings:saveProfiles', data),
   testProfile: (profile: ModelProfile) => ipcRenderer.invoke('settings:testProfile', profile)

@@ -9,12 +9,14 @@ import {
 import { useCharacterStore } from '@renderer/stores/characterStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
+import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
 
 /**
  * @description 在渲染进程启动时引导相关 store：加载设置、刷新角色与会话，并订阅运行事件与内存任务事件以保持状态同步。
  */
 export function useRendererStoreBootstrap(): void {
   useEffect(() => {
+    void useAppSettingsStore.getState().hydrate()
     void useSettingsStore.getState().hydrateProfiles()
 
     void useCharacterStore
