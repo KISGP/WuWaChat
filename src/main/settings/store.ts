@@ -1,6 +1,7 @@
 import { safeStorage } from 'electron'
 import { readFile } from 'fs/promises'
 import type { ModelProfile } from '@shared/chat'
+import type { AppSettings } from '@shared/app-settings'
 import type { ProfilesStore } from '@shared/model-settings'
 import {
   type UnifiedSettings,
@@ -16,7 +17,16 @@ type StoredProfile = Omit<ModelProfile, 'apiKey'> & {
   apiKeyStorage?: 'plain' | 'safeStorage'
 }
 
-type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles'> & {
+type StoredTtsSettings = Omit<AppSettings['tts'], 'fishApiKey'> & {
+  fishApiKey?: string
+  encryptedFishApiKey?: string
+  fishApiKeyStorage?: 'plain' | 'safeStorage'
+}
+
+type StoredAppSettings = Omit<AppSettings, 'tts'> & { tts: StoredTtsSettings }
+
+type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles' | 'app'> & {
+  app: StoredAppSettings
   profiles: Omit<ProfilesStore, 'profiles'> & { profiles: StoredProfile[] }
 }
 
@@ -27,24 +37,30 @@ type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles'> & {
  */
 function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
   const storedProfiles = settings.profiles
-  if (!storedProfiles || !Array.isArray(storedProfiles.profiles)) {
-    return normalizeUnifiedSettings(settings)
-  }
 
   return normalizeUnifiedSettings({
     ...settings,
+    app: {
+      ...settings.app,
+      tts: {
+        ...settings.app?.tts,
+        fishApiKey: decryptFishApiKey(settings.app?.tts)
+      }
+    },
     profiles: {
       ...storedProfiles,
-      profiles: storedProfiles.profiles.map((profile) => {
-        if (!profile || typeof profile !== 'object') {
-          return profile
-        }
+      profiles: (Array.isArray(storedProfiles?.profiles) ? storedProfiles.profiles : []).map(
+        (profile) => {
+          if (!profile || typeof profile !== 'object') {
+            return profile
+          }
 
-        return {
-          ...profile,
-          apiKey: decryptApiKey(profile)
+          return {
+            ...profile,
+            apiKey: decryptApiKey(profile)
+          }
         }
-      })
+      )
     }
   })
 }
@@ -55,8 +71,22 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
  * @returns 可安全写入 JSON 文件的统一设置。
  */
 function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
+  const { fishApiKey, ...ttsWithoutApiKey } = settings.app.tts
+  const storedTts: StoredTtsSettings = { ...ttsWithoutApiKey }
+
+  if (fishApiKey) {
+    if (safeStorage.isEncryptionAvailable()) {
+      storedTts.encryptedFishApiKey = safeStorage.encryptString(fishApiKey).toString('base64')
+      storedTts.fishApiKeyStorage = 'safeStorage'
+    } else {
+      storedTts.fishApiKey = fishApiKey
+      storedTts.fishApiKeyStorage = 'plain'
+    }
+  }
+
   return {
     ...settings,
+    app: { ...settings.app, tts: storedTts },
     profiles: {
       ...settings.profiles,
       profiles: settings.profiles.profiles.map((profile) => {
@@ -76,6 +106,32 @@ function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
         return stored
       })
     }
+  }
+}
+
+/**
+ * @description 解密 Fish Audio TTS 的 API Key；解密失败时返回空值以阻止使用无效凭据。
+ * @param settings 持久化格式的 TTS 设置。
+ * @returns 可供运行时使用的 Fish Audio API Key。
+ */
+function decryptFishApiKey(settings: StoredTtsSettings | undefined): string {
+  if (!settings?.encryptedFishApiKey) {
+    return settings?.fishApiKey || ''
+  }
+
+  try {
+    return safeStorage.decryptString(Buffer.from(settings.encryptedFishApiKey, 'base64'))
+  } catch (error) {
+    console.error('Failed to decrypt Fish Audio API key', error)
+    void logger.error(
+      'settings',
+      'decrypt-fish-api-key-failed',
+      'Failed to decrypt Fish Audio API key',
+      {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    )
+    return ''
   }
 }
 

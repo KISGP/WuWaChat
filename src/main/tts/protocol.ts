@@ -8,7 +8,7 @@ import { getTtsAudioRoot } from '@main/utils'
 
 const TTS_AUDIO_SCHEME = 'wuwachat-tts'
 const TTS_AUDIO_HOST = 'audio'
-const TTS_CACHE_FILE_NAME_PATTERN = /^[a-f0-9]{64}\.wav$/u
+const TTS_CACHE_FILE_NAME_PATTERN = /^[a-f0-9]{64}\.(?:mp3|wav)$/u
 
 /**
  * @description 在 Electron ready 事件之前声明 TTS 音频协议所需的 Chromium 权限。

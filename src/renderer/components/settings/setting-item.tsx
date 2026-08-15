@@ -24,13 +24,13 @@ export function SettingItem({ title, description, children }: SettingItemProps):
         <div className="flex size-full items-center justify-between rounded bg-[rgb(4,4,4,0.5)] px-6 py-2">
           {hasDescription ? (
             <CollapsibleTrigger asChild>
-              <h3 className="block h-full min-w-0 flex-1 py-5 text-lg font-medium text-white">
+              <h3 className="block h-full min-w-0 flex-1 py-2 text-lg font-medium text-white">
                 {title}
               </h3>
             </CollapsibleTrigger>
           ) : (
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg font-medium text-white">{title}</h3>
+              <h3 className="text-lg py-2 font-medium text-white">{title}</h3>
             </div>
           )}
 

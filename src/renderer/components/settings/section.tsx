@@ -8,7 +8,7 @@ export function SectionCard({
   children: React.ReactNode
 }): React.ReactElement {
   return (
-    <section className="space-y-2">
+    <section className="space-y-2 mb-2">
       <div className="relative mb-2 overflow-hidden rounded pl-3">
         <img src={SectionBg} className="absolute inset-0 object-cover" />
         <h2 className="text-base font-medium text-white/90">{title}</h2>

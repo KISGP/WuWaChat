@@ -1,6 +1,7 @@
 import {
   type AnimationPreference,
   type AppSettings,
+  type TtsSettings,
   createDefaultAppSettings,
   normalizeAppSettings
 } from '@shared/app-settings'
@@ -15,6 +16,7 @@ type AppSettingsStore = {
   setAnimationPreference: (preference: AnimationPreference) => Promise<void>
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
+  updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
   retrySave: () => Promise<void>
 }
 
@@ -69,6 +71,15 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
     const settings = { ...current, tts: { ...current.tts, enabled } }
     set({ settings })
     trackUiEvent('tts-enabled-changed', 'User changed local TTS enabled state', { enabled })
+    await saveSettings(settings, set)
+  },
+  updateTtsSettings: async (patch) => {
+    const current = get().settings
+    const settings = { ...current, tts: { ...current.tts, ...patch } }
+    set({ settings })
+    trackUiEvent('tts-settings-changed', 'User changed TTS provider settings', {
+      provider: settings.tts.provider
+    })
     await saveSettings(settings, set)
   },
   retrySave: async () => saveSettings(get().settings, set)

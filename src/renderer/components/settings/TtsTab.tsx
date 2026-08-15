@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { Play, Square } from 'lucide-react'
+import { Eye, EyeOff, Play, Square } from 'lucide-react'
 import { SectionCard } from '@renderer/components/settings/section'
 import { SettingItem } from '@renderer/components/settings/setting-item'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
+import { Input } from '@renderer/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/components/ui/select'
 
-const DEFAULT_TEST_TEXT = '你好，这是本地语音测试。'
+const DEFAULT_TEST_TEXT = '你好，这是语音测试。'
 
 /**
- * @description 渲染本地 TTS 开关和文本合成测试功能。
+ * @description 渲染 TTS provider 配置、开关和文本合成测试功能。
  * @returns TTS 设置页内容。
  */
 export function TtsTab(): ReactElement {
   const ttsEnabled = useAppSettingsStore((state) => state.settings.tts.enabled)
+  const ttsSettings = useAppSettingsStore((state) => state.settings.tts)
   const setTtsEnabled = useAppSettingsStore((state) => state.setTtsEnabled)
+  const updateTtsSettings = useAppSettingsStore((state) => state.updateTtsSettings)
   const [text, setText] = useState(DEFAULT_TEST_TEXT)
   const [phase, setPhase] = useState<'idle' | 'synthesizing' | 'playing'>('idle')
   const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
 
   /**
    * @description 停止当前音频播放并释放音频引用。
@@ -101,7 +106,7 @@ export function TtsTab(): ReactElement {
         if (requestIdRef.current !== requestId) return
         requestIdRef.current = null
         setPhase('idle')
-        setError('语音生成失败，请检查本地 TTS 环境。')
+        setError('语音生成失败，请检查语音服务配置。')
         console.error('Failed to synthesize TTS test audio', reason)
       })
   }, [stopSpeech, text])
@@ -110,24 +115,105 @@ export function TtsTab(): ReactElement {
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5">
-      <SectionCard title="本地语音">
-        <SettingItem
-          title="启用本地语音"
-          description="启用后，已完成的角色消息会显示语音播放按钮。"
-        >
+      <SectionCard title="语音播放">
+        <SettingItem title="启用语音" description="启用后，已完成的角色消息会显示语音播放按钮。">
           <button
             type="button"
             role="switch"
-            aria-label="启用本地语音"
+            aria-label="启用语音"
             aria-checked={ttsEnabled}
             onClick={() => void setTtsEnabled(!ttsEnabled)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${ttsEnabled ? 'bg-[#e8c690]' : 'bg-white/15'}`}
+            className={`relative h-6 w-11 shrink-0 appearance-none rounded-full border-0 p-0 transition-colors ${ttsEnabled ? 'bg-[#e8c690]' : 'bg-white/15'}`}
           >
             <span
-              className={`absolute top-1 size-4 rounded-full bg-white transition-transform ${ttsEnabled ? 'translate-x-6' : 'translate-x-1'}`}
+              className={`absolute top-1 left-1 size-4 rounded-full bg-white transition-transform ${ttsEnabled ? 'translate-x-5' : 'translate-x-0'}`}
             />
           </button>
         </SettingItem>
+      </SectionCard>
+      <SectionCard title="语音服务">
+        <div className="space-y-3 rounded border-2 border-[rgb(51,51,51)] bg-black/50 p-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-white/55">Provider</span>
+            <Select
+              value={ttsSettings.provider}
+              onValueChange={(value) =>
+                void updateTtsSettings({ provider: value === 'fish' ? 'fish' : 'local' })
+              }
+            >
+              <SelectTrigger className="h-10 w-full rounded border-white/15 bg-black/35 px-3 text-sm text-white hover:bg-black/45 focus:border-[#e8c690]">
+                <span data-slot="select-value">
+                  {ttsSettings.provider === 'fish' ? 'Fish Audio' : '本地推理'}
+                </span>
+              </SelectTrigger>
+              <SelectContent
+                position="popper"
+                className="min-w-(--radix-select-trigger-width) rounded border-0"
+              >
+                <SelectItem value="local">本地推理</SelectItem>
+                <SelectItem value="fish">Fish Audio</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          {ttsSettings.provider === 'fish' ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-white/55">Fish Audio API Key</span>
+                <span className="relative">
+                  <Input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={ttsSettings.fishApiKey}
+                    onChange={(event) =>
+                      void updateTtsSettings({ fishApiKey: event.currentTarget.value })
+                    }
+                    className="w-full pr-10"
+                    placeholder="输入 API Key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((value) => !value)}
+                    className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center text-white/45 hover:text-white/80"
+                    title={showApiKey ? '隐藏 API Key' : '显示 API Key'}
+                  >
+                    {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </span>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-white/55">音色 ID</span>
+                <Input
+                  value={ttsSettings.fishReferenceId}
+                  onChange={(event) =>
+                    void updateTtsSettings({ fishReferenceId: event.currentTarget.value })
+                  }
+                  placeholder="Fish Audio reference_id"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-white/55">模型</span>
+                <Select
+                  value={ttsSettings.fishModel}
+                  onValueChange={(value) => void updateTtsSettings({ fishModel: value })}
+                >
+                  <SelectTrigger className="h-10 w-full rounded border-white/15 bg-black/35 px-3 text-sm text-white hover:bg-black/45 focus:border-[#e8c690]">
+                    <span data-slot="select-value">{ttsSettings.fishModel}</span>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    className="min-w-(--radix-select-trigger-width) rounded border-0"
+                  >
+                    <SelectItem value="s2.1-pro-free">s2.1-pro-free</SelectItem>
+                    <SelectItem value="s2.1-pro">s2.1-pro</SelectItem>
+                    <SelectItem value="s2-pro">s2-pro</SelectItem>
+                    <SelectItem value="s1">s1</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+          ) : (
+            <p className="text-sm text-white/55">使用当前已安装的本地 TTS 运行时和默认音色。</p>
+          )}
+        </div>
       </SectionCard>
       <SectionCard title="测试输出">
         <div className="space-y-3 rounded border-2 border-[rgb(51,51,51)] bg-black/50 p-4">

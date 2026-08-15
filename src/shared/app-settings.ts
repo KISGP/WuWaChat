@@ -2,9 +2,19 @@ export const MIN_MESSAGE_COLLAPSE_LINE_COUNT = 1
 export const MAX_MESSAGE_COLLAPSE_LINE_COUNT = 20
 export const DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT = 5
 export const DEFAULT_TTS_MODEL_ID = 'gpt-sovits-v2proplus'
+export const DEFAULT_FISH_TTS_MODEL = 's2.1-pro-free'
 
 export type AnimationPreference = 'system' | 'enabled' | 'disabled'
-export type TtsSettings = { enabled: boolean; modelId: string }
+export type TtsProvider = 'local' | 'fish'
+
+export type TtsSettings = {
+  enabled: boolean
+  provider: TtsProvider
+  modelId: string
+  fishApiKey: string
+  fishReferenceId: string
+  fishModel: string
+}
 
 export type AppSettings = {
   animationPreference: AnimationPreference
@@ -20,7 +30,14 @@ export function createDefaultAppSettings(): AppSettings {
   return {
     animationPreference: 'system',
     messageCollapseLineCount: DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT,
-    tts: { enabled: false, modelId: DEFAULT_TTS_MODEL_ID }
+    tts: {
+      enabled: false,
+      provider: 'local',
+      modelId: DEFAULT_TTS_MODEL_ID,
+      fishApiKey: '',
+      fishReferenceId: '',
+      fishModel: DEFAULT_FISH_TTS_MODEL
+    }
   }
 }
 
@@ -56,7 +73,12 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     messageCollapseLineCount,
     tts: {
       enabled: rawTts?.enabled === true,
-      modelId: rawTts?.modelId?.trim() || DEFAULT_TTS_MODEL_ID
+      provider: rawTts?.provider === 'fish' ? 'fish' : 'local',
+      modelId: rawTts?.modelId?.trim() || DEFAULT_TTS_MODEL_ID,
+      fishApiKey: typeof rawTts?.fishApiKey === 'string' ? rawTts.fishApiKey.trim() : '',
+      fishReferenceId:
+        typeof rawTts?.fishReferenceId === 'string' ? rawTts.fishReferenceId.trim() : '',
+      fishModel: rawTts?.fishModel?.trim() || DEFAULT_FISH_TTS_MODEL
     }
   }
 }

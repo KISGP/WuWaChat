@@ -21,6 +21,7 @@ type LogInput = {
 
 const SENSITIVE_KEYS = new Set([
   'apiKey',
+  'fishApiKey',
   'apikey',
   'authorization',
   'Authorization',
@@ -31,7 +32,8 @@ const SENSITIVE_KEYS = new Set([
   'vector',
   'vectors',
   'vectorJson',
-  'encryptedApiKey'
+  'encryptedApiKey',
+  'encryptedFishApiKey'
 ])
 
 const FULL_TEXT_LOG_KEYS = new Set([
