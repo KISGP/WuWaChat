@@ -19,6 +19,7 @@ import type { ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest } from '@shared/tools'
+import type { TtsSynthesisRequest } from '@shared/tts'
 
 const ENABLE_DEV_TOOLS = import.meta.env.DEV
 
@@ -128,6 +129,13 @@ const tools = {
   getGachaUrl: (request?: GachaUrlRequest) => ipcRenderer.invoke('tools:getGachaUrl', request)
 }
 
+const tts = {
+  /** @description 请求主进程使用固定本地音色生成消息语音。 */
+  synthesize: (request: TtsSynthesisRequest) => ipcRenderer.invoke('tts:synthesize', request),
+  /** @description 请求主进程停止指定的正在生成语音。 */
+  cancel: (requestId: string) => ipcRenderer.invoke('tts:cancel', requestId)
+}
+
 const exposedApis = {
   electron: electronAPI,
   api,
@@ -137,7 +145,8 @@ const exposedApis = {
   memory,
   logs,
   storage,
-  tools
+  tools,
+  tts
 }
 
 if (process.contextIsolated) {

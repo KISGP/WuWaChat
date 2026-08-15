@@ -32,6 +32,7 @@ import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/m
 import type { AppSettings } from '@shared/app-settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
+import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
 
 declare global {
   interface Window {
@@ -103,6 +104,10 @@ declare global {
     }
     tools: {
       getGachaUrl: (request?: GachaUrlRequest) => Promise<GachaUrlResult>
+    }
+    tts: {
+      synthesize: (request: TtsSynthesisRequest) => Promise<TtsSynthesisResult>
+      cancel: (requestId: string) => Promise<boolean>
     }
   }
 }

@@ -7,6 +7,7 @@ import { registerIpc } from '@main/ipc'
 import { logger } from '@main/logging'
 import { createMainWindow } from '@main/app/window'
 import { captureError } from '@main/observability/error-monitor'
+import { registerTtsAudioProtocol, registerTtsAudioScheme } from '@main/tts/protocol'
 
 function registerProcessErrorHandlers(): void {
   process.on('uncaughtException', (error) => {
@@ -31,9 +32,11 @@ function registerProcessErrorHandlers(): void {
 }
 
 registerProcessErrorHandlers()
+registerTtsAudioScheme()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
+  registerTtsAudioProtocol()
   void bootstrapAppData()
     .then(() => {
       void logger.info('main', 'app-ready', 'Electron app is ready')

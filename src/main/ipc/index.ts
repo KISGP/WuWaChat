@@ -5,6 +5,7 @@ import { registerMemoryIpc } from './memory'
 import { registerSettingsIpc } from './settings'
 import { registerStorageIpc } from './storage'
 import { registerToolsIpc } from './tools'
+import { registerTtsIpc } from './tts'
 import { registerWindowIpc } from './window'
 
 export function registerIpc(): void {
@@ -16,4 +17,5 @@ export function registerIpc(): void {
   registerLogIpc()
   registerStorageIpc()
   registerToolsIpc()
+  registerTtsIpc()
 }
