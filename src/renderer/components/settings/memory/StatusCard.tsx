@@ -41,7 +41,7 @@ export function StatusCard({
       : null
 
   return (
-    <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-3">
+    <div className="rounded border border-white/10 bg-black/20 p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-white/85">
           <Database className="size-4 text-[#e8c690]" />
@@ -64,7 +64,7 @@ export function StatusCard({
         <InfoPill label="最近构建" value={formatDateTime(index?.builtAt)} />
       </div>
 
-      <div className="mt-3 rounded border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/55">
+      <div className="mt-3 rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/55">
         <div>向量模型：{index?.fingerprint?.model || '尚未生成'}</div>
         {!index?.fingerprint?.model && <div className="mt-1">{derivedEmptyHint}</div>}
       </div>

@@ -2,6 +2,7 @@ import type {
   CharacterMemoryIndexStatus,
   MemoryRetrievalMode,
   MemoryTask,
+  WorldKnowledgeRouteStatus,
   WorldIndexStatus
 } from '@shared/memory-settings'
 
@@ -115,6 +116,30 @@ export function getRuntimeModeMeta(runtimeMode?: WorldIndexStatus['runtimeMode']
         description: '当前使用关键词匹配方式检索内容。'
       }
   }
+}
+
+/**
+ * @description 为世界知识路由生成单条摘要提示，避免在卡片内重复堆叠说明信息。
+ * @param status 当前世界知识路由状态。
+ * @param fallbackTip 当前路由的专属提示文案。
+ * @returns 适合展示在卡片底部的唯一摘要提示。
+ */
+export function getWorldRouteSummaryHint(
+  status: WorldKnowledgeRouteStatus | null,
+  fallbackTip?: string
+): string {
+  if (status?.message?.trim()) {
+    return status.message
+  }
+
+  if (fallbackTip?.trim()) {
+    return fallbackTip
+  }
+
+  const availabilityMeta = getAvailabilityMeta(status?.indexAvailability)
+  const runtimeMeta = getRuntimeModeMeta(status?.retrievalModeUsed)
+
+  return `${availabilityMeta.description}${runtimeMeta.description ? ` ${runtimeMeta.description}` : ''}`
 }
 
 export function getSelectedEmbeddingModeLabel(mode: MemoryRetrievalMode): string {

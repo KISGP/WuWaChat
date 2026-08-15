@@ -114,12 +114,12 @@ export function getStoryCompatibilityReason(availability: IndexAvailability): st
  */
 function buildStoryStatusMessage(enabled: boolean, availability: IndexAvailability): string {
   if (!enabled) {
-    return '故事检索当前已关闭。'
+    return '世界知识检索当前已关闭。'
   }
 
   switch (availability) {
     case 'ready':
-      return '故事检索已就绪，可以参与当前提示词上下文构建。'
+      return ''
     case 'building':
       return '故事向量索引正在构建中，完成前会回退到字符串检索。'
     case 'incompatible':

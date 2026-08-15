@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Database,
   Download,
   LoaderCircle,
   RefreshCw,
@@ -29,15 +30,17 @@ import { useMemoryStore } from '@renderer/stores/memoryStore'
 import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
 import { cn } from '@renderer/utils'
 import { CharacterSessionSelect } from '@renderer/components/settings/CharacterSessionSelect'
-import { StatusCard } from '@renderer/components/settings/memory/StatusCard'
 import { RETRIEVAL_OPTIONS } from '@renderer/components/settings/memory/constants'
 import { EmbeddingTestResultBanner } from '@renderer/components/settings/memory/EmbeddingTestResultBanner'
 import {
   formatDateTime,
   getAvailabilityMeta,
-  getSelectedEmbeddingModeLabel
+  getRuntimeModeMeta,
+  getSelectedEmbeddingModeLabel,
+  getWorldRouteSummaryHint
 } from '@renderer/components/settings/memory/helpers'
 import { LocalModelCard } from '@renderer/components/settings/memory/LocalModelCard'
+import { InfoPill } from '@renderer/components/settings/memory/InfoPill'
 import { TaskPanel } from '@renderer/components/settings/memory/TaskPanel'
 import { SectionCard } from '@renderer/components/settings/section'
 import { SettingItem } from '@renderer/components/settings/setting-item'
@@ -159,35 +162,45 @@ function IndexTipList({ tips }: { tips: string[] }): ReactElement | null {
  */
 function WorldRouteStatusCard({
   title,
-  status
+  status,
+  tip
 }: {
   title: string
   status: RouteStatus
+  tip?: string
 }): ReactElement {
-  const routeIndex = status
-    ? {
-        scope: 'world' as const,
-        availability: status.indexAvailability,
-        runtimeMode: status.retrievalModeUsed,
-        updatedAt: null,
-        entryCount: status.entryCount,
-        fingerprint: status.fingerprint || null,
-        builtAt: status.builtAt || null
-      }
-    : null
+  const availabilityMeta = getAvailabilityMeta(status?.indexAvailability)
+  const runtimeMeta = getRuntimeModeMeta(status?.retrievalModeUsed)
+  const routeHint = getWorldRouteSummaryHint(status, tip)
+  const fingerprintModel = status?.fingerprint?.model || '尚未生成'
+
+  function renderWorldRouteInfo(): ReactElement {
+    return (
+      <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-white/60 xl:grid-cols-5">
+        <InfoPill label="当前运行" value={runtimeMeta.label} />
+        <InfoPill label="条目来源" value={title} />
+        <InfoPill label="索引条目" value={status?.entryCount ?? '-'} />
+        <InfoPill label="最近构建" value={formatDateTime(status?.builtAt)} />
+        <InfoPill label="向量" value={fingerprintModel} />
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
-      <StatusCard
-        title={title}
-        index={routeIndex}
-        metadataLabel="条目来源"
-        metadataValue={title}
-        emptyHint={`${title}索引尚未生成。`}
-      />
-      <div className="rounded border border-white/10 bg-black/25 px-3 py-2 text-xs leading-5 text-white/55">
-        {status?.message || '暂无状态说明。'}
+    <div className="rounded border border-white/10 bg-black/20 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm text-white/85">
+          <Database className="size-4 text-[#e8c690]" />
+          <span>{title}</span>
+        </div>
+        <span className={cn('rounded px-2 py-1 text-[11px]', availabilityMeta.tone)}>
+          {availabilityMeta.label}
+        </span>
       </div>
+
+      {renderWorldRouteInfo()}
+
+      <i className="mt-2 ml-2 block text-xs leading-5 text-white/55">{routeHint}</i>
     </div>
   )
 }
@@ -466,11 +479,8 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const generalIndexTips = operationTipsForView
     .filter((tip) => tip.includes('字符串检索模式'))
     .slice(0, 1)
-  const worldIndexTips = operationTipsForView
-    .filter((tip) => tip.includes('故事') || tip.includes('名词'))
-    .slice(0, 2)
-  const storyIndexTips = operationTipsForView.filter((tip) => tip.includes('故事')).slice(0, 2)
-  const glossaryIndexTips = operationTipsForView.filter((tip) => tip.includes('名词')).slice(0, 2)
+  const storyIndexTips = operationTipsForView.filter((tip) => tip.includes('故事')).slice(0, 1)
+  const glossaryIndexTips = operationTipsForView.filter((tip) => tip.includes('名词')).slice(0, 1)
   const memoryIndexTips = operationTipsForView
     .filter((tip) => !tip.includes('世界知识') && !tip.includes('字符串检索模式'))
     .slice(0, 2)
@@ -749,9 +759,22 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
           <IndexTipList tips={generalIndexTips} />
 
-          <div className="space-y-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <div className="rounded border border-white/10 bg-black/20 p-4">
+              <WorldRouteStatusCard title="故事" status={storyStatus} tip={storyIndexTips[0]} />
+            </div>
+            <div className="rounded border border-white/10 bg-black/20 p-4">
+              <WorldRouteStatusCard
+                title="名词"
+                status={glossaryStatus}
+                tip={glossaryIndexTips[0]}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded border border-white/10 bg-black/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-medium text-white/90">故事与名词</div>
+              <div className="text-sm font-medium text-white/90">世界知识构建</div>
               <IndexStatusLine
                 index={worldIndex}
                 metadataLabel="知识包更新时间"
@@ -759,31 +782,12 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              <div>
-                <WorldRouteStatusCard title="故事" status={storyStatus} />
-                <div className="mt-3">
-                  <IndexTipList tips={storyIndexTips.length > 0 ? storyIndexTips : worldIndexTips} />
-                </div>
-              </div>
-              <div>
-                <WorldRouteStatusCard title="名词" status={glossaryStatus} />
-                <div className="mt-3">
-                  <IndexTipList
-                    tips={glossaryIndexTips.length > 0 ? glossaryIndexTips : worldIndexTips}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/55">
-              下方构建操作会同时作用于故事与名词两部分 world 知识。
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
               <IndexActionButton
                 icon={worldBundleBusy ? XCircle : Download}
-                label={worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新故事/名词知识包'}
+                label={
+                  worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新故事/名词知识包'
+                }
                 highlight={worldBundleBusy || worldRoutesNeedBuild}
                 disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
                 disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
@@ -796,12 +800,13 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
               <IndexActionButton
                 icon={worldVectorPending ? XCircle : RefreshCw}
                 label={
-                  worldVectorPending && activeWorldVectorTaskId
-                    ? '中止构建'
-                    : '构建故事/名词向量'
+                  worldVectorPending && activeWorldVectorTaskId ? '中止构建' : '构建故事/名词向量'
                 }
                 highlight={
-                  worldVectorPending || worldRoutesNeedBuild || storyNeedsBuild || glossaryNeedsBuild
+                  worldVectorPending ||
+                  worldRoutesNeedBuild ||
+                  storyNeedsBuild ||
+                  glossaryNeedsBuild
                 }
                 disabled={
                   (worldVectorPending && !activeWorldVectorTaskId) ||
@@ -823,11 +828,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             </div>
           </div>
 
-          <div className="rounded border border-white/10 bg-[rgb(4,4,4,0.5)] p-4">
+          <div className="rounded border border-white/10 bg-black/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div className="text-sm font-medium text-white/90">角色记忆</div>
-                <span className="rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-white/55">
+                <span className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-white/55">
                   {draft.crossSessionCharacterMemory ? '按角色聚合' : '按会话查看'}
                 </span>
               </div>
