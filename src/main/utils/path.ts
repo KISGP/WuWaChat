@@ -59,20 +59,12 @@ export function getLogsRoot(): string {
   return join(getAppDataRoot(), 'logs')
 }
 
-export function getProfilesPath(): string {
+export function getSettingsPath(): string {
   return join(getAppDataRoot(), 'settings.json')
-}
-
-export function getAppSettingsPath(): string {
-  return join(getAppDataRoot(), 'app-settings.json')
 }
 
 export function getSessionsPath(): string {
   return join(getAppDataRoot(), 'sessions.json')
-}
-
-export function getMemorySettingsPath(): string {
-  return join(getAppDataRoot(), 'memory-settings.json')
 }
 
 export function getMemoryDatabasePath(): string {

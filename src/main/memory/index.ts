@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import AdmZip from 'adm-zip'
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
 import type { ConversationSession, MemoryEntry } from '@shared/chat'
@@ -47,6 +47,7 @@ import { loadWorldKnowledgeEntries, walkMarkdownFiles } from './world'
 import { MemoryWorkerRuntime } from './worker-runtime'
 import { buildGlossaryStatus, getGlossaryAvailability, getGlossaryCompatibilityReason } from './glossary'
 import { logger } from '@main/logging'
+import { getUnifiedSettingsStore } from '@main/settings/store'
 import { runMonitoredTask } from '@main/observability/monitored-task'
 import { buildStoryStatus, getStoryAvailability, getStoryCompatibilityReason } from './story'
 import {
@@ -54,7 +55,6 @@ import {
   getAppDataRoot,
   getIndexRuntimeMode,
   getMemoryDatabasePath,
-  getMemorySettingsPath,
   getWorldMetadataPath,
   getWorldRoot,
   now,
@@ -237,9 +237,7 @@ export class MemoryService {
     await this.ensureSettingsLoaded()
     const previousSettings = this.settings
     this.settings = normalizeMemorySettingsStore(store)
-    await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
-
-    this.settingsLoaded = true
+    await this.persistSettings()
 
     if (this.shouldClearLocalEmbeddingPipelines(previousSettings, this.settings)) {
       await this.clearLocalEmbeddingPipelines()
@@ -292,8 +290,7 @@ export class MemoryService {
               dimensions: installedModel.dimensions
             }
           })
-          await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
-          this.settingsLoaded = true
+          await this.persistSettings()
         }
       },
       modelId
@@ -317,8 +314,7 @@ export class MemoryService {
         dimensions: installedModel.dimensions || this.settings.localEmbedding.dimensions
       }
     })
-    await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
-    this.settingsLoaded = true
+    await this.persistSettings()
     await this.clearLocalEmbeddingPipelines()
     return this.settings
   }
@@ -339,8 +335,7 @@ export class MemoryService {
           modelPath: ''
         }
       })
-      await writeJsonFileAtomic(getMemorySettingsPath(), this.settings)
-      this.settingsLoaded = true
+      await this.persistSettings()
     }
 
     await this.clearLocalEmbeddingPipelines()
@@ -972,25 +967,19 @@ export class MemoryService {
   }
 
   private async loadSettings(): Promise<MemorySettingsStore> {
-    const filePath = getMemorySettingsPath()
-    if (!(await pathExists(filePath))) {
-      return createDefaultMemorySettingsStore()
-    }
+    return (await getUnifiedSettingsStore().get()).memory
+  }
 
-    try {
-      return normalizeMemorySettingsStore(JSON.parse(await readFile(filePath, 'utf-8')))
-    } catch (error) {
-      void logger.error(
-        'memory',
-        'settings-read-failed',
-        'Failed to read memory settings, using defaults',
-        {
-          filePath,
-          error: error instanceof Error ? error.message : String(error)
-        }
-      )
-      return createDefaultMemorySettingsStore()
-    }
+  /**
+   * @description 将当前记忆设置提交到统一设置存储，并更新服务内存快照。
+   * @remarks 本地 embedding 模型操作也必须通过此方法写入，避免绕过统一写入队列。
+   */
+  private async persistSettings(): Promise<void> {
+    this.settings = await getUnifiedSettingsStore().update(
+      'memory',
+      normalizeMemorySettingsStore(this.settings)
+    )
+    this.settingsLoaded = true
   }
 
   /**

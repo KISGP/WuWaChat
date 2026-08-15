@@ -1,7 +1,6 @@
 import type { ModelProfile, ProviderKind } from './chat'
 
 export type ProfilesStore = {
-  version: 1
   activeProfileId: string
   profiles: ModelProfile[]
 }
@@ -13,7 +12,6 @@ export type OpenAIProfileConnectionTestResult = {
   latencyMs?: number
 }
 
-export const MODEL_SETTINGS_VERSION = 1
 export const DEFAULT_PROFILE_ID = 'openai-default'
 
 export const PROVIDER_LABELS: Record<ProviderKind, string> = {
@@ -64,7 +62,6 @@ export function createDefaultProfilesStore(): ProfilesStore {
   const profile = createDefaultProfile()
 
   return {
-    version: MODEL_SETTINGS_VERSION,
     activeProfileId: profile.id,
     profiles: [profile]
   }
@@ -116,7 +113,6 @@ export function normalizeProfilesStore(value: unknown): ProfilesStore {
       : nextProfiles[0].id
 
   return {
-    version: MODEL_SETTINGS_VERSION,
     activeProfileId,
     profiles: nextProfiles
   }

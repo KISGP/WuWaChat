@@ -6,16 +6,15 @@ import Bg from '@renderer/assets/T_VisionEditDescBg.png'
 import { cn } from '@renderer/utils'
 import Bubble from './bubble'
 import BackgroundImage from './background-image'
+import { RotateCcw } from 'lucide-react'
+import { useAppearanceStore } from '@renderer/stores/appearanceStore'
 
-const DISPLAY_TABS = [
-  { id: 'bubble', label: '聊天气泡' },
-  { id: 'background', label: '聊天背景' }
-] as const
-
-type DisplayTabId = (typeof DISPLAY_TABS)[number]['id']
+type DisplayTabId = 'bubble' | 'background'
 
 export default function Display({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<DisplayTabId>('background')
+  const saveError = useAppearanceStore((state) => state.saveError)
+  const retrySave = useAppearanceStore((state) => state.retrySave)
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden font-sans">
@@ -28,6 +27,19 @@ export default function Display({ onClose }: { onClose: () => void }): ReactElem
       </div>
 
       <div className="flex h-full w-full flex-col overflow-hidden px-8 py-1">
+        {saveError && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded border border-red-300/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+            <span>界面设置保存失败</span>
+            <button
+              type="button"
+              onClick={() => void retrySave()}
+              className="flex shrink-0 items-center gap-1.5 rounded border border-red-300/30 px-2.5 py-1.5 text-xs transition-colors hover:bg-red-500/15"
+            >
+              <RotateCcw className="size-3.5" />
+              重试
+            </button>
+          </div>
+        )}
         <div
           role="tablist"
           aria-label="界面设置标签页"
@@ -35,7 +47,8 @@ export default function Display({ onClose }: { onClose: () => void }): ReactElem
         >
           <img src={Bg} className="h-10 w-135" />
           <button
-            onClick={() => false && setActiveTab('bubble')}
+            type="button"
+            disabled
             className={cn(
               'absolute left-0 h-10 cursor-not-allowed rounded-full px-20',
               activeTab === 'bubble'

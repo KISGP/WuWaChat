@@ -11,12 +11,15 @@ import {
   FileCode2,
   HardDrive,
   SlidersHorizontal,
-  Volume2
+  Volume2,
+  RotateCcw
 } from 'lucide-react'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { GeneralTab } from './GeneralTab'
 import { TtsTab } from './TtsTab'
+import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
+import { useSettingsStore } from '@renderer/stores/settingsStore'
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
 
@@ -59,7 +62,16 @@ function TabLoadingFallback(): ReactElement {
 export default function Settings({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
   const [mounted, setMounted] = useState(false)
+  const appSaveError = useAppSettingsStore((state) => state.saveError)
+  const retryAppSave = useAppSettingsStore((state) => state.retrySave)
+  const profilesSaveError = useSettingsStore((state) => state.saveError)
+  const retryProfilesSave = useSettingsStore((state) => state.retrySave)
   const activeTabItem = ALL_TABS.find((tab) => tab.id === activeTab) ?? ALL_TABS[0]
+  const saveFailure = appSaveError
+    ? { message: '通用设置保存失败', retry: retryAppSave }
+    : profilesSaveError
+      ? { message: '模型配置保存失败', retry: retryProfilesSave }
+      : null
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -127,6 +139,19 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
       </div>
 
       <div className="min-h-0 flex-1">
+        {saveFailure && (
+          <div className="mx-5 mt-2 flex items-center justify-between gap-3 rounded border border-red-300/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+            <span>{saveFailure.message}</span>
+            <button
+              type="button"
+              onClick={() => void saveFailure.retry()}
+              className="flex shrink-0 items-center gap-1.5 rounded border border-red-300/30 px-2.5 py-1.5 text-xs transition-colors hover:bg-red-500/15"
+            >
+              <RotateCcw className="size-3.5" />
+              重试
+            </button>
+          </div>
+        )}
         <div className="flex h-full min-h-0">
           <aside
             className={`flex w-fit shrink-0 flex-col border-r border-white/8 px-4 py-5 transition-all duration-300 ${

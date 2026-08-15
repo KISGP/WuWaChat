@@ -17,6 +17,7 @@ import type {
 } from '@shared/memory-settings'
 import type { ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
+import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest } from '@shared/tools'
 import type { TtsSynthesisRequest } from '@shared/tts'
@@ -67,10 +68,12 @@ const characters = {
 }
 
 const settings = {
+  getUnifiedSettings: (): Promise<UnifiedSettings> => ipcRenderer.invoke('settings:getUnifiedSettings'),
   getAppSettings: () => ipcRenderer.invoke('settings:getAppSettings'),
   saveAppSettings: (data: AppSettings) => ipcRenderer.invoke('settings:saveAppSettings', data),
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
   saveProfiles: (data: ProfilesStore) => ipcRenderer.invoke('settings:saveProfiles', data),
+  saveAppearance: (data: AppearanceSettings) => ipcRenderer.invoke('settings:saveAppearance', data),
   testProfile: (profile: ModelProfile) => ipcRenderer.invoke('settings:testProfile', profile)
 }
 

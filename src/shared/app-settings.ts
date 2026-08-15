@@ -1,4 +1,3 @@
-export const APP_SETTINGS_VERSION = 1
 export const MIN_MESSAGE_COLLAPSE_LINE_COUNT = 1
 export const MAX_MESSAGE_COLLAPSE_LINE_COUNT = 20
 export const DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT = 5
@@ -8,7 +7,6 @@ export type AnimationPreference = 'system' | 'enabled' | 'disabled'
 export type TtsSettings = { enabled: boolean; modelId: string }
 
 export type AppSettings = {
-  version: 1
   animationPreference: AnimationPreference
   messageCollapseLineCount: number
   tts: TtsSettings
@@ -20,7 +18,6 @@ export type AppSettings = {
  */
 export function createDefaultAppSettings(): AppSettings {
   return {
-    version: APP_SETTINGS_VERSION,
     animationPreference: 'system',
     messageCollapseLineCount: DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT,
     tts: { enabled: false, modelId: DEFAULT_TTS_MODEL_ID }
@@ -55,7 +52,6 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   const rawTts = raw.tts as Partial<TtsSettings> | undefined
 
   return {
-    version: APP_SETTINGS_VERSION,
     animationPreference,
     messageCollapseLineCount,
     tts: {

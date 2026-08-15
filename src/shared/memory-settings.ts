@@ -55,7 +55,6 @@ export type MemoryHardwareInfo = {
 }
 
 export type MemorySettingsStore = {
-  version: 1
   retrievalMode: MemoryRetrievalMode
   worldSearchEnabled: boolean
   memorySearchEnabled: boolean
@@ -237,11 +236,8 @@ export type MemoryStatusSnapshot = {
   hardware: MemoryHardwareInfo
 }
 
-export const MEMORY_SETTINGS_VERSION = 1
-
 export function createDefaultMemorySettingsStore(): MemorySettingsStore {
   return {
-    version: MEMORY_SETTINGS_VERSION,
     retrievalMode: 'string',
     worldSearchEnabled: true,
     memorySearchEnabled: true,
@@ -284,7 +280,6 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
     raw.retrievalMode === 'vector-local' ? 'vector-local' : 'string'
 
   return {
-    version: MEMORY_SETTINGS_VERSION,
     retrievalMode,
     worldSearchEnabled:
       typeof raw.worldSearchEnabled === 'boolean'

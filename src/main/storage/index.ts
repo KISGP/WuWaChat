@@ -4,14 +4,12 @@ import type { StorageUsageItem, StorageUsageSnapshot } from '@shared/storage'
 import { logger } from '@main/logging'
 import {
   getAppDataRoot,
-  getAppSettingsPath,
   getCharactersCachePath,
   getCharactersRoot,
   getLocalEmbeddingRoot,
   getLogsRoot,
   getMemoryDatabasePath,
-  getMemorySettingsPath,
-  getProfilesPath,
+  getSettingsPath,
   getSessionsPath,
   getWorldRoot,
   pathExists
@@ -73,9 +71,9 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
   {
     id: 'settings',
     label: '设置',
-    path: dirname(getProfilesPath()),
-    paths: [getProfilesPath(), getAppSettingsPath(), getMemorySettingsPath()],
-    description: '模型配置、通用设置与记忆设置',
+    path: dirname(getSettingsPath()),
+    paths: [getSettingsPath()],
+    description: '模型配置、通用设置、记忆设置与界面外观',
     color: '#7adbc4'
   },
   {

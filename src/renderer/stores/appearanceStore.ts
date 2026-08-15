@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import type { AppearanceSettings } from '@shared/settings'
 import BG1 from '@renderer/assets/T_PhoneSystemPanelS.png'
 import BG2 from '@renderer/assets/T_PhoneSystemIconBg02.png'
 import BG3 from '@renderer/assets/T_PhoneSystemIconBg03.png'
@@ -87,14 +87,16 @@ const DEFAULT_BACKGROUND_ID = CHAT_BACKGROUNDS[0].id
 
 type AppearanceStore = {
   appearance: Appearance
-  setBackgroundId: (backgroundId: string) => void
+  isLoaded: boolean
+  saveError: string | null
+  hydrate: (appearance: AppearanceSettings) => void
+  setBackgroundId: (backgroundId: string) => Promise<void>
+  retrySave: () => Promise<void>
 }
 
 type Appearance = {
   backgroundId: string
 }
-
-type PersistedAppearanceState = Pick<AppearanceStore, 'appearance'>
 
 /**
  * @description 从背景列表中解析可用的背景 ID，不合法时回退为默认背景。
@@ -110,39 +112,22 @@ function resolveBackgroundId(backgroundId: string | null | undefined): string {
 }
 
 /**
- * @description 从持久化的外观状态中解析可用的外观配置，并确保背景 ID 合法。
- * @param persistedState 由 Zustand persist 反序列化后的状态片段。
- * @param fallbackAppearance 持久化数据不可用时使用的回退外观配置。
- * @returns 已校验可用的外观配置。
+ * @description 保存界面外观设置，并将失败状态保留给界面显示与重试。
+ * @param appearance 待持久化的外观设置。
+ * @param set Zustand 的状态更新函数。
+ * @returns 保存完成后的 Promise。
  */
-function resolvePersistedAppearance(
-  persistedState: unknown,
-  fallbackAppearance: Appearance
-): Appearance {
-  if (!persistedState || typeof persistedState !== 'object') {
-    return fallbackAppearance
-  }
-
-  const candidateState = persistedState as Partial<PersistedAppearanceState>
-  return {
-    ...fallbackAppearance,
-    backgroundId: resolveBackgroundId(candidateState.appearance?.backgroundId)
-  }
-}
-
-/**
- * @description 合并持久化外观状态与当前 store 状态，并确保恢复后的外观配置始终有效。
- * @param persistedState 由 Zustand persist 反序列化后的状态片段。
- * @param currentState 当前初始化完成的 appearance store 状态。
- * @returns 已合并且经过背景 ID 校验的外观状态。
- */
-function mergePersistedAppearanceState(
-  persistedState: unknown,
-  currentState: AppearanceStore
-): AppearanceStore {
-  return {
-    ...currentState,
-    appearance: resolvePersistedAppearance(persistedState, currentState.appearance)
+async function saveAppearance(
+  appearance: Appearance,
+  set: (partial: Partial<AppearanceStore>) => void
+): Promise<void> {
+  try {
+    await window.settings.saveAppearance(appearance)
+    set({ saveError: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Failed to save appearance settings', error)
+    set({ saveError: message })
   }
 }
 
@@ -155,32 +140,24 @@ export function getChatBackgroundById(backgroundId: string): ChatBackground {
   return BACKGROUND_BY_ID.get(backgroundId) ?? CHAT_BACKGROUNDS[0]
 }
 
-export const useAppearanceStore = create<AppearanceStore>()(
-  persist(
-    (set) => ({
-      appearance: {
-        backgroundId: DEFAULT_BACKGROUND_ID
-      },
-      setBackgroundId: (backgroundId) => {
-        const nextBackgroundId = resolveBackgroundId(backgroundId)
-        set({
-          appearance: {
-            backgroundId: nextBackgroundId
-          }
-        })
-      }
+export const useAppearanceStore = create<AppearanceStore>((set, get) => ({
+  appearance: {
+    backgroundId: DEFAULT_BACKGROUND_ID
+  },
+  isLoaded: false,
+  saveError: null,
+  hydrate: (appearance) =>
+    set({
+      appearance: { backgroundId: resolveBackgroundId(appearance.backgroundId) },
+      isLoaded: true
     }),
-    {
-      name: 'appearance-store',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state): PersistedAppearanceState => ({
-        appearance: state.appearance
-      }),
-      merge: (persistedState, currentState) =>
-        mergePersistedAppearanceState(persistedState, currentState)
-    }
-  )
-)
+  setBackgroundId: async (backgroundId) => {
+    const appearance = { backgroundId: resolveBackgroundId(backgroundId) }
+    set({ appearance, saveError: null })
+    await saveAppearance(appearance, set)
+  },
+  retrySave: async () => saveAppearance(get().appearance, set)
+}))
 
 /**
  * @description 从 appearance store 中选出当前生效的聊天背景配置。

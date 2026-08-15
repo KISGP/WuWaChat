@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChatRunEvent } from '@shared/chat'
 import {
   clearScheduledMemoryStatusRefresh,
@@ -10,14 +10,39 @@ import { useCharacterStore } from '@renderer/stores/characterStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
+import { useAppearanceStore } from '@renderer/stores/appearanceStore'
 
 /**
- * @description 在渲染进程启动时引导相关 store：加载设置、刷新角色与会话，并订阅运行事件与内存任务事件以保持状态同步。
+ * @description 在渲染进程启动时读取统一设置、恢复各个设置分区，并订阅运行事件与内存任务事件以保持状态同步。
+ * @returns 设置启动状态；主界面应仅在状态为 `ready` 时显示，避免外观设置回退闪烁。
  */
-export function useRendererStoreBootstrap(): void {
+export function useRendererStoreBootstrap(): 'loading' | 'ready' | 'error' {
+  const [settingsBootstrapState, setSettingsBootstrapState] = useState<'loading' | 'ready' | 'error'>(
+    'loading'
+  )
+
   useEffect(() => {
-    void useAppSettingsStore.getState().hydrate()
-    void useSettingsStore.getState().hydrateProfiles()
+    let isDisposed = false
+
+    void window.settings
+      .getUnifiedSettings()
+      .then((settings) => {
+        if (isDisposed) {
+          return
+        }
+
+        useAppSettingsStore.getState().hydrate(settings.app)
+        useSettingsStore.getState().hydrateProfiles(settings.profiles)
+        useMemoryStore.getState().hydrateSettings(settings.memory)
+        useAppearanceStore.getState().hydrate(settings.appearance)
+        setSettingsBootstrapState('ready')
+      })
+      .catch((error) => {
+        console.error('Failed to bootstrap unified settings', error)
+        if (!isDisposed) {
+          setSettingsBootstrapState('error')
+        }
+      })
 
     void useCharacterStore
       .getState()
@@ -58,9 +83,12 @@ export function useRendererStoreBootstrap(): void {
     })
 
     return () => {
+      isDisposed = true
       clearScheduledMemoryStatusRefresh()
       unsubscribeRunEvent?.()
       unsubscribeMemoryTaskEvent()
     }
   }, [])
+
+  return settingsBootstrapState
 }

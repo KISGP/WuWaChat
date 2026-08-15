@@ -40,6 +40,7 @@ type MemoryStore = {
   localModelUiState: Record<string, LocalModelUiState>
   tasks: MemoryTask[]
   setIsLoaded: (isLoaded: boolean) => void
+  hydrateSettings: (settings: MemorySettingsStore) => void
   applySnapshot: (snapshot: MemoryStatusSnapshot) => void
   reconcileTask: (task: MemoryTask) => void
   refreshStatus: (selection?: MemoryTargetSelection | null) => Promise<void>
@@ -223,6 +224,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
   localModelUiState: {},
   tasks: [],
   setIsLoaded: (isLoaded) => set({ isLoaded }),
+  hydrateSettings: (settings) => set({ settings }),
   applySnapshot: (snapshot) =>
     set({
       settings: snapshot.settings,

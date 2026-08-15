@@ -30,6 +30,7 @@ import type {
 } from '@shared/memory-settings'
 import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
+import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
 import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
@@ -62,10 +63,12 @@ declare global {
       resetPresetCharacter: (characterId: string) => Promise<CharacterSummary>
     }
     settings: {
+      getUnifiedSettings: () => Promise<UnifiedSettings>
       getAppSettings: () => Promise<AppSettings>
       saveAppSettings: (settings: AppSettings) => Promise<AppSettings>
       getProfiles: () => Promise<ProfilesStore>
       saveProfiles: (store: ProfilesStore) => Promise<ProfilesStore>
+      saveAppearance: (appearance: AppearanceSettings) => Promise<AppearanceSettings>
       testProfile: (profile: ModelProfile) => Promise<OpenAIProfileConnectionTestResult>
     }
     memory: {
