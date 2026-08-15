@@ -10,11 +10,13 @@ import {
   ScrollText,
   FileCode2,
   HardDrive,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Volume2
 } from 'lucide-react'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { GeneralTab } from './GeneralTab'
+import { TtsTab } from './TtsTab'
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
 
@@ -31,6 +33,7 @@ const PromptPreviewTab = ENABLE_DEBUG_TAB ? lazy(() => import('./PromptPreviewTa
 
 const TABS = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
+  { id: 'tts', label: 'TTS', icon: Volume2 },
   { id: 'model', label: '模型', icon: Bot },
   { id: 'memory', label: '记忆', icon: Brain },
   { id: 'character', label: '角色', icon: Bot },
@@ -74,6 +77,8 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
         return <GeneralTab />
       case 'model':
         return <ModelTab />
+      case 'tts':
+        return <TtsTab />
       case 'memory':
         return (
           <Suspense fallback={<TabLoadingFallback />}>
