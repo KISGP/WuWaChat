@@ -13,6 +13,7 @@ type AppSettingsStore = {
   hydrate: () => Promise<void>
   setAnimationPreference: (preference: AnimationPreference) => Promise<void>
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
+  setTtsEnabled: (enabled: boolean) => Promise<void>
 }
 
 let saveQueue: Promise<void> = Promise.resolve()
@@ -66,6 +67,17 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
         messageCollapseLineCount
       }
     )
+    try {
+      await queueSettingsSave(settings)
+    } catch (error) {
+      console.error('Failed to save app settings', error)
+    }
+  },
+  setTtsEnabled: async (enabled) => {
+    const current = get().settings
+    const settings = { ...current, tts: { ...current.tts, enabled } }
+    set({ settings })
+    trackUiEvent('tts-enabled-changed', 'User changed local TTS enabled state', { enabled })
     try {
       await queueSettingsSave(settings)
     } catch (error) {

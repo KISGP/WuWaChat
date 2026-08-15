@@ -468,6 +468,7 @@ function MessageItem({
   speechError,
   onToggleSpeech,
   messageCollapseLineCount,
+  ttsEnabled,
   style
 }: RowComponentProps<{
   messages: Message[]
@@ -482,13 +483,14 @@ function MessageItem({
   speechError: SpeechError | null
   onToggleSpeech: (message: Message) => void
   messageCollapseLineCount: number
+  ttsEnabled: boolean
 }>): ReactElement {
   const message = messages[index]
   const isUserMessage = message.role === 'user'
   const canRetryMessage = isUserMessage && retryableMessageId === message.id
   const isCopyDisabled = !message.content.trim()
   const canSpeak =
-    !isUserMessage && message.status === 'complete' && Boolean(message.content.trim())
+    ttsEnabled && !isUserMessage && message.status === 'complete' && Boolean(message.content.trim())
   const isDeleteDisabled =
     protectedMessageIds.has(message.id) ||
     deletingMessageId === message.id ||
@@ -619,6 +621,7 @@ export default function ChatMessagesList({
   const messageCollapseLineCount = useAppSettingsStore(
     (state) => state.settings.messageCollapseLineCount
   )
+  const ttsEnabled = useAppSettingsStore((state) => state.settings.tts.enabled)
   const [listApi, setListApi] = useListCallbackRef(null)
   const [speechState, setSpeechState] = useState<SpeechState>(null)
   const [speechError, setSpeechError] = useState<SpeechError | null>(null)
@@ -812,7 +815,8 @@ export default function ChatMessagesList({
         speechState,
         speechError,
         onToggleSpeech: handleToggleSpeech,
-        messageCollapseLineCount
+        messageCollapseLineCount,
+        ttsEnabled
       }}
     />
   )

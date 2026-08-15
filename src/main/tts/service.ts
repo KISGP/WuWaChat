@@ -6,6 +6,7 @@ import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
 import { AppError } from '@main/errors/AppError'
 import { logger } from '@main/logging'
 import { getTtsAudioRoot } from '@main/utils'
+import { getAppSettings } from '@main/settings/app-settings'
 import { getTtsAudioUrl } from './protocol'
 import { normalizeTextForTts } from './text-normalizer'
 import { resolveTtsRuntimePaths, runTtsSidecar, validateTtsRuntime } from './runtime'
@@ -99,7 +100,13 @@ class TtsService {
       })
     }
 
-    const paths = resolveTtsRuntimePaths()
+    const appSettings = await getAppSettings()
+    if (!appSettings.tts.enabled) {
+      throw new AppError('TTS_RUNTIME_ERROR', 'Local TTS is disabled', {
+        safeMessage: '本地语音尚未启用。'
+      })
+    }
+    const paths = resolveTtsRuntimePaths(appSettings.tts.modelId)
     await validateTtsRuntime(paths)
     await mkdir(getTtsAudioRoot(), { recursive: true })
     const cacheFileName = createCacheFileName(text)

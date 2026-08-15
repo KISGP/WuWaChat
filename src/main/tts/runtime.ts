@@ -1,10 +1,10 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { constants } from 'fs'
 import { access, readFile } from 'fs/promises'
-import { basename, join, resolve } from 'path'
+import { basename, join } from 'path'
 import { AppError } from '@main/errors/AppError'
+import { getTtsModelRoot } from '@main/utils'
 
-const TTS_RUNTIME_ROOT_ENV = 'WUWACHAT_TTS_ROOT'
 const SYNTHESIS_TIMEOUT_MS = 120_000
 const MAX_SIDECAR_OUTPUT_LENGTH = 16_000
 const REQUIRED_MODEL_NAMES = [
@@ -32,11 +32,17 @@ export type TtsSidecarRunOptions = {
 }
 
 /**
- * @description 从环境变量解析开发期固定 TTS 运行时的文件路径。
+ * @description 判断环境变量中的运行时根目录是否可作为单个 Windows 文件系统路径使用。
+ * @param root 从环境变量读取并去除首尾空白后的路径。
+ * @returns 路径未混入命令行重定向、控制字符或多行输出时返回 true。
+ */
+/**
+ * @description 从应用托管目录解析固定 TTS 运行时的文件路径。
+ * @param modelId 应用设置中的模型标识。
  * @returns 可供 Windows sidecar 使用的运行时路径集合。
  * @remarks 当前阶段仅支持已验证的 Windows 运行时，后续下载器会替换此解析方式。
  */
-export function resolveTtsRuntimePaths(): TtsRuntimePaths {
+export function resolveTtsRuntimePaths(modelId: string): TtsRuntimePaths {
   if (process.platform !== 'win32') {
     throw new AppError(
       'TTS_RUNTIME_ERROR',
@@ -47,14 +53,7 @@ export function resolveTtsRuntimePaths(): TtsRuntimePaths {
     )
   }
 
-  const configuredRoot = process.env[TTS_RUNTIME_ROOT_ENV]?.trim()
-  if (!configuredRoot) {
-    throw new AppError('TTS_RUNTIME_ERROR', `${TTS_RUNTIME_ROOT_ENV} is not configured`, {
-      safeMessage: '本地语音运行时未配置。'
-    })
-  }
-
-  const root = resolve(configuredRoot)
+  const root = getTtsModelRoot(modelId)
   const runtimeDirectory = join(root, 'windows-x64')
   return {
     root,
