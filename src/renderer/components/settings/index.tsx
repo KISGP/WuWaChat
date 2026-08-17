@@ -1,4 +1,6 @@
-import { lazy, Suspense, type ReactElement, useEffect, useState } from 'react'
+import { lazy, Suspense, type ReactElement, useEffect, useRef, useState } from 'react'
+import { useGSAP } from '@gsap/react'
+import { gsap } from 'gsap'
 import CloseIcon from '@renderer/components/close'
 import { LogTab } from './LogTab'
 import { ModelTab } from './ModelTab'
@@ -10,6 +12,8 @@ import {
   ScrollText,
   FileCode2,
   HardDrive,
+  PanelLeftClose,
+  PanelLeftOpen,
   SlidersHorizontal,
   Volume2,
   RotateCcw
@@ -19,12 +23,19 @@ import { Spinner } from '@renderer/components/ui/spinner'
 import { GeneralTab } from './GeneralTab'
 import { TtsTab } from './TtsTab'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
+import { useMotionPreference } from '@renderer/hooks/useMotionPreference'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
+
+gsap.registerPlugin(useGSAP)
 
 const ENABLE_DEBUG_TAB = import.meta.env.DEV
 
 const MemoryTab = lazy(() =>
   import('./MemoryTab').then((module) => ({ default: module.MemoryTab }))
+)
+const LoreTab = lazy(() => import('./LoreTab').then((module) => ({ default: module.LoreTab })))
+const EmbeddingTab = lazy(() =>
+  import('./EmbeddingTab').then((module) => ({ default: module.EmbeddingTab }))
 )
 const CharacterTab = lazy(() =>
   import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
@@ -38,7 +49,9 @@ const TABS = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
   { id: 'tts', label: 'TTS', icon: Volume2 },
   { id: 'model', label: '模型', icon: Bot },
-  { id: 'memory', label: '记忆与知识', icon: Brain },
+  { id: 'lore', label: 'Lore 知识', icon: ScrollText },
+  { id: 'memory', label: '长期记忆', icon: Brain },
+  { id: 'embedding', label: '语义模型', icon: FileCode2 },
   { id: 'character', label: '角色', icon: Bot },
   { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'log', label: '日志', icon: ScrollText },
@@ -51,6 +64,10 @@ const ALL_TABS = PromptPreviewTab
 
 type SettingsTabId = (typeof ALL_TABS)[number]['id']
 
+/**
+ * @description Renders the lazy settings page loading indicator.
+ * @returns A centered loading indicator.
+ */
 function TabLoadingFallback(): ReactElement {
   return (
     <div className="flex h-full items-center justify-center text-[#e8c690]">
@@ -59,9 +76,17 @@ function TabLoadingFallback(): ReactElement {
   )
 }
 
+/**
+ * @description Renders the settings overlay, its navigable pages, and the expandable navigation rail.
+ * @param props The overlay close handler.
+ * @returns The settings overlay content.
+ */
 export default function Settings({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
   const [mounted, setMounted] = useState(false)
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
+  const sidebarRef = useRef<HTMLElement>(null)
+  const { shouldAnimate } = useMotionPreference()
   const appSaveError = useAppSettingsStore((state) => state.saveError)
   const retryAppSave = useAppSettingsStore((state) => state.retrySave)
   const profilesSaveError = useSettingsStore((state) => state.saveError)
@@ -83,6 +108,34 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
     }
   }, [])
 
+  useGSAP(
+    () => {
+      const sidebar = sidebarRef.current
+      const labels = sidebar?.querySelectorAll<HTMLElement>('[data-settings-sidebar-label]')
+      if (!sidebar || !labels) {
+        return
+      }
+
+      const width = isSidebarExpanded ? 208 : 72
+      const labelOpacity = isSidebarExpanded ? 1 : 0
+      gsap.killTweensOf([sidebar, labels])
+      if (!shouldAnimate) {
+        gsap.set(sidebar, { width })
+        gsap.set(labels, { autoAlpha: labelOpacity })
+        return
+      }
+
+      gsap.to(sidebar, { duration: 0.24, ease: 'power2.out', overwrite: 'auto', width })
+      gsap.to(labels, {
+        autoAlpha: labelOpacity,
+        duration: isSidebarExpanded ? 0.18 : 0.1,
+        ease: 'power1.out',
+        overwrite: 'auto'
+      })
+    },
+    { dependencies: [isSidebarExpanded, shouldAnimate], scope: sidebarRef }
+  )
+
   const renderActiveTab = (): ReactElement => {
     switch (activeTab) {
       case 'general':
@@ -94,7 +147,19 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
       case 'memory':
         return (
           <Suspense fallback={<TabLoadingFallback />}>
-            <MemoryTab isActive />
+            <MemoryTab />
+          </Suspense>
+        )
+      case 'lore':
+        return (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <LoreTab />
+          </Suspense>
+        )
+      case 'embedding':
+        return (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <EmbeddingTab />
           </Suspense>
         )
       case 'character':
@@ -154,21 +219,56 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
         )}
         <div className="flex h-full min-h-0">
           <aside
-            className={`flex w-fit shrink-0 flex-col border-r border-white/8 px-4 py-5 transition-all duration-300 ${
+            ref={sidebarRef}
+            className={`flex w-18 shrink-0 flex-col overflow-hidden border-r border-white/8 px-4 py-5 ${
               mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
             }`}
           >
-            <div className="flex h-full flex-col gap-10">
-              {ALL_TABS.map((tab) => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className="">
-                  <tab.icon
-                    className={cn(
-                      'text-background size-8 hover:text-yellow-300',
-                      activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
-                    )}
-                  />
-                </button>
-              ))}
+            <div className="flex h-full min-h-0 flex-col">
+              <nav className="min-h-0 flex-1 overflow-hidden" aria-label="设置导航">
+                <div className="flex h-full flex-col justify-between gap-3">
+                  {ALL_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      title={tab.label}
+                      aria-label={tab.label}
+                      onClick={() => setActiveTab(tab.id)}
+                      className="flex w-42 items-center gap-3 text-left"
+                    >
+                      <tab.icon
+                        className={cn(
+                          'text-background size-8 hover:text-yellow-300',
+                          activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
+                        )}
+                      />
+                      <span
+                        data-settings-sidebar-label
+                        className={cn(
+                          'text-sm whitespace-nowrap opacity-0',
+                          activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
+                        )}
+                      >
+                        {tab.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </nav>
+              <button
+                type="button"
+                onClick={() => setIsSidebarExpanded((expanded) => !expanded)}
+                className="text-background/70 mt-4 flex size-8 shrink-0 items-center justify-center hover:text-yellow-300"
+                title={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
+                aria-label={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
+                aria-expanded={isSidebarExpanded}
+              >
+                {isSidebarExpanded ? (
+                  <PanelLeftClose className="size-6" />
+                ) : (
+                  <PanelLeftOpen className="size-6" />
+                )}
+              </button>
             </div>
           </aside>
 
