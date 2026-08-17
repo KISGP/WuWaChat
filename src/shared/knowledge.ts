@@ -1,4 +1,4 @@
-export type KnowledgeSourceId = 'lore' | 'encyclopedia-api'
+export type KnowledgeSourceId = 'lore-story' | 'lore-glossary' | 'encyclopedia-api'
 
 export type KnowledgeLocator = 'exact' | 'semantic'
 
@@ -17,7 +17,6 @@ export type KnowledgeHit = {
   text: string
   sourceId: KnowledgeSourceId
   sourceLocation: string
-  sourceVersion?: string
   locator: KnowledgeLocator
   score: number
   originIds: string[]

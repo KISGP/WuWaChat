@@ -31,20 +31,22 @@ async function readInstalledPackage(): Promise<LorePackage | null> {
   try {
     const parsed = JSON.parse(content) as Partial<LorePackage>
     if (
-      parsed.version !== 3 ||
       !parsed.source ||
       (parsed.source.kind !== 'markdown-build' && parsed.source.kind !== 'remote-package') ||
-      typeof parsed.source.version !== 'string' ||
       typeof parsed.source.sourceFingerprint !== 'string' ||
       typeof parsed.source.builtAt !== 'string' ||
-      !Array.isArray(parsed.tasks) ||
-      !Array.isArray(parsed.scenes) ||
-      !Array.isArray(parsed.terms) ||
-      !parsed.terms.every(
+      !parsed.story ||
+      !Array.isArray(parsed.story.tasks) ||
+      !Array.isArray(parsed.story.scenes) ||
+      !Array.isArray(parsed.story.summaries) ||
+      !parsed.glossary ||
+      !Array.isArray(parsed.glossary.terms) ||
+      !parsed.glossary.terms.every(
         (term) =>
-          term && typeof term === 'object' && Array.isArray((term as { taskIds?: unknown }).taskIds)
-      ) ||
-      !Array.isArray(parsed.summaries)
+          term &&
+          typeof term === 'object' &&
+          Array.isArray((term as { knownByTaskIds?: unknown }).knownByTaskIds)
+      )
     ) {
       return null
     }

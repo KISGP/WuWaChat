@@ -115,6 +115,7 @@ function buildLoreRoutePreviewText(result: ChatPromptPreviewResult): string {
     `决定：${route.disposition}`,
     `置信度：${route.confidence.toFixed(2)}`,
     `原因：${route.reason}`,
+    `知识域：${route.targets.length > 0 ? route.targets.join(' + ') : '无'}`,
     `路由模型：${route.routerProfileId}`,
     `检索查询：${route.retrievalQuery}`,
     route.fallbackReason ? `降级原因：${route.fallbackReason}` : ''

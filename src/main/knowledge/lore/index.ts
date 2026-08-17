@@ -7,8 +7,9 @@ import type { EmbeddingProvider } from '@main/embedding/types'
 import { KnowledgeProviderRegistry } from '@main/knowledge/provider-registry'
 import { logger } from '@main/logging'
 import { MarkdownLorePackageLoader } from './package-loader'
-import { LoreKnowledgeProvider } from './provider'
+import { LoreGlossaryProvider } from './glossary-provider'
 import { LoreRouter } from './router'
+import { LoreStoryProvider } from './story-provider'
 
 type LoreRetrievalResult = {
   storyHits: MemoryDebugRetrievalHit[]
@@ -19,14 +20,14 @@ type LoreRetrievalResult = {
 /**
  * @description 将 Lore 路由决定转换为通用知识检索计划。
  * @param route 当前轮的 Lore 路由决定。
- * @returns 仅请求 Lore Provider 的知识计划。
+ * @returns 仅请求路由模型选中的 Lore 知识域的计划。
  */
 function toKnowledgeRetrievalPlan(route: LoreRouteDecision): KnowledgeRetrievalPlan {
   return {
     disposition: route.disposition,
     confidence: route.confidence,
     query: route.retrievalQuery,
-    sourceIds: ['lore'],
+    sourceIds: route.targets.map((target) => `lore-${target}` as const),
     reason: route.reason,
     routerProfileId: route.routerProfileId,
     fallbackReason: route.fallbackReason
@@ -39,15 +40,15 @@ function toKnowledgeRetrievalPlan(route: LoreRouteDecision): KnowledgeRetrievalP
  * @returns 带剧情或术语范围的上下文片段。
  */
 function toRetrievalHit(hit: KnowledgeHit, rank: number): MemoryDebugRetrievalHit {
-  const isTerm = hit.originIds.some((originId) => originId.startsWith('term:'))
+  const scope = hit.sourceId === 'lore-glossary' ? 'glossary' : 'story'
   return {
     id: hit.id,
-    scope: isTerm ? 'glossary' : 'story',
+    scope,
     text: hit.text,
     score: hit.score,
     rank,
     retrievalModeUsed: hit.locator === 'exact' ? 'string' : 'vector',
-    sourceType: isTerm ? 'glossary' : 'story',
+    sourceType: scope,
     sourcePath: hit.sourceLocation
   }
 }
@@ -58,7 +59,8 @@ function toRetrievalHit(hit: KnowledgeHit, rank: number): MemoryDebugRetrievalHi
  */
 export class LoreService {
   private readonly loader = new MarkdownLorePackageLoader()
-  private readonly provider: LoreKnowledgeProvider
+  private readonly storyProvider: LoreStoryProvider
+  private readonly glossaryProvider: LoreGlossaryProvider
   private readonly providers: KnowledgeProviderRegistry
   private readonly router = new LoreRouter()
 
@@ -80,12 +82,13 @@ export class LoreService {
     ) => Promise<import('@shared/memory-settings').EmbeddingFingerprint>,
     private readonly getProfiles: () => Promise<ProfilesStore>
   ) {
-    this.provider = new LoreKnowledgeProvider(
+    this.storyProvider = new LoreStoryProvider(
       this.loader,
       getEmbeddingProvider,
       getEmbeddingFingerprint
     )
-    this.providers = new KnowledgeProviderRegistry([this.provider])
+    this.glossaryProvider = new LoreGlossaryProvider(this.loader)
+    this.providers = new KnowledgeProviderRegistry([this.storyProvider, this.glossaryProvider])
   }
 
   /**
@@ -93,7 +96,7 @@ export class LoreService {
    * @returns 原作资料包状态。
    */
   async getStatus(): Promise<LoreStatus> {
-    return this.provider.getStatus()
+    return this.storyProvider.getLoreStatus()
   }
 
   /**
@@ -101,7 +104,7 @@ export class LoreService {
    * @returns 重建后的资料包状态。
    */
   async rebuild(): Promise<LoreStatus> {
-    return this.provider.rebuildPackage()
+    return this.storyProvider.rebuildPackage()
   }
 
   /**
@@ -109,7 +112,7 @@ export class LoreService {
    * @returns 更新后的资料包状态。
    */
   async updateSource(): Promise<LoreStatus> {
-    return this.provider.updatePackage()
+    return this.storyProvider.updatePackage()
   }
 
   /**
@@ -117,7 +120,7 @@ export class LoreService {
    * @returns 构建后的资料包状态。
    */
   async buildSemanticIndex(): Promise<LoreStatus> {
-    return this.provider.buildSemanticIndex()
+    return this.storyProvider.buildSemanticIndex()
   }
 
   /**
@@ -170,10 +173,15 @@ export class LoreService {
         }
       )
     }
-    const hits = knowledgeHits.map((hit, index) => toRetrievalHit(hit, index + 1))
+    const storyHits = knowledgeHits
+      .filter((hit) => hit.sourceId === 'lore-story')
+      .map((hit, index) => toRetrievalHit(hit, index + 1))
+    const glossaryHits = knowledgeHits
+      .filter((hit) => hit.sourceId === 'lore-glossary')
+      .map((hit, index) => toRetrievalHit(hit, index + 1))
     return {
-      storyHits: hits.filter((hit) => hit.scope === 'story'),
-      glossaryHits: hits.filter((hit) => hit.scope === 'glossary'),
+      storyHits,
+      glossaryHits,
       route
     }
   }

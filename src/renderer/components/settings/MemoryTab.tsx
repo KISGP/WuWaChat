@@ -515,7 +515,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       <SectionCard title="Lore 知识">
         <SettingItem
           title="启用 Lore 知识检索"
-          description="从角色参与过的原作任务、场景和术语中检索知识，并追加到提示词上下文里。"
+          description="按本轮路由分别检索角色经历的原作剧情与可知术语，并追加到提示词上下文里。"
         >
           <Switch
             id="switch-lore"
@@ -525,7 +525,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
           />
         </SettingItem>
-        <SettingItem title="Lore 知识 TopK" description="限制每轮最多注入多少条 Lore 知识片段。">
+        <SettingItem
+          title="剧情场景上限"
+          description="限制每轮最多注入多少条原作剧情场景；术语定义使用独立上限。"
+        >
           <Input
             value={draft.loreTopK}
             onChange={(value) => {
@@ -555,7 +558,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
           <div className="text-xs leading-5 text-white/55">
             运行时读取已安装的
-            LorePackage。先以任务、场景和术语定位原作锚点；没有锚点时才使用任务级语义索引。
+            LorePackage。剧情按任务和场景定位，缺少原文锚点时才使用任务级语义索引；术语仅精确匹配原文定义，且不占用剧情场景额度。
           </div>
 
           {loreError && <div className="text-xs leading-5 text-amber-200/85">{loreError}</div>}

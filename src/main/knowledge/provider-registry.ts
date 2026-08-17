@@ -9,7 +9,7 @@ import type {
 
 /**
  * @description 集中管理已启用的知识来源，并按路由计划执行检索。
- * @remarks 当前仅注册 Lore Provider；未来百科 API 等来源只需实现 `KnowledgeProvider` 后注册。
+ * @remarks Lore 可注册剧情和术语等多个来源；未来百科 API 等来源只需实现 `KnowledgeProvider` 后注册。
  */
 export class KnowledgeProviderRegistry {
   private readonly providers: Map<KnowledgeSourceId, KnowledgeProvider>

@@ -123,7 +123,7 @@ function parseTerms(content: string, sourcePath: string): LoreTerm[] {
         term,
         definition,
         sourcePath,
-        taskIds: []
+        knownByTaskIds: []
       }
     })
 }
@@ -172,9 +172,9 @@ export async function compileLorePackage(worldRoot: string): Promise<LorePackage
   }
 
   const sourceFingerprint = fingerprint.digest('hex')
-  const termsWithKnownTasks = terms.map((term) => ({
+  const termsWithKnownByTasks = terms.map((term) => ({
     ...term,
-    taskIds: tasks
+    knownByTaskIds: tasks
       .filter((task) =>
         scenes.some((scene) => scene.taskId === task.id && scene.text.includes(term.term))
       )
@@ -182,16 +182,18 @@ export async function compileLorePackage(worldRoot: string): Promise<LorePackage
   }))
 
   return {
-    version: 3,
     source: {
       kind: 'markdown-build',
-      version: sourceFingerprint,
       sourceFingerprint,
       builtAt: new Date().toISOString()
     },
-    tasks,
-    scenes,
-    terms: termsWithKnownTasks,
-    summaries: []
+    story: {
+      tasks,
+      scenes,
+      summaries: []
+    },
+    glossary: {
+      terms: termsWithKnownByTasks
+    }
   }
 }

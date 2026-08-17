@@ -1,6 +1,11 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type { CharacterSummary, ConversationMessage, ModelProfile } from '@shared/chat'
-import type { LoreRouteDecision, LoreRouteDisposition, LoreRouteReason } from '@shared/lore'
+import type {
+  LoreRetrievalTarget,
+  LoreRouteDecision,
+  LoreRouteDisposition,
+  LoreRouteReason
+} from '@shared/lore'
 import { createChatModel } from '@main/chat/model-factory'
 import { contentToText } from '@main/chat/message-content'
 import { logger } from '@main/logging'
@@ -16,6 +21,7 @@ const ROUTE_REASONS = new Set<LoreRouteReason>([
   'daily-freeform',
   'ambiguous'
 ])
+const RETRIEVAL_TARGETS = new Set<LoreRetrievalTarget>(['story', 'glossary'])
 
 const ROUTING_INSTRUCTION = `You route an immersive character-chat turn. Decide whether the final answer needs original-story knowledge from the Lore archive.
 
@@ -26,10 +32,11 @@ Return exactly one JSON object with no Markdown:
   "disposition": "retrieve" | "skip" | "uncertain",
   "confidence": number from 0 to 1,
   "retrievalQuery": "a concise Chinese search query",
+  "targets": ["story"] | ["glossary"] | ["story", "glossary"] | [],
   "reason": "past-event" | "character-history" | "lore-term" | "conversation-follow-up" | "daily-freeform" | "ambiguous"
 }
 
-Use retrieve when the user asks about original events, prior relationships, known locations, identities, chronology, terms, or consequences. Use skip only for clearly freeform daily companionship that does not require original-story facts. Use uncertain for pronouns, follow-up questions, emotion questions tied to an unknown past, or insufficient context. When uncertain, write the best possible search query. A low-confidence skip is unsafe and should be uncertain.`
+Use "story" for original events, prior relationships, known locations, identities, chronology, and consequences. Use "glossary" only when the answer needs an original term's definition. Use both only when both the event context and the term definition are needed. Use [] only with skip. Use skip only for clearly freeform daily companionship that does not require original-story facts. Use uncertain for pronouns, follow-up questions, emotion questions tied to an unknown past, or insufficient context. When uncertain, write the best possible search query and select the minimally sufficient target. A low-confidence skip is unsafe and should be uncertain.`
 
 type LoreRouterInput = {
   character: CharacterSummary
@@ -93,13 +100,30 @@ function parseRouteDecision(value: unknown, fallbackQuery: string): ParsedRouteD
     return null
   }
 
+  const targets = Array.isArray(raw.targets)
+    ? [
+        ...new Set(
+          raw.targets.filter(
+            (target): target is LoreRetrievalTarget =>
+              typeof target === 'string' && RETRIEVAL_TARGETS.has(target as LoreRetrievalTarget)
+          )
+        )
+      ]
+    : null
+  const normalizedDisposition =
+    disposition === 'skip' && confidence < MINIMUM_CONFIDENT_SKIP_SCORE ? 'uncertain' : disposition
+  if (
+    !targets ||
+    (normalizedDisposition === 'skip' ? targets.length !== 0 : targets.length === 0)
+  ) {
+    return null
+  }
+
   return {
-    disposition:
-      disposition === 'skip' && confidence < MINIMUM_CONFIDENT_SKIP_SCORE
-        ? 'uncertain'
-        : disposition,
+    disposition: normalizedDisposition,
     confidence,
     retrievalQuery,
+    targets: normalizedDisposition === 'skip' ? [] : targets,
     reason:
       disposition === 'skip' && confidence < MINIMUM_CONFIDENT_SKIP_SCORE ? 'ambiguous' : reason
   }
@@ -122,6 +146,7 @@ function createFallbackDecision(input: LoreRouterInput, fallbackReason: string):
     disposition: 'uncertain',
     confidence: 0,
     retrievalQuery: [input.userMessage.trim(), historyText].filter(Boolean).join('\n'),
+    targets: ['story', 'glossary'],
     reason: 'router-fallback',
     routerProfileId: input.profile.id,
     fallbackReason
@@ -182,6 +207,7 @@ export class LoreRouter {
         routerProfileId: input.profile.id,
         disposition: decision.disposition,
         confidence: decision.confidence,
+        targets: decision.targets,
         reason: decision.reason
       })
       return decision

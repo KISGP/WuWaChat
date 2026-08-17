@@ -19,7 +19,7 @@ export type LoreTerm = {
   term: string
   definition: string
   sourcePath: string
-  taskIds: string[]
+  knownByTaskIds: string[]
 }
 
 export type LoreSummary = {
@@ -32,18 +32,20 @@ export type LoreSummary = {
 
 export type LorePackageSource = {
   kind: 'markdown-build' | 'remote-package'
-  version: string
   sourceFingerprint: string
   builtAt: string
 }
 
 export type LorePackage = {
-  version: 3
   source: LorePackageSource
-  tasks: LoreTask[]
-  scenes: LoreScene[]
-  terms: LoreTerm[]
-  summaries: LoreSummary[]
+  story: {
+    tasks: LoreTask[]
+    scenes: LoreScene[]
+    summaries: LoreSummary[]
+  }
+  glossary: {
+    terms: LoreTerm[]
+  }
 }
 
 export type LoreStatus = {
@@ -51,7 +53,6 @@ export type LoreStatus = {
   available: boolean
   sourceFingerprint: string | null
   sourceKind: LorePackageSource['kind'] | null
-  packageVersion: string | null
   sourceUpdatedAt: string | null
   builtAt: string | null
   taskCount: number
@@ -70,6 +71,8 @@ export type LoreSemanticIndex = {
 
 export type LoreRouteDisposition = 'retrieve' | 'skip' | 'uncertain'
 
+export type LoreRetrievalTarget = 'story' | 'glossary'
+
 export type LoreRouteReason =
   | 'past-event'
   | 'character-history'
@@ -83,6 +86,7 @@ export type LoreRouteDecision = {
   disposition: LoreRouteDisposition
   confidence: number
   retrievalQuery: string
+  targets: LoreRetrievalTarget[]
   reason: LoreRouteReason
   routerProfileId: string
   fallbackReason?: string
