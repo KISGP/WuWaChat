@@ -1,9 +1,9 @@
-import type { ModelProfile } from '@shared/chat'
 import type { AppSettings } from '@shared/app-settings'
-import type { ProfilesStore } from '@shared/model-settings'
+import type { OpenAIProfileConnectionTestRequest, ProfilesStore } from '@shared/model-settings'
 import type { AppearanceSettings } from '@shared/settings'
 import {
   getProfiles,
+  cancelProfileTest,
   getUnifiedSettings,
   saveAppearanceSettings,
   saveProfiles,
@@ -32,12 +32,16 @@ export function registerSettingsIpc(): void {
   )
   handleLogged(
     'settings:testProfile',
-    (_event, profile: ModelProfile) => testProfile(profile),
-    (profile) => ({
-      profileId: profile.id,
-      provider: profile.provider,
-      baseUrl: profile.baseUrl,
-      model: profile.model
+    (_event, request: OpenAIProfileConnectionTestRequest) => testProfile(request),
+    (request) => ({
+      requestId: request.requestId,
+      profileId: request.profile.id,
+      provider: request.profile.provider,
+      baseUrl: request.profile.baseUrl,
+      model: request.profile.model
     })
+  )
+  handleLogged('settings:cancelProfileTest', (_event, requestId: string) =>
+    cancelProfileTest(requestId)
   )
 }

@@ -1,4 +1,5 @@
 import { safeStorage } from 'electron'
+import { createHash } from 'crypto'
 import { readFile } from 'fs/promises'
 import type { ModelProfile } from '@shared/chat'
 import type { AppSettings } from '@shared/app-settings'
@@ -38,7 +39,7 @@ type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles' | 'app'> & {
 function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
   const storedProfiles = settings.profiles
 
-  return normalizeUnifiedSettings({
+  const runtime = normalizeUnifiedSettings({
     ...settings,
     app: {
       ...settings.app,
@@ -63,6 +64,24 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
       )
     }
   })
+
+  return {
+    ...runtime,
+    profiles: {
+      ...runtime.profiles,
+      profiles: runtime.profiles.profiles.map((profile) => {
+        const catalog = profile.modelCatalog
+        const apiKeyFingerprint = createHash('sha256').update(profile.apiKey.trim()).digest('hex')
+        const catalogMatchesProfile =
+          catalog &&
+          catalog.provider === profile.provider &&
+          catalog.baseUrl === profile.baseUrl.trim() &&
+          catalog.apiKeyFingerprint === apiKeyFingerprint
+
+        return catalogMatchesProfile ? profile : { ...profile, modelCatalog: undefined }
+      })
+    }
+  }
 }
 
 /**

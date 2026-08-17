@@ -1,9 +1,9 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import type { ModelProfile } from '@shared/chat'
 import type { OpenAIProfileConnectionTestResult } from '@shared/model-settings'
-import { type ModelOptionsCache } from '@renderer/components/settings/model/helpers'
 import { trackUiEvent } from '@renderer/logging'
 import { connectionFingerprint, isValidUrl } from '@renderer/utils'
+import { useSettingsStore } from '@renderer/stores/settingsStore'
 
 type UseModelTabStateArgs = {
   currentProfile?: ModelProfile
@@ -26,7 +26,6 @@ type UseModelTabStateResult = {
   testingProfile: string | null
   currentResult?: OpenAIProfileConnectionTestResult
   currentModelOptions: string[]
-  visibleModelOptions: string[]
   hasModelOptions: boolean
   baseUrlInvalid: boolean
   canTest: boolean
@@ -34,9 +33,15 @@ type UseModelTabStateResult = {
   updateCurrentProfile: (patch: Partial<ModelProfile>) => void
   handleProviderSelect: (provider: ModelProfile['provider']) => void
   handleTestConnection: () => Promise<void>
+  handleCancelTestConnection: () => Promise<void>
   handleConfirmDelete: () => void
 }
 
+/**
+ * @description Coordinates model-profile editor state, connection testing, and persisted catalogs.
+ * @param args The selected profile and store operations required by the settings page.
+ * @returns UI state and event handlers for the model settings tab.
+ */
 export function useModelTabState({
   currentProfile,
   updateProfile,
@@ -49,58 +54,47 @@ export function useModelTabState({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ModelProfile | null>(null)
   const [testingProfile, setTestingProfile] = useState<string | null>(null)
+  const [testingRequestId, setTestingRequestId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, OpenAIProfileConnectionTestResult>>(
     {}
   )
-  const [modelOptions, setModelOptions] = useState<Record<string, ModelOptionsCache>>({})
-
-  const currentFingerprint = currentProfile ? connectionFingerprint(currentProfile) : ''
   const currentResult = currentProfile ? testResults[currentProfile.id] : undefined
-  const currentModelOptions = useMemo(() => {
-    if (!currentProfile) {
-      return []
-    }
-
-    return modelOptions[currentProfile.id]?.fingerprint === currentFingerprint
-      ? modelOptions[currentProfile.id].models
-      : []
-  }, [currentFingerprint, currentProfile, modelOptions])
-  const visibleModelOptions = useMemo(() => {
-    const query = currentProfile?.model.trim().toLowerCase() || ''
-    if (!query) return currentModelOptions
-
-    return currentModelOptions.filter((model) => model.toLowerCase().includes(query))
-  }, [currentModelOptions, currentProfile?.model])
-
+  const currentModelOptions = useMemo(
+    () => currentProfile?.modelCatalog?.models || [],
+    [currentProfile?.modelCatalog]
+  )
   const hasModelOptions = currentModelOptions.length > 0
   const baseUrlInvalid = currentProfile ? !isValidUrl(currentProfile.baseUrl) : false
   const canTest =
     Boolean(currentProfile) && !baseUrlInvalid && testingProfile !== currentProfile?.id
 
+  /**
+   * @description Removes volatile test feedback after endpoint credentials are changed.
+   * @param profileId The profile whose current test result is no longer valid.
+   */
   const clearProfileConnectionState = (profileId: string): void => {
     setTestResults((current) => {
       const next = { ...current }
       delete next[profileId]
       return next
     })
-    setModelOptions((current) => {
-      const next = { ...current }
-      delete next[profileId]
-      return next
-    })
   }
 
+  /**
+   * @description Updates the selected profile and invalidates its catalog when its connection changes.
+   * @param patch The editable fields to apply to the selected profile.
+   */
   const updateCurrentProfile = (patch: Partial<ModelProfile>): void => {
     if (!currentProfile) return
 
-    updateProfile(currentProfile.id, patch)
-
     if ('provider' in patch || 'baseUrl' in patch || 'apiKey' in patch) {
+      updateProfile(currentProfile.id, { ...patch, modelCatalog: undefined })
       clearProfileConnectionState(currentProfile.id)
       return
     }
 
-    if (!('model' in patch)) {
+    updateProfile(currentProfile.id, patch)
+    if ('model' in patch) {
       setTestResults((current) => {
         const next = { ...current }
         delete next[currentProfile.id]
@@ -124,6 +118,8 @@ export function useModelTabState({
   const handleTestConnection = async (): Promise<void> => {
     if (!currentProfile || !canTest) return
 
+    const requestId = crypto.randomUUID()
+
     trackUiEvent('model-connection-test', 'User started a model connection test', {
       profileId: currentProfile.id,
       provider: currentProfile.provider,
@@ -131,43 +127,57 @@ export function useModelTabState({
       model: currentProfile.model
     })
     setTestingProfile(currentProfile.id)
+    setTestingRequestId(requestId)
     try {
-      const result = await window.settings.testProfile(currentProfile)
-      setTestResults((current) => ({
-        ...current,
-        [currentProfile.id]: result
-      }))
-
-      if (result.ok && result.models && result.models.length > 0) {
-        setModelOptions((current) => ({
+      const result = await window.settings.testProfile({ requestId, profile: currentProfile })
+      const latestProfile = useSettingsStore
+        .getState()
+        .store.profiles.find((profile) => profile.id === currentProfile.id)
+      if (
+        latestProfile &&
+        connectionFingerprint(latestProfile) === connectionFingerprint(currentProfile)
+      ) {
+        setTestResults((current) => ({
           ...current,
-          [currentProfile.id]: {
-            fingerprint: currentFingerprint,
-            models: result.models || []
-          }
+          [currentProfile.id]: result
         }))
-      } else {
-        setModelOptions((current) => {
-          const next = { ...current }
-          delete next[currentProfile.id]
-          return next
-        })
+        if (result.modelCatalog) {
+          updateProfile(currentProfile.id, { modelCatalog: result.modelCatalog })
+        }
       }
     } catch (error) {
-      setTestResults((current) => ({
-        ...current,
-        [currentProfile.id]: {
-          ok: false,
-          message: error instanceof Error ? error.message : String(error)
-        }
-      }))
-      setModelOptions((current) => {
-        const next = { ...current }
-        delete next[currentProfile.id]
-        return next
-      })
+      const latestProfile = useSettingsStore
+        .getState()
+        .store.profiles.find((profile) => profile.id === currentProfile.id)
+      if (
+        latestProfile &&
+        connectionFingerprint(latestProfile) === connectionFingerprint(currentProfile)
+      ) {
+        setTestResults((current) => ({
+          ...current,
+          [currentProfile.id]: {
+            ok: false,
+            message: error instanceof Error ? error.message : String(error)
+          }
+        }))
+      }
     } finally {
       setTestingProfile(null)
+      setTestingRequestId(null)
+    }
+  }
+
+  /**
+   * @description Requests cancellation for the active connection test, if one exists.
+   * @returns A promise that resolves after the main process receives the cancellation request.
+   */
+  const handleCancelTestConnection = async (): Promise<void> => {
+    if (!testingRequestId) return
+
+    try {
+      await window.settings.cancelProfileTest(testingRequestId)
+    } catch (error) {
+      console.error('Failed to cancel model connection test', error)
     }
   }
 
@@ -196,7 +206,6 @@ export function useModelTabState({
     testingProfile,
     currentResult,
     currentModelOptions,
-    visibleModelOptions,
     hasModelOptions,
     baseUrlInvalid,
     canTest,
@@ -204,6 +213,7 @@ export function useModelTabState({
     updateCurrentProfile,
     handleProviderSelect,
     handleTestConnection,
+    handleCancelTestConnection,
     handleConfirmDelete
   }
 }

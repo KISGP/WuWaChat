@@ -1,4 +1,4 @@
-import type { ModelProfile, ProviderKind } from './chat'
+import type { ModelCatalog, ModelProfile, ProviderKind, ReasoningEffort } from './chat'
 
 export type ProfilesStore = {
   activeProfileId: string
@@ -11,9 +11,17 @@ export type OpenAIProfileConnectionTestResult = {
   message: string
   models?: string[]
   latencyMs?: number
+  modelCatalog?: ModelCatalog
+}
+
+export type OpenAIProfileConnectionTestRequest = {
+  requestId: string
+  profile: ModelProfile
 }
 
 export const DEFAULT_PROFILE_ID = 'openai-default'
+
+export const REASONING_EFFORTS: ReasoningEffort[] = ['auto', 'low', 'medium', 'high']
 
 export const PROVIDER_LABELS: Record<ProviderKind, string> = {
   openai: 'OpenAI',
@@ -55,7 +63,8 @@ export function createDefaultProfile(
     apiKey: '',
     model: defaults.model,
     temperature: defaults.temperature,
-    maxTokens: defaults.maxTokens
+    maxTokens: defaults.maxTokens,
+    reasoningEffort: 'auto'
   }
 }
 
@@ -77,6 +86,10 @@ export function normalizeModelProfile(
   const provider =
     raw.provider === 'deepseek' || raw.provider === 'openai' ? raw.provider : 'openai'
   const fallback = createDefaultProfile(fallbackId, PROVIDER_LABELS[provider], provider)
+  const reasoningEffort = REASONING_EFFORTS.includes(raw.reasoningEffort as ReasoningEffort)
+    ? (raw.reasoningEffort as ReasoningEffort)
+    : fallback.reasoningEffort
+  const modelCatalog = normalizeModelCatalog(raw.modelCatalog, provider)
 
   return {
     id: typeof raw.id === 'string' && raw.id.trim() ? raw.id : fallback.id,
@@ -86,7 +99,40 @@ export function normalizeModelProfile(
     apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : fallback.apiKey,
     model: typeof raw.model === 'string' ? raw.model : fallback.model,
     temperature: Number.isFinite(raw.temperature) ? Number(raw.temperature) : fallback.temperature,
-    maxTokens: Number.isFinite(raw.maxTokens) ? Number(raw.maxTokens) : fallback.maxTokens
+    maxTokens: Number.isFinite(raw.maxTokens) ? Number(raw.maxTokens) : fallback.maxTokens,
+    reasoningEffort,
+    ...(modelCatalog ? { modelCatalog } : {})
+  }
+}
+
+/**
+ * @description Validates a persisted model catalog without accepting credential material.
+ * @param value The untrusted catalog value from settings storage.
+ * @param provider The profile provider the catalog must match.
+ * @returns A normalized catalog or undefined when the value is incomplete.
+ */
+function normalizeModelCatalog(value: unknown, provider: ProviderKind): ModelCatalog | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const raw = value as Partial<ModelCatalog>
+  if (
+    raw.provider !== provider ||
+    typeof raw.baseUrl !== 'string' ||
+    typeof raw.fetchedAt !== 'string' ||
+    typeof raw.apiKeyFingerprint !== 'string' ||
+    !Array.isArray(raw.models)
+  ) {
+    return undefined
+  }
+
+  return {
+    provider,
+    baseUrl: raw.baseUrl,
+    fetchedAt: raw.fetchedAt,
+    apiKeyFingerprint: raw.apiKeyFingerprint,
+    models: [...new Set(raw.models.filter((model): model is string => typeof model === 'string'))]
   }
 }
 

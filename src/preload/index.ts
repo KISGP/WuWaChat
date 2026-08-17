@@ -4,8 +4,7 @@ import type {
   ChatDeleteMessageRequest,
   ChatPromptPreviewRequest,
   ChatRunEvent,
-  ChatRunRequest,
-  ModelProfile
+  ChatRunRequest
 } from '@shared/chat'
 import { CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
 import type { RendererLogEventPayload } from '@shared/logging'
@@ -14,7 +13,7 @@ import type {
   MemorySettingsStore,
   MemoryTaskEvent
 } from '@shared/memory-settings'
-import type { ProfilesStore } from '@shared/model-settings'
+import type { OpenAIProfileConnectionTestRequest, ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
@@ -75,7 +74,10 @@ const settings = {
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
   saveProfiles: (data: ProfilesStore) => ipcRenderer.invoke('settings:saveProfiles', data),
   saveAppearance: (data: AppearanceSettings) => ipcRenderer.invoke('settings:saveAppearance', data),
-  testProfile: (profile: ModelProfile) => ipcRenderer.invoke('settings:testProfile', profile)
+  testProfile: (request: OpenAIProfileConnectionTestRequest) =>
+    ipcRenderer.invoke('settings:testProfile', request),
+  cancelProfileTest: (requestId: string) =>
+    ipcRenderer.invoke('settings:cancelProfileTest', requestId)
 }
 
 const memory = {

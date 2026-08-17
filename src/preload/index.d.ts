@@ -10,8 +10,7 @@ import type {
   ChatRunRequest,
   CharacterPromptDocument,
   CharacterSummary,
-  ConversationSession,
-  ModelProfile
+  ConversationSession
 } from '@shared/chat'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type {
@@ -25,7 +24,11 @@ import type {
   MemoryTask,
   MemoryTaskEvent
 } from '@shared/memory-settings'
-import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
+import type {
+  OpenAIProfileConnectionTestRequest,
+  OpenAIProfileConnectionTestResult,
+  ProfilesStore
+} from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
@@ -67,7 +70,10 @@ declare global {
       getProfiles: () => Promise<ProfilesStore>
       saveProfiles: (store: ProfilesStore) => Promise<ProfilesStore>
       saveAppearance: (appearance: AppearanceSettings) => Promise<AppearanceSettings>
-      testProfile: (profile: ModelProfile) => Promise<OpenAIProfileConnectionTestResult>
+      testProfile: (
+        request: OpenAIProfileConnectionTestRequest
+      ) => Promise<OpenAIProfileConnectionTestResult>
+      cancelProfileTest: (requestId: string) => Promise<boolean>
     }
     memory: {
       getSettings: () => Promise<MemorySettingsStore>

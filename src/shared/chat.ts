@@ -3,6 +3,16 @@ import type { LoreRouteDecision } from './lore'
 
 export type ProviderKind = 'openai' | 'deepseek'
 
+export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high'
+
+export type ModelCatalog = {
+  models: string[]
+  fetchedAt: string
+  provider: ProviderKind
+  baseUrl: string
+  apiKeyFingerprint: string
+}
+
 export type ModelProfile = {
   id: string
   name: string
@@ -12,6 +22,8 @@ export type ModelProfile = {
   model: string
   temperature: number
   maxTokens: number
+  reasoningEffort: ReasoningEffort
+  modelCatalog?: ModelCatalog
 }
 
 export type CharacterSummary = {

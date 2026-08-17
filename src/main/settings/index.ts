@@ -1,14 +1,20 @@
 import type { ModelProfile } from '@shared/chat'
+import { net } from 'electron'
 import {
+  type OpenAIProfileConnectionTestRequest,
   type OpenAIProfileConnectionTestResult,
   type ProfilesStore,
   normalizeModelProfile,
   normalizeProfilesStore
 } from '@shared/model-settings'
+import { createHash } from 'crypto'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import { joinUrl } from '@main/utils'
 import { logger } from '@main/logging'
 import { getUnifiedSettingsStore } from './store'
+
+const PROFILE_TEST_TIMEOUT_MS = 10_000
+const activeProfileTests = new Map<string, AbortController>()
 
 /**
  * @description 获取配置文件中的模型配置
@@ -88,40 +94,76 @@ function modelNamesFromData(value: unknown): string[] {
   return []
 }
 
-async function fetchModelList(profile: ModelProfile): Promise<string[]> {
+/**
+ * @description Retrieves the models exposed by an OpenAI-compatible provider.
+ * @param profile The model profile defining endpoint and credentials.
+ * @param signal Cancels the underlying HTTP request when testing is stopped or times out.
+ * @returns The normalized list of remote model identifiers.
+ */
+async function fetchModelList(profile: ModelProfile, signal: AbortSignal): Promise<string[]> {
   const body = await readJson(
-    await fetch(joinUrl(requireBaseUrl(profile), '/models'), {
+    await net.fetch(joinUrl(requireBaseUrl(profile), '/models'), {
       headers: profile.apiKey.trim()
         ? {
             Authorization: `Bearer ${profile.apiKey.trim()}`
           }
-        : undefined
+        : undefined,
+      signal
     })
   )
 
   return modelNamesFromData(body)
 }
 
+/**
+ * @description Produces a non-reversible credential identifier for validating cached model catalogs.
+ * @param apiKey The API key associated with a model profile.
+ * @returns A SHA-256 fingerprint that never exposes the API key itself.
+ */
+function createApiKeyFingerprint(apiKey: string): string {
+  return createHash('sha256').update(apiKey.trim()).digest('hex')
+}
+
+/**
+ * @description Tests a profile's model endpoint and returns a credential-bound model catalog.
+ * @param request The renderer-generated test identifier and profile to test.
+ * @returns The connection result, including the refreshed catalog after success.
+ */
 export async function testProfile(
-  profile: ModelProfile
+  request: OpenAIProfileConnectionTestRequest
 ): Promise<OpenAIProfileConnectionTestResult> {
+  const { profile, requestId } = request
   const startedAt = Date.now()
+  const controller = new AbortController()
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, PROFILE_TEST_TIMEOUT_MS)
+  activeProfileTests.set(requestId, controller)
 
   try {
     const normalized = normalizeModelProfile(profile, profile.id || 'profile-test')
-    const models = await fetchModelList(normalized)
+    const models = await fetchModelList(normalized, controller.signal)
     const latencyMs = Date.now() - startedAt
     const hasSelectedModel = normalized.model
       ? models.some((model) => model === normalized.model || model.endsWith(`/${normalized.model}`))
       : true
 
-    const result = {
+    const result: OpenAIProfileConnectionTestResult = {
       ok: hasSelectedModel,
       models,
       latencyMs,
       message: hasSelectedModel
-        ? `Connected successfully. Found ${models.length} models.`
-        : `Connected successfully, but the selected model was not found: ${normalized.model}`
+        ? `连接成功，发现 ${models.length} 个模型。`
+        : `连接成功，但未找到当前模型：${normalized.model}`,
+      modelCatalog: {
+        models,
+        fetchedAt: new Date().toISOString(),
+        provider: normalized.provider,
+        baseUrl: normalized.baseUrl.trim(),
+        apiKeyFingerprint: createApiKeyFingerprint(normalized.apiKey)
+      }
     }
 
     void logger.info(
@@ -144,7 +186,13 @@ export async function testProfile(
     const result = {
       ok: false,
       latencyMs: Date.now() - startedAt,
-      message: error instanceof Error ? error.message : String(error)
+      message: controller.signal.aborted
+        ? timedOut
+          ? `连接测试超时（${PROFILE_TEST_TIMEOUT_MS / 1000} 秒）。`
+          : '连接测试已取消。'
+        : error instanceof Error
+          ? error.message
+          : String(error)
     }
 
     void logger.error('settings', 'profile-test-failed', 'Model profile connection test failed', {
@@ -157,5 +205,24 @@ export async function testProfile(
     })
 
     return result
+  } finally {
+    clearTimeout(timeout)
+    activeProfileTests.delete(requestId)
   }
+}
+
+/**
+ * @description Cancels a pending model profile connection test.
+ * @param requestId The renderer-generated test identifier.
+ * @returns Whether an active test was found and aborted.
+ */
+export function cancelProfileTest(requestId: string): boolean {
+  const controller = activeProfileTests.get(requestId)
+  if (!controller) {
+    return false
+  }
+
+  activeProfileTests.delete(requestId)
+  controller.abort()
+  return true
 }

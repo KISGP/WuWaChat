@@ -13,6 +13,7 @@ import { create } from 'zustand'
 type SettingsStore = {
   store: ProfilesStore
   isLoaded: boolean
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error'
   saveError: string | null
   hydrateProfiles: (store: ProfilesStore) => void
   setActiveProfileId: (profileId: string) => void
@@ -27,6 +28,7 @@ type SettingsStore = {
 const defaultStore = createDefaultProfilesStore()
 let saveTimer: number | null = null
 let pendingProfilesStore: ProfilesStore | null = null
+let saveRevision = 0
 
 /**
  * @description 将模型配置提交给主进程统一设置服务，并记录失败状态。
@@ -36,16 +38,23 @@ let pendingProfilesStore: ProfilesStore | null = null
  */
 async function saveProfiles(
   store: ProfilesStore,
-  set: (partial: Partial<SettingsStore>) => void
+  set: (partial: Partial<SettingsStore>) => void,
+  revision: number
 ): Promise<void> {
-  pendingProfilesStore = null
+  if (pendingProfilesStore === store) {
+    pendingProfilesStore = null
+  }
   try {
     await window.settings.saveProfiles(store)
-    set({ saveError: null })
+    if (revision === saveRevision) {
+      set({ saveError: null, saveStatus: 'saved' })
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error('Failed to save model profiles', error)
-    set({ saveError: message })
+    if (revision === saveRevision) {
+      set({ saveError: message, saveStatus: 'error' })
+    }
   }
 }
 
@@ -59,6 +68,8 @@ function scheduleProfilesSave(
   set: (partial: Partial<SettingsStore>) => void
 ): void {
   pendingProfilesStore = store
+  const revision = ++saveRevision
+  set({ saveError: null, saveStatus: 'saving' })
   if (saveTimer != null) {
     window.clearTimeout(saveTimer)
   }
@@ -69,7 +80,7 @@ function scheduleProfilesSave(
       profileCount: store.profiles.length,
       activeProfileId: store.activeProfileId
     })
-    void saveProfiles(store, set)
+    void saveProfiles(store, set, revision)
   }, 300)
 }
 
@@ -85,8 +96,15 @@ function commitProfilesStore(
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   store: defaultStore,
   isLoaded: false,
+  saveStatus: 'idle',
   saveError: null,
-  hydrateProfiles: (store) => set({ store: normalizeProfilesStore(store), isLoaded: true }),
+  hydrateProfiles: (store) =>
+    set({
+      store: normalizeProfilesStore(store),
+      isLoaded: true,
+      saveStatus: 'idle',
+      saveError: null
+    }),
   setActiveProfileId: (profileId) => {
     trackUiEvent('model-profile-selected', 'User selected an active model profile', {
       profileId
@@ -126,6 +144,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         }
 
         const defaults = PROVIDER_DEFAULTS[provider]
+        const profileWithoutCatalog = { ...profile }
+        delete profileWithoutCatalog.modelCatalog
         const nextName =
           profile.name === PROVIDER_LABELS[profile.provider] ||
           profile.name.startsWith('OpenAI ') ||
@@ -134,13 +154,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             : profile.name
 
         return {
-          ...profile,
+          ...profileWithoutCatalog,
           provider,
           name: nextName,
           baseUrl: defaults.baseUrl,
           model: defaults.model,
-          temperature: defaults.temperature,
-          maxTokens: defaults.maxTokens
+          reasoningEffort: profile.reasoningEffort
         }
       })
     })
@@ -183,7 +202,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       window.clearTimeout(saveTimer)
       saveTimer = null
     }
-    await saveProfiles(pendingProfilesStore || get().store, set)
+    const revision = ++saveRevision
+    set({ saveError: null, saveStatus: 'saving' })
+    await saveProfiles(pendingProfilesStore || get().store, set, revision)
   }
 }))
 
