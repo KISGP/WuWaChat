@@ -7,9 +7,7 @@ import type {
   MemorySettingsStore,
   MemoryStatusSnapshot,
   MemoryTargetSelection,
-  MemoryTask,
-  WorldKnowledgeRouteStatus,
-  WorldIndexStatus
+  MemoryTask
 } from '@shared/memory-settings'
 import { createDefaultMemorySettingsStore } from '@shared/memory-settings'
 import { trackUiEvent } from '@renderer/logging'
@@ -29,9 +27,6 @@ export type LocalModelUiState = {
 type MemoryStore = {
   settings: MemorySettingsStore
   isLoaded: boolean
-  worldIndex: WorldIndexStatus | null
-  storyStatus: WorldKnowledgeRouteStatus | null
-  glossaryStatus: WorldKnowledgeRouteStatus | null
   memoryIndex: CharacterMemoryIndexStatus | null
   compatibility: EmbeddingCompatibilityStatus[]
   embeddingTestResult: EmbeddingConnectionTestResult | null
@@ -51,8 +46,6 @@ type MemoryStore = {
   removeLocalModel: (modelId: string) => Promise<void>
   clearLocalModelUiState: (modelId: string) => void
   testEmbeddingConnection: () => Promise<void>
-  startWorldBundleDownload: () => Promise<void>
-  startWorldVectorBuild: () => Promise<void>
   startCharacterMemoryBuild: (characterId: string) => Promise<void>
   startAllMemoryBuild: () => Promise<void>
   cancelTask: (taskId: string) => Promise<void>
@@ -213,9 +206,6 @@ export function clearScheduledMemoryStatusRefresh(): void {
 export const useMemoryStore = create<MemoryStore>((set, get) => ({
   settings: createDefaultMemorySettingsStore(),
   isLoaded: false,
-  worldIndex: null,
-  storyStatus: null,
-  glossaryStatus: null,
   memoryIndex: null,
   compatibility: [],
   embeddingTestResult: null,
@@ -228,9 +218,6 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
   applySnapshot: (snapshot) =>
     set({
       settings: snapshot.settings,
-      worldIndex: snapshot.worldIndex,
-      storyStatus: snapshot.storyStatus,
-      glossaryStatus: snapshot.glossaryStatus,
       memoryIndex: snapshot.memoryIndex,
       tasks: snapshot.tasks,
       hardware: snapshot.hardware
@@ -278,7 +265,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
   saveSettings: async (store) => {
     trackUiEvent('memory-settings-save', 'User saved memory settings', {
       retrievalMode: store.retrievalMode,
-      worldSearchEnabled: store.worldSearchEnabled,
+      loreSearchEnabled: store.loreSearchEnabled,
       memorySearchEnabled: store.memorySearchEnabled
     })
     const saved = await window.memory.saveSettings(store)
@@ -353,16 +340,6 @@ export const useMemoryStore = create<MemoryStore>((set, get) => ({
     })
     const result = await window.memory.testEmbeddingConnection()
     set({ embeddingTestResult: result })
-    await get().refreshStatus(getActiveMemoryTargetSelection())
-  },
-  startWorldBundleDownload: async () => {
-    trackUiEvent('memory-world-bundle-download', 'User started world bundle refresh')
-    await window.memory.startWorldBundleDownload()
-    await get().refreshStatus(getActiveMemoryTargetSelection())
-  },
-  startWorldVectorBuild: async () => {
-    trackUiEvent('memory-world-build', 'User started world vector build')
-    await window.memory.startWorldVectorBuild()
     await get().refreshStatus(getActiveMemoryTargetSelection())
   },
   startCharacterMemoryBuild: async (characterId) => {

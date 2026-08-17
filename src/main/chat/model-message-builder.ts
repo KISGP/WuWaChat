@@ -50,7 +50,7 @@ export function buildSystemPromptText(prompt: string, retrievalContext: string[]
 export function formatRetrievalContextHit(hit: ChatPromptPreviewHit): string {
   const scopeLabel =
     hit.scope === 'glossary' ? 'Glossary' : hit.scope === 'story' ? 'Story' : 'Chat Memory'
-  const locationLabel = hit.term ? ` (${hit.term})` : hit.sourcePath ? ` (${hit.sourcePath})` : ''
+  const locationLabel = hit.sourcePath ? ` (${hit.sourcePath})` : ''
   return `[${scopeLabel}${locationLabel}]\n${hit.text}`
 }
 

@@ -4,16 +4,21 @@ import { formatRetrievalContextHit } from '@main/chat/model-message-builder'
 
 export function createRetrieveContextNode(context: ChatGraphNodeContext) {
   return async (state: GraphStateValue) => {
-    const [storyContext, glossaryContext, chatMemoryContext] = await Promise.all([
-      context.chatContext.retrieveStoryContext(state.userMessage),
-      context.chatContext.retrieveGlossaryContext(state.userMessage),
+    const [loreContext, chatMemoryContext] = await Promise.all([
+      context.chatContext.retrieveLoreContext(
+        state.userMessage,
+        state.character,
+        state.history,
+        state.profile,
+        state.abortSignal
+      ),
       context.chatContext.retrieveChatMemoryContext(state.userMessage, state.session)
     ])
 
     return {
       retrievalContext: [
-        ...glossaryContext.map(formatRetrievalContextHit),
-        ...storyContext.map(formatRetrievalContextHit),
+        ...loreContext.glossaryHits.map(formatRetrievalContextHit),
+        ...loreContext.storyHits.map(formatRetrievalContextHit),
         ...chatMemoryContext.map(formatRetrievalContextHit)
       ]
     }

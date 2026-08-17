@@ -1,9 +1,4 @@
-import { is } from '@electron-toolkit/utils'
-import type {
-  MemoryDebugRetrieveRequest,
-  MemorySettingsStore,
-  MemoryTargetSelection
-} from '@shared/memory-settings'
+import type { MemorySettingsStore, MemoryTargetSelection } from '@shared/memory-settings'
 import { getMemoryService } from '@main/chat'
 import { handleLogged } from './logged-handler'
 
@@ -16,7 +11,7 @@ export function registerMemoryIpc(): void {
     (_event, store: MemorySettingsStore) => memory.saveSettings(store),
     (store) => ({
       retrievalMode: store.retrievalMode,
-      worldSearchEnabled: store.worldSearchEnabled,
+      loreSearchEnabled: store.loreSearchEnabled,
       memorySearchEnabled: store.memorySearchEnabled
     })
   )
@@ -54,7 +49,6 @@ export function registerMemoryIpc(): void {
       sessionId: selection?.sessionId
     })
   )
-  handleLogged('memory:getWorldIndexStatus', () => memory.getWorldIndexStatus())
   handleLogged(
     'memory:getMemoryIndexStatus',
     (_event, selection?: MemoryTargetSelection | null) => memory.getMemoryIndexStatus(selection),
@@ -63,8 +57,6 @@ export function registerMemoryIpc(): void {
       sessionId: selection?.sessionId
     })
   )
-  handleLogged('memory:startWorldBundleDownload', () => memory.startWorldBundleDownload())
-  handleLogged('memory:startWorldVectorBuild', () => memory.startWorldVectorBuild())
   handleLogged(
     'memory:startCharacterMemoryBuild',
     (_event, characterId: string) => memory.startCharacterMemoryBuild(characterId),
@@ -76,16 +68,4 @@ export function registerMemoryIpc(): void {
     (_event, taskId: string) => memory.cancelTask(taskId),
     (taskId) => ({ taskId })
   )
-  if (is.dev) {
-    handleLogged(
-      'memory:debugRetrieve',
-      (_event, request: MemoryDebugRetrieveRequest) => memory.debugRetrieve(request),
-      (request) => ({
-        scope: request.scope,
-        characterId: request.characterId,
-        sessionId: request.sessionId,
-        queryLength: request.query.length
-      })
-    )
-  }
 }

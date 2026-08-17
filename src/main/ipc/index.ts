@@ -1,4 +1,5 @@
 import { registerChatIpc } from './chat'
+import { registerLoreIpc } from './lore'
 import { registerCharacterIpc } from './characters'
 import { registerLogIpc } from './logs'
 import { registerMemoryIpc } from './memory'
@@ -11,6 +12,7 @@ import { registerWindowIpc } from './window'
 export function registerIpc(): void {
   registerWindowIpc()
   registerChatIpc()
+  registerLoreIpc()
   registerCharacterIpc()
   registerSettingsIpc()
   registerMemoryIpc()

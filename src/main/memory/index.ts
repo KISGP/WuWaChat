@@ -1,33 +1,22 @@
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import AdmZip from 'adm-zip'
-import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises'
-import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
 import type { ConversationSession, MemoryEntry } from '@shared/chat'
 import type {
   CharacterMemoryIndexStatus,
-  MemoryDebugRetrieveRequest,
-  MemoryDebugRetrieveResult,
-  MemoryDebugRetrievalHit,
-  MemoryDebugRuntimeDetail,
-  MemoryDebugRuntimeSummary,
-  MemoryKnowledgeScope,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   EmbeddingFingerprint,
   InstalledLocalEmbeddingModel,
-  IndexManifestRecord,
   LocalEmbeddingCatalogItem,
+  MemoryDebugRetrievalHit,
+  MemoryDebugRuntimeDetail,
   MemoryHardwareInfo,
   MemorySettingsStore,
-  MemoryTargetSelection,
   MemoryStatusSnapshot,
+  MemoryTargetSelection,
   MemoryTask,
-  MemoryTaskStatus,
-  MemoryTaskEvent,
-  WorldKnowledgeRouteStatus,
-  WorldIndexStatus
+  MemoryTaskEvent
 } from '@shared/memory-settings'
 import {
   createDefaultMemorySettingsStore,
@@ -38,54 +27,24 @@ import {
   isSameEmbeddingFingerprint
 } from '@main/embedding/fingerprint'
 import type { EmbeddingBatchProgress, EmbeddingProvider } from '@main/embedding/types'
+import { logger } from '@main/logging'
+import { runMonitoredTask } from '@main/observability/monitored-task'
+import { getUnifiedSettingsStore } from '@main/settings/store'
+import { getIndexRuntimeMode, getMemoryDatabasePath, now } from '@main/utils'
 import { readMemoryHardwareInfo } from './hardware'
 import type { RetrievalExecution } from './internal-types'
 import { MemoryIndexRepository } from './index-repository'
-import { MemoryWorkerClient } from './worker-client'
 import { RetrievalQueryService } from './retrieval-query-service'
-import { loadWorldKnowledgeEntries, walkMarkdownFiles } from './world'
+import { MemoryWorkerClient } from './worker-client'
 import { MemoryWorkerRuntime } from './worker-runtime'
-import { buildGlossaryStatus, getGlossaryAvailability, getGlossaryCompatibilityReason } from './glossary'
-import { logger } from '@main/logging'
-import { getUnifiedSettingsStore } from '@main/settings/store'
-import { runMonitoredTask } from '@main/observability/monitored-task'
-import { buildStoryStatus, getStoryAvailability, getStoryCompatibilityReason } from './story'
-import {
-  describeVectorFailure,
-  getAppDataRoot,
-  getIndexRuntimeMode,
-  getMemoryDatabasePath,
-  getWorldMetadataPath,
-  getWorldRoot,
-  now,
-  readOptionalFile,
-  pathExists,
-  writeJsonFileAtomic
-} from '@main/utils'
 
 type LocalEmbeddingModule = typeof import('../embedding/local')
 
-const STORY_SCOPE = 'story'
-const GLOSSARY_SCOPE = 'glossary'
 const MEMORY_SCOPE = 'character-memory'
-const WORLD_BUNDLE_ZIP_URL = 'https://codeload.github.com/KISGP/WuWaChatWorld/zip/refs/heads/main'
-const WORLD_BUNDLE_REPO_URL = 'https://api.github.com/repos/KISGP/WuWaChatWorld'
-const GLOSSARY_REFERENCE_LIMIT = 2
-
-type WorldBundleMetadata = {
-  updatedAt: string
-}
 
 type TaskCancellationState = {
   controller: AbortController
   throwIfCancelled: () => void
-}
-
-type PromptContextPreviewResult = {
-  storyHits: MemoryDebugRetrievalHit[]
-  glossaryHits: MemoryDebugRetrievalHit[]
-  chatMemoryHits: MemoryDebugRetrievalHit[]
-  runtimeSummary: MemoryDebugRuntimeSummary
 }
 
 type MemoryResolvedTarget = {
@@ -101,21 +60,19 @@ class MemoryTaskCancelledError extends Error {
   }
 }
 
+/**
+ * @description 管理角色长期记忆、其向量索引及本地 embedding 模型。
+ * @remarks 原作 Lore 检索不属于本服务；原作资料和向量由 `LoreService` 独立管理。
+ */
 export class MemoryService {
   private settings = createDefaultMemorySettingsStore()
   private sessions: ConversationSession[] = []
-  private storyEntries: MemoryEntry[] = []
-  private glossaryEntries: MemoryEntry[] = []
-  private worldUpdatedAt: string | null = null
-  private worldBundleError: string | null = null
   private tasks = new Map<string, MemoryTask>()
-  private settingsLoaded = false
   private initialized = false
   private settingsPromise: Promise<void> | null = null
   private initializationPromise: Promise<void> | null = null
   private db: DatabaseSync | null = null
   private repository: MemoryIndexRepository | null = null
-  private taskLogStates = new Map<string, MemoryTaskStatus>()
   private taskCancellationStates = new Map<string, TaskCancellationState>()
   private localEmbeddingModulePromise: Promise<LocalEmbeddingModule> | null = null
   private hardwareInfoPromise: Promise<MemoryHardwareInfo> | null = null
@@ -124,140 +81,75 @@ export class MemoryService {
     new MemoryWorkerRuntime(this.retrievalQueryService)
   )
 
+  /**
+   * @description 加载记忆设置，不初始化数据库或 embedding 运行时。
+   */
   async initializeSettings(): Promise<void> {
     await this.ensureSettingsLoaded()
   }
 
+  /**
+   * @description 初始化角色长期记忆的本地 SQLite 缓存。
+   */
   async initialize(): Promise<void> {
     await this.ensureInitialized('manual')
   }
 
-  private async ensureSettingsLoaded(): Promise<void> {
-    if (this.settingsLoaded) {
-      return
-    }
-
-    if (!this.settingsPromise) {
-      this.settingsPromise = this.loadSettings().then((settings) => {
-        this.settings = settings
-        this.settingsLoaded = true
-      })
-    }
-
-    await this.settingsPromise
-  }
-
-  private async ensureInitialized(
-    trigger:
-      | 'manual'
-      | 'memory-ipc'
-      | 'memory-status'
-      | 'memory-local-models'
-      | 'chat-world-retrieval'
-      | 'chat-memory-retrieval'
-      | 'memory-hardware'
-      | 'memory-build'
-      | 'memory-debug'
-      | 'memory-embedding'
-  ): Promise<void> {
-    if (this.initialized) {
-      return
-    }
-
-    await this.ensureSettingsLoaded()
-
-    if (!this.initializationPromise) {
-      const startedAt = Date.now()
-      void logger.info('memory', 'lazy-init-started', 'Starting lazy memory initialization', {
-        trigger,
-        retrievalMode: this.settings.retrievalMode
-      })
-
-      this.initializationPromise = (async () => {
-        this.db = new DatabaseSync(getMemoryDatabasePath())
-        this.repository = new MemoryIndexRepository(this.db)
-        this.repository.prepareDatabase()
-
-        try {
-          const worldBootstrapStartedAt = Date.now()
-          await this.ensureWorldBundleReady()
-          void logger.info(
-            'memory',
-            'world-bundle-ready',
-            'World bundle prepared during lazy memory initialization',
-            {
-              durationMs: Date.now() - worldBootstrapStartedAt,
-              worldUpdatedAt: this.worldUpdatedAt
-            }
-          )
-        } catch (error) {
-          this.worldBundleError = error instanceof Error ? error.message : String(error)
-          void logger.error(
-            'memory',
-            'world-bundle-initialize-failed',
-            'Failed to prepare world bundle during lazy memory initialization',
-            {
-              trigger,
-              error: this.worldBundleError
-            }
-          )
-        }
-
-        await this.loadWorldEntries()
-        this.initialized = true
-        void logger.info('memory', 'lazy-init-completed', 'Lazy memory initialization completed', {
-          trigger,
-          retrievalMode: this.settings.retrievalMode,
-          durationMs: Date.now() - startedAt,
-          worldEntryCount: this.getWorldEntryCount(),
-          worldUpdatedAt: this.worldUpdatedAt
-        })
-      })().catch((error) => {
-        this.initializationPromise = null
-        throw error
-      })
-    }
-
-    await this.initializationPromise
-  }
-
+  /**
+   * @description 替换当前会话快照，供角色记忆构建和检索使用。
+   * @param sessions 当前所有会话。
+   */
   setSessions(sessions: ConversationSession[]): void {
     this.sessions = sessions
   }
 
+  /**
+   * @description 同步最新会话快照。
+   * @param sessions 当前所有会话。
+   */
   syncSessions(sessions: ConversationSession[]): void {
     this.setSessions(sessions)
   }
 
+  /**
+   * @description 返回当前生效的记忆设置。
+   * @returns 内存中的设置快照。
+   */
   getSettings(): MemorySettingsStore {
     return this.settings
   }
 
+  /**
+   * @description 保存角色记忆与 Lore 共用的检索设置。
+   * @param store 待保存设置。
+   * @returns 已规范化并持久化的设置。
+   */
   async saveSettings(store: MemorySettingsStore): Promise<MemorySettingsStore> {
     await this.ensureSettingsLoaded()
-    const previousSettings = this.settings
+    const previous = this.settings
     this.settings = normalizeMemorySettingsStore(store)
     await this.persistSettings()
-
-    if (this.shouldClearLocalEmbeddingPipelines(previousSettings, this.settings)) {
+    if (this.shouldClearLocalEmbeddingPipelines(previous, this.settings)) {
       await this.clearLocalEmbeddingPipelines()
     }
-
-    void logger.info('memory', 'settings-saved', 'Memory settings saved', {
-      retrievalMode: this.settings.retrievalMode,
-      worldSearchEnabled: this.settings.worldSearchEnabled,
-      memorySearchEnabled: this.settings.memorySearchEnabled,
-      crossSessionCharacterMemory: this.settings.crossSessionCharacterMemory
-    })
     return this.settings
   }
 
+  /**
+   * @description 获取本地 embedding 模型目录及安装状态。
+   * @returns 可供选择的本地模型。
+   */
   async listLocalModels(): Promise<LocalEmbeddingCatalogItem[]> {
     await this.ensureInitialized('memory-local-models')
     const { listLocalEmbeddingModels } = await this.getLocalEmbeddingModule()
     return listLocalEmbeddingModels(this.settings.localEmbedding.model)
   }
 
+  /**
+   * @description 在后台下载指定本地 embedding 模型。
+   * @param modelId 模型标识。
+   * @returns 已创建的下载任务。
+   */
   async downloadLocalModel(modelId: string): Promise<MemoryTask> {
     await this.ensureInitialized('memory-build')
     return this.runTask(
@@ -265,18 +157,12 @@ export class MemoryService {
       'character-memory',
       async (taskId, updateTask) => {
         const { downloadLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
-        const installedModel = await downloadLocalEmbeddingModel(
+        const installed = await downloadLocalEmbeddingModel(
           modelId,
           this.settings.localEmbedding,
-          (progress, message) => {
-            updateTask(taskId, {
-              progress: Math.max(5, progress),
-              message,
-              characterId: modelId
-            })
-          }
+          (progress, message) =>
+            updateTask(taskId, { progress: Math.max(5, progress), message, characterId: modelId })
         )
-
         if (
           !this.settings.localEmbedding.modelPath ||
           this.settings.localEmbedding.model === modelId
@@ -285,9 +171,9 @@ export class MemoryService {
             ...this.settings,
             localEmbedding: {
               ...this.settings.localEmbedding,
-              model: installedModel.id,
-              modelPath: installedModel.modelPath,
-              dimensions: installedModel.dimensions
+              model: installed.id,
+              modelPath: installed.modelPath,
+              dimensions: installed.dimensions
             }
           })
           await this.persistSettings()
@@ -297,21 +183,25 @@ export class MemoryService {
     )
   }
 
+  /**
+   * @description 选择已安装的本地 embedding 模型。
+   * @param modelId 模型标识。
+   * @returns 更新后的设置。
+   */
   async selectLocalModel(modelId: string): Promise<MemorySettingsStore> {
     await this.ensureInitialized('memory-local-models')
     const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
-    const installedModel = await getInstalledLocalEmbeddingModel(modelId)
-    if (!installedModel) {
+    const installed = await getInstalledLocalEmbeddingModel(modelId)
+    if (!installed) {
       throw new Error('Selected local embedding model is not installed or is invalid.')
     }
-
     this.settings = normalizeMemorySettingsStore({
       ...this.settings,
       localEmbedding: {
         ...this.settings.localEmbedding,
-        model: installedModel.id,
-        modelPath: installedModel.modelPath,
-        dimensions: installedModel.dimensions || this.settings.localEmbedding.dimensions
+        model: installed.id,
+        modelPath: installed.modelPath,
+        dimensions: installed.dimensions
       }
     })
     await this.persistSettings()
@@ -319,6 +209,11 @@ export class MemoryService {
     return this.settings
   }
 
+  /**
+   * @description 删除指定本地 embedding 模型并清理运行时缓存。
+   * @param modelId 模型标识。
+   * @returns 删除成功时返回 `true`。
+   */
   async removeLocalModel(modelId: string): Promise<boolean> {
     await this.ensureInitialized('memory-local-models')
     const { removeLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
@@ -326,184 +221,42 @@ export class MemoryService {
     if (!removed) {
       return false
     }
-
     if (this.settings.localEmbedding.model === modelId) {
       this.settings = normalizeMemorySettingsStore({
         ...this.settings,
-        localEmbedding: {
-          ...this.settings.localEmbedding,
-          modelPath: ''
-        }
+        localEmbedding: { ...this.settings.localEmbedding, modelPath: '' }
       })
       await this.persistSettings()
     }
-
     await this.clearLocalEmbeddingPipelines()
     return true
   }
 
+  /**
+   * @description 测试当前 embedding 配置能否正常工作。
+   * @returns 连通性和延迟结果。
+   */
   async testEmbeddingConnection(): Promise<EmbeddingConnectionTestResult> {
     await this.ensureInitialized('memory-embedding')
-    const startedAt = Date.now()
-    void logger.info('memory', 'embedding-test-started', 'Embedding connection test started', {
-      retrievalMode: this.settings.retrievalMode
-    })
-
-    try {
-      const provider = await this.requireActiveEmbeddingProvider()
-      const result = await provider.testConnection()
-      void logger.info('memory', 'embedding-test-finished', 'Embedding connection test finished', {
-        retrievalMode: this.settings.retrievalMode,
-        latencyMs: Date.now() - startedAt,
-        ok: result.ok,
-        dimensions: result.dimensions
-      })
-      return result
-    } catch (error) {
-      void logger.error('memory', 'embedding-test-failed', 'Embedding connection test failed', {
-        retrievalMode: this.settings.retrievalMode,
-        latencyMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      throw error
-    }
+    return (await this.requireActiveEmbeddingProvider()).testConnection()
   }
 
   /**
-   * @description 获取当前 world 与角色记忆索引和所选目标之间的 embedding 兼容性快照。
-   * @param selection 当前查看的角色 / 会话目标；非跨会话模式下会优先按 `sessionId` 解析。
-   * @returns world 与角色记忆两个 scope 的兼容性结果。
+   * @description 获取当前角色记忆索引与 embedding 配置的兼容性。
+   * @param selection 当前设置页选择的角色或会话。
+   * @returns 角色记忆兼容性列表。
    */
   async getEmbeddingCompatibility(
     selection?: MemoryTargetSelection | null
   ): Promise<EmbeddingCompatibilityStatus[]> {
     await this.ensureInitialized('memory-ipc')
-    return this.buildEmbeddingCompatibility(selection)
+    return [this.getMemoryCompatibility(this.resolveMemoryTarget(selection))]
   }
 
   /**
-   * @description 构造当前所选 memory 目标对应的兼容性列表。
-   * @param selection 当前查看的角色 / 会话目标。
-   * @returns world 与角色记忆的兼容性数组。
-   */
-  private buildEmbeddingCompatibility(
-    selection?: MemoryTargetSelection | null
-  ): EmbeddingCompatibilityStatus[] {
-    const resolvedTarget = this.resolveMemoryTarget(selection)
-    return [this.getWorldCompatibility(), this.getMemoryCompatibility(resolvedTarget)]
-  }
-
-  /**
-   * @description 判断当前是否存在 world 相关构建任务。
-   * @returns 若 world 包更新或 world 向量构建正在进行则返回 `true`。
-   */
-  private hasRunningWorldTask(): boolean {
-    return this.getTasks().some(
-      (task) =>
-        task.scope === 'world' && (task.status === 'queued' || task.status === 'running')
-    )
-  }
-
-  /**
-   * @description 构造 story route 的独立状态，供设置页直接展示。
-   * @returns story route 当前状态。
-   */
-  private buildStoryStatus(): WorldKnowledgeRouteStatus {
-    const manifest = this.getManifest(STORY_SCOPE)
-    return buildStoryStatus({
-      enabled: this.settings.worldSearchEnabled,
-      retrievalMode: this.settings.retrievalMode,
-      entries: this.storyEntries,
-      manifest,
-      compatible: this.isKnowledgeScopeCompatible(STORY_SCOPE),
-      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      worldBundleError: this.worldBundleError,
-      worldEntryCount: this.getWorldEntryCount(),
-      isBuilding: this.hasRunningWorldTask()
-    })
-  }
-
-  /**
-   * @description 构造 glossary route 的独立状态，供设置页直接展示。
-   * @returns glossary route 当前状态。
-   */
-  private buildGlossaryStatus(): WorldKnowledgeRouteStatus {
-    const manifest = this.getManifest(GLOSSARY_SCOPE)
-    return buildGlossaryStatus({
-      enabled: this.settings.worldSearchEnabled,
-      retrievalMode: this.settings.retrievalMode,
-      entries: this.glossaryEntries,
-      manifest,
-      compatible: this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE),
-      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      worldBundleError: this.worldBundleError,
-      worldEntryCount: this.getWorldEntryCount(),
-      isBuilding: this.hasRunningWorldTask()
-    })
-  }
-
-  /**
-   * @description 汇总剧情与名词解释两个知识索引，生成兼容旧设置页的 world 状态。
-   * @returns world 索引状态快照。
-   */
-  private buildWorldIndexStatus(): WorldIndexStatus {
-    const storyStatus = this.buildStoryStatus()
-    const glossaryStatus = this.buildGlossaryStatus()
-    const storyManifest = this.getManifest(STORY_SCOPE)
-    const glossaryManifest = this.getManifest(GLOSSARY_SCOPE)
-    const compatibility = this.getWorldCompatibility()
-    const availability = this.getWorldAvailability(storyManifest, glossaryManifest, compatibility)
-    const combinedEntryCount = this.getWorldEntryCount()
-    return {
-      scope: 'world',
-      availability,
-      runtimeMode: getIndexRuntimeMode(this.settings.retrievalMode, availability),
-      updatedAt: this.worldUpdatedAt,
-      entryCount: compatibility.compatible
-        ? (storyManifest?.entryCount || 0) + (glossaryManifest?.entryCount || 0)
-        : combinedEntryCount,
-      storyEntryCount: storyStatus.entryCount,
-      glossaryEntryCount: glossaryStatus.entryCount,
-      fingerprint: storyManifest ? this.fingerprintFromManifest(storyManifest) : null,
-      builtAt: storyManifest?.builtAt || glossaryManifest?.builtAt || null
-    }
-  }
-
-  async getWorldIndexStatus(): Promise<WorldIndexStatus> {
-    await this.ensureInitialized('memory-ipc')
-    return this.buildWorldIndexStatus()
-  }
-
-  /**
-   * @description 基于当前 memory 选择目标构造角色记忆索引状态，用于设置页展示与调试。
-   * @param selection 当前查看的角色 / 会话目标。
-   * @returns 与解析后目标一致的角色记忆索引状态。
-   */
-  private buildMemoryIndexStatus(
-    selection?: MemoryTargetSelection | null
-  ): CharacterMemoryIndexStatus {
-    const resolvedTarget = this.resolveMemoryTarget(selection)
-    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
-    const compatibility = this.getMemoryCompatibility(resolvedTarget)
-    const availability = this.getMemoryAvailability(manifest, compatibility)
-    return {
-      scope: MEMORY_SCOPE,
-      characterId: resolvedTarget.characterId,
-      targetCharacterId: resolvedTarget.characterId,
-      targetSessionId: resolvedTarget.sessionId,
-      availability,
-      runtimeMode: getIndexRuntimeMode(this.settings.retrievalMode, availability),
-      entryCount: manifest?.entryCount || this.countMemoryEntries(resolvedTarget),
-      indexedCharacterCount: this.countIndexedCharacters(),
-      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      builtAt: manifest?.builtAt || null
-    }
-  }
-
-  /**
-   * @description 读取当前 memory 选择目标对应的角色记忆索引状态。
-   * @param selection 当前查看的角色 / 会话目标。
-   * @returns 角色记忆索引状态。
+   * @description 获取指定角色或会话的角色记忆索引状态。
+   * @param selection 当前设置页选择的角色或会话。
+   * @returns 对应的索引状态。
    */
   async getMemoryIndexStatus(
     selection?: MemoryTargetSelection | null
@@ -513,1032 +266,436 @@ export class MemoryService {
   }
 
   /**
-   * @description 读取 Memory 设置页需要的状态快照，并按当前选择目标解析角色记忆索引状态。
-   * @param selection 当前查看的角色 / 会话目标。
-   * @returns 包含设置、索引、任务和硬件信息的完整快照。
+   * @description 获取角色记忆设置页所需状态快照。
+   * @param selection 当前设置页选择的角色或会话。
+   * @returns 设置、角色记忆索引、任务和硬件状态。
    */
   async getStatus(selection?: MemoryTargetSelection | null): Promise<MemoryStatusSnapshot> {
     await this.ensureInitialized('memory-status')
     return {
       settings: this.settings,
-      worldIndex: this.buildWorldIndexStatus(),
-      storyStatus: this.buildStoryStatus(),
-      glossaryStatus: this.buildGlossaryStatus(),
       memoryIndex: this.buildMemoryIndexStatus(selection),
       tasks: this.getTasks(),
       hardware: await this.getHardwareInfo()
     }
   }
 
-  private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
-    await this.ensureInitialized('memory-hardware')
-    if (!this.hardwareInfoPromise) {
-      this.hardwareInfoPromise = readMemoryHardwareInfo().catch((error) => {
-        void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
-          error: error instanceof Error ? error.message : String(error)
-        })
-        return { gpuName: null }
-      })
-    }
-
-    return this.hardwareInfoPromise
-  }
-
-  getTasks(): MemoryTask[] {
-    return [...this.tasks.values()].sort((left, right) =>
-      right.updatedAt.localeCompare(left.updatedAt)
-    )
-  }
-
-  async startWorldBundleDownload(): Promise<MemoryTask> {
-    await this.ensureInitialized('memory-build')
-    return this.runTask(
-      'world-bundle-download',
-      'world',
-      async (taskId, updateTask, taskControl) => {
-        taskControl.throwIfCancelled()
-        updateTask(taskId, {
-          progress: 10,
-          message: 'Checking local world update time'
-        })
-        const localUpdatedAt = await this.getLocalWorldUpdatedAt()
-        taskControl.throwIfCancelled()
-
-        updateTask(taskId, {
-          progress: 25,
-          message: 'Fetching remote world update time'
-        })
-        const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt(taskControl.controller.signal)
-        taskControl.throwIfCancelled()
-
-        if (localUpdatedAt && remoteUpdatedAt === localUpdatedAt) {
-          this.worldUpdatedAt = localUpdatedAt
-          this.worldBundleError = null
-          await this.loadWorldEntries()
-          updateTask(taskId, {
-            progress: 100,
-            message: `World bundle is already up to date (${localUpdatedAt}).`
-          })
-          return
-        }
-
-        updateTask(taskId, {
-          progress: 45,
-          message: 'Downloading latest world bundle archive'
-        })
-        const installedVersion = await this.downloadAndInstallWorldBundle(
-          remoteUpdatedAt,
-          taskControl.controller.signal,
-          taskControl.throwIfCancelled
-        )
-        taskControl.throwIfCancelled()
-
-        updateTask(taskId, {
-          progress: 90,
-          message: 'Reloading local world bundle content'
-        })
-        await this.loadWorldEntries()
-        taskControl.throwIfCancelled()
-        this.worldBundleError = null
-        updateTask(taskId, {
-          progress: 100,
-          message: `World bundle updated to ${installedVersion}. Rebuild world vectors if you use vector retrieval.`
-        })
-      }
-    )
-  }
-
-  async startWorldVectorBuild(): Promise<MemoryTask> {
-    await this.ensureInitialized('memory-build')
-    return this.runTask('world-vector-build', 'world', async (taskId, updateTask, taskControl) => {
-      const provider = await this.requireVectorEmbeddingProvider()
-      taskControl.throwIfCancelled()
-      updateTask(taskId, { progress: 10, message: 'Scanning world markdown files' })
-      await this.loadWorldEntries()
-      taskControl.throwIfCancelled()
-      const runtimeMessage = await this.describeEmbeddingRuntime(provider)
-      taskControl.throwIfCancelled()
-      updateTask(taskId, {
-        progress: 25,
-        message: runtimeMessage
-          ? `Generating world embeddings (${runtimeMessage})`
-          : 'Generating world embeddings'
-      })
-      await this.buildKnowledgeScopeVectors(
-        STORY_SCOPE,
-        this.storyEntries,
-        provider,
-        taskId,
-        updateTask,
-        taskControl,
-        runtimeMessage,
-        25,
-        55
-      )
-      taskControl.throwIfCancelled()
-      await this.buildKnowledgeScopeVectors(
-        GLOSSARY_SCOPE,
-        this.glossaryEntries,
-        provider,
-        taskId,
-        updateTask,
-        taskControl,
-        runtimeMessage,
-        55,
-        85
-      )
-      taskControl.throwIfCancelled()
-      updateTask(taskId, { progress: 100, message: 'World vector index built successfully' })
-    })
-  }
-
+  /**
+   * @description 为一个角色构建长期记忆向量索引。
+   * @param characterId 角色标识。
+   * @returns 已创建的构建任务。
+   */
   async startCharacterMemoryBuild(characterId: string): Promise<MemoryTask> {
     await this.ensureInitialized('memory-build')
     return this.runTask(
       'character-memory-build',
       'character-memory',
-      async (taskId, updateTask, taskControl) => {
-        const provider = await this.requireVectorEmbeddingProvider()
-        taskControl.throwIfCancelled()
-        updateTask(taskId, {
-          progress: 15,
-          message: 'Collecting current character memory',
-          characterId
-        })
-        const entries = this.buildCharacterMemoryEntries(characterId)
-        taskControl.throwIfCancelled()
-        const runtimeMessage = await this.describeEmbeddingRuntime(provider)
-        taskControl.throwIfCancelled()
-        updateTask(taskId, {
-          progress: 45,
-          message: runtimeMessage
-            ? `Generating character memory embeddings (${runtimeMessage})`
-            : 'Generating character memory embeddings',
-          characterId
-        })
-        const buildResult = await this.workerClient.buildVectorIndex({
-          type: 'build-character-memory-vectors',
-          entries,
-          provider,
-          createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
-          embedOptions: {
-            abortSignal: taskControl.controller.signal,
-            throwIfAborted: taskControl.throwIfCancelled,
-            onProgress: (progress) => {
-              updateTask(taskId, {
-                progress: this.mapEmbeddingProgress(progress, 45, 80),
-                message: runtimeMessage
-                  ? `Generating character memory embeddings (${runtimeMessage})`
-                  : 'Generating character memory embeddings',
-                characterId
-              })
-            }
-          }
-        })
-        taskControl.throwIfCancelled()
-        updateTask(taskId, {
-          progress: 80,
-          message: 'Writing character memory index',
-          characterId
-        })
-        taskControl.throwIfCancelled()
-        this.saveCharacterMemoryVectors(
-          characterId,
-          entries,
-          buildResult.data.vectors,
-          buildResult.data.fingerprint
-        )
-        updateTask(taskId, {
-          progress: 100,
-          message: 'Current character memory rebuilt',
-          characterId
-        })
-      },
+      (taskId, updateTask, control) =>
+        this.buildCharacterMemoryIndex(characterId, taskId, updateTask, control),
       characterId
     )
   }
 
+  /**
+   * @description 为所有已聊天角色依次构建长期记忆向量索引。
+   * @returns 已创建的批量构建任务。
+   */
   async startAllMemoryBuild(): Promise<MemoryTask> {
     await this.ensureInitialized('memory-build')
     return this.runTask(
       'all-memory-build',
       'character-memory',
-      async (taskId, updateTask, taskControl) => {
-        const provider = await this.requireVectorEmbeddingProvider()
+      async (taskId, updateTask, control) => {
         const characterIds = [...new Set(this.sessions.map((session) => session.characterId))]
-        const runtimeMessage = await this.describeEmbeddingRuntime(provider)
-
         for (let index = 0; index < characterIds.length; index += 1) {
-          taskControl.throwIfCancelled()
-          const characterId = characterIds[index]
-          updateTask(taskId, {
-            progress: Math.round((index / Math.max(characterIds.length, 1)) * 100),
-            message: runtimeMessage
-              ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
-              : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
-            characterId
-          })
-          const entries = this.buildCharacterMemoryEntries(characterId)
-          const stageStart = Math.round((index / Math.max(characterIds.length, 1)) * 100)
-          const stageEnd = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
-          const buildResult = await this.workerClient.buildVectorIndex({
-            type: 'build-character-memory-vectors',
-            entries,
-            provider,
-            createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
-            embedOptions: {
-              abortSignal: taskControl.controller.signal,
-              throwIfAborted: taskControl.throwIfCancelled,
-              onProgress: (progress) => {
-                updateTask(taskId, {
-                  progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
-                  message: runtimeMessage
-                    ? `Rebuilding character memory (${index + 1}/${characterIds.length}, ${runtimeMessage})`
-                    : `Rebuilding character memory (${index + 1}/${characterIds.length})`,
-                  characterId
-                })
-              }
-            }
-          })
-          taskControl.throwIfCancelled()
-          const fingerprint = buildResult.data.fingerprint
-          taskControl.throwIfCancelled()
-          this.saveCharacterMemoryVectors(
-            characterId,
-            entries,
-            buildResult.data.vectors,
-            fingerprint
+          control.throwIfCancelled()
+          const start = Math.round((index / Math.max(characterIds.length, 1)) * 100)
+          const end = Math.round(((index + 1) / Math.max(characterIds.length, 1)) * 100)
+          await this.buildCharacterMemoryIndex(
+            characterIds[index],
+            taskId,
+            updateTask,
+            control,
+            start,
+            end
           )
         }
-
-        updateTask(taskId, {
-          progress: 100,
-          message: 'All character memory indices rebuilt'
-        })
+        updateTask(taskId, { progress: 100, message: 'All character memory indices rebuilt' })
       }
     )
   }
 
+  /**
+   * @description 请求取消仍在执行中的角色记忆任务。
+   * @param taskId 任务标识。
+   * @returns 成功取消时返回 `true`。
+   */
   cancelTask(taskId: string): boolean {
     const task = this.tasks.get(taskId)
-    if (!task || task.status === 'completed' || task.status === 'failed') {
+    if (!task || ['completed', 'failed', 'cancelled'].includes(task.status)) {
       return false
     }
-
     this.taskCancellationStates.get(taskId)?.controller.abort()
-
-    const nextTask = {
-      ...task,
-      status: 'cancelled' as const,
-      updatedAt: now(),
-      message: 'Task cancelled'
-    }
-    this.tasks.set(taskId, nextTask)
-    this.emitTask(nextTask)
+    this.updateTask(taskId, { status: 'cancelled', message: 'Task cancelled' })
     return true
   }
 
   /**
-   * @description 检索当前 world 剧情上下文。
-   * @param query 用户输入或调试查询。
-   * @returns 剧情检索命中列表。
-   */
-  async retrieveStoryContext(query: string): Promise<MemoryDebugRetrievalHit[]> {
-    await this.ensureInitialized('chat-world-retrieval')
-    const result = await this.retrieveStoryDebugHits(query)
-    return result.hits
-  }
-
-  /**
-   * @description 检索当前 world 名词解释上下文，并补充命中词条引用的少量嵌套词条。
-   * @param query 用户输入或调试查询。
-   * @returns 名词解释检索命中列表。
-   */
-  async retrieveGlossaryContext(query: string): Promise<MemoryDebugRetrievalHit[]> {
-    await this.ensureInitialized('chat-world-retrieval')
-    const result = await this.retrieveGlossaryDebugHits(query)
-    return result.hits
-  }
-
-  /**
-   * @description 检索指定会话所属目标的聊天记忆上下文。
-   * @param query 用户输入或调试查询。
+   * @description 检索当前会话可访问的角色长期记忆上下文。
+   * @param query 用户输入。
    * @param session 当前聊天会话。
-   * @returns 聊天记忆检索命中列表。
+   * @returns 记忆命中。
    */
   async retrieveChatMemoryContext(
     query: string,
     session: ConversationSession
   ): Promise<MemoryDebugRetrievalHit[]> {
     await this.ensureInitialized('chat-memory-retrieval')
-    const result = await this.retrieveChatMemoryDebugHits(query, session)
-    return result.hits
+    return (await this.retrieveChatMemoryDebugHits(query, session)).hits
   }
 
   /**
-   * @description 预览聊天请求将携带的检索上下文，按剧情、名词解释与聊天记忆拆分返回。
-   * @param query 当前模拟用户输入。
-   * @param session 当前将用于记忆检索的会话；为空时仅返回剧情与名词命中。
-   * @returns 拆分后的检索命中列表与对应运行时摘要。
+   * @description 预览角色长期记忆检索，不触发模型调用或会话写入。
+   * @param query 当前模拟输入。
+   * @param session 当前会话；为空时返回可解释的空结果。
+   * @returns 命中与运行时状态。
    */
-  async previewPromptContext(
+  async previewChatMemoryContext(
     query: string,
     session: ConversationSession | null
-  ): Promise<PromptContextPreviewResult> {
+  ): Promise<{ hits: MemoryDebugRetrievalHit[]; runtimeDetail: MemoryDebugRuntimeDetail }> {
     await this.ensureInitialized('memory-debug')
-    const normalizedQuery = query.trim()
-    const [storyResult, glossaryResult, chatMemoryResult] = await Promise.all([
-      this.retrieveStoryDebugHits(normalizedQuery),
-      this.retrieveGlossaryDebugHits(normalizedQuery),
-      this.retrieveChatMemoryDebugHits(normalizedQuery, session)
-    ])
-
-    return {
-      storyHits: storyResult.hits,
-      glossaryHits: glossaryResult.hits,
-      chatMemoryHits: chatMemoryResult.hits,
-      runtimeSummary: {
-        requestedMode: this.settings.retrievalMode,
-        story: this.buildRuntimeSummary(STORY_SCOPE, storyResult),
-        glossary: this.buildRuntimeSummary(GLOSSARY_SCOPE, glossaryResult),
-        chatMemory: this.buildChatMemoryRuntimeSummary(chatMemoryResult, session)
-      }
-    }
+    const result = await this.retrieveChatMemoryDebugHits(query.trim(), session)
+    return { hits: result.hits, runtimeDetail: this.buildChatMemoryRuntimeSummary(result, session) }
   }
 
-  async debugRetrieve(request: MemoryDebugRetrieveRequest): Promise<MemoryDebugRetrieveResult> {
-    await this.ensureInitialized('memory-debug')
-    const query = request.query.trim()
-    const scope = request.scope
-    const session = this.resolveDebugSession(request.characterId || null, request.sessionId || null)
-    const storyResult =
-      scope === 'glossary' || scope === 'chat-memory'
-        ? {
-            hits: [],
-            runtimeModeUsed: getIndexRuntimeMode(
-              this.settings.retrievalMode,
-              this.buildStoryStatus().indexAvailability
-            ),
-            fallbackReason: 'Story retrieval was not requested.'
-          }
-        : await this.retrieveStoryDebugHits(query)
-    const glossaryResult =
-      scope === 'story' || scope === 'chat-memory'
-        ? {
-            hits: [],
-            runtimeModeUsed: getIndexRuntimeMode(
-              this.settings.retrievalMode,
-              this.buildGlossaryStatus().indexAvailability
-            ),
-            fallbackReason: 'Glossary retrieval was not requested.'
-          }
-        : await this.retrieveGlossaryDebugHits(query)
-    const chatMemoryResult =
-      scope === 'story' || scope === 'glossary'
-        ? {
-            hits: [],
-            runtimeModeUsed: getIndexRuntimeMode(
-              this.settings.retrievalMode,
-              this.buildMemoryIndexStatus(
-                session
-                  ? {
-                      characterId: session.characterId,
-                      sessionId: session.id
-                    }
-                  : null
-              ).availability
-            ),
-            fallbackReason: 'Chat memory retrieval was not requested.'
-          }
-        : await this.retrieveChatMemoryDebugHits(query, session)
-
-    return {
-      query,
-      scope,
-      results: [...glossaryResult.hits, ...storyResult.hits, ...chatMemoryResult.hits],
-      runtimeSummary: {
-        requestedMode: this.settings.retrievalMode,
-        story: this.buildRuntimeSummary(STORY_SCOPE, storyResult),
-        glossary: this.buildRuntimeSummary(GLOSSARY_SCOPE, glossaryResult),
-        chatMemory: this.buildChatMemoryRuntimeSummary(chatMemoryResult, session)
-      }
-    }
+  /**
+   * @description 为 Lore 原作向量提供当前 embedding provider。
+   * @returns 当前可用的向量 provider。
+   */
+  async getLoreEmbeddingProvider(): Promise<EmbeddingProvider> {
+    await this.ensureInitialized('memory-embedding')
+    return this.requireLoreEmbeddingProvider()
   }
 
+  /**
+   * @description 为 Lore 原作向量提供当前 embedding 指纹。
+   * @param dimensions 实际生成的向量维度。
+   * @returns 当前 provider 的指纹。
+   */
+  async getLoreEmbeddingFingerprint(dimensions?: number): Promise<EmbeddingFingerprint> {
+    await this.ensureInitialized('memory-embedding')
+    return this.createLoreEmbeddingFingerprint(dimensions)
+  }
+
+  /**
+   * @description 获取聊天上下文中保留的近期消息数量。
+   * @returns 近期消息数量。
+   */
   getRecentMessageCount(): number {
     return this.settings.recentMessageCount
   }
 
-  private mapEmbeddingProgress(
-    progress: EmbeddingBatchProgress,
-    stageStart: number,
-    stageEnd: number
-  ): number {
-    if (progress.total <= 0) {
-      return stageEnd
+  /** @description 确保记忆设置已加载。 */
+  private async ensureSettingsLoaded(): Promise<void> {
+    if (!this.settingsPromise) {
+      this.settingsPromise = getUnifiedSettingsStore()
+        .get()
+        .then((store) => {
+          this.settings = store.memory
+        })
     }
-
-    const ratio = Math.max(0, Math.min(progress.completed / progress.total, 1))
-    return Math.max(
-      stageStart,
-      Math.min(stageEnd, Math.round(stageStart + (stageEnd - stageStart) * ratio))
-    )
-  }
-
-  private async describeEmbeddingRuntime(provider: EmbeddingProvider): Promise<string | null> {
-    const runtime = await provider.prepare?.()
-    if (!runtime) {
-      return null
-    }
-
-    if (runtime.fallbackToCpu) {
-      return 'GPU unavailable, falling back to CPU for this build'
-    }
-
-    return runtime.actualDevice === 'gpu' ? 'Using GPU for this build' : 'Using CPU for this build'
-  }
-
-  private getRepository(): MemoryIndexRepository {
-    if (!this.repository) {
-      throw new Error('Memory index repository is not initialized')
-    }
-
-    return this.repository
-  }
-
-  private async loadSettings(): Promise<MemorySettingsStore> {
-    return (await getUnifiedSettingsStore().get()).memory
+    await this.settingsPromise
   }
 
   /**
-   * @description 将当前记忆设置提交到统一设置存储，并更新服务内存快照。
-   * @remarks 本地 embedding 模型操作也必须通过此方法写入，避免绕过统一写入队列。
+   * @description 初始化角色记忆数据库。
+   * @param trigger 触发初始化的调用路径，用于日志。
    */
-  private async persistSettings(): Promise<void> {
-    this.settings = await getUnifiedSettingsStore().update(
-      'memory',
-      normalizeMemorySettingsStore(this.settings)
-    )
-    this.settingsLoaded = true
-  }
-
-  /**
-   * @description 从本地 world 目录加载剧情与名词解释条目到内存缓存。
-   * @remarks 该方法只刷新内存条目，不会自动重建 SQLite 向量索引。
-   */
-  private async loadWorldEntries(): Promise<void> {
-    const worldRoot = getWorldRoot()
-    this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
-    const entries = await loadWorldKnowledgeEntries(worldRoot)
-    this.storyEntries = entries.storyEntries
-    this.glossaryEntries = entries.glossaryEntries
-  }
-
-  private async ensureWorldBundleReady(): Promise<void> {
-    if (await this.hasWorldBundleContent()) {
-      this.worldUpdatedAt = await this.getLocalWorldUpdatedAt()
-      this.worldBundleError = null
+  private async ensureInitialized(trigger: string): Promise<void> {
+    if (this.initialized) {
       return
     }
-
-    const remoteUpdatedAt = await this.fetchRemoteWorldUpdatedAt()
-    await this.downloadAndInstallWorldBundle(remoteUpdatedAt)
-  }
-
-  private async getLocalWorldUpdatedAt(): Promise<string | null> {
-    const metadata = await this.readWorldBundleMetadata()
-    return this.normalizeWorldVersion(metadata?.updatedAt)
-  }
-
-  private async fetchRemoteWorldUpdatedAt(signal?: AbortSignal): Promise<string> {
-    const response = await this.fetchWorldResource(
-      WORLD_BUNDLE_REPO_URL,
-      'fetch world repo metadata',
-      signal
-    )
-    const payload = (await response.json()) as { pushed_at?: unknown }
-    const updatedAt =
-      typeof payload?.pushed_at === 'string' ? this.normalizeWorldVersion(payload.pushed_at) : null
-    if (!updatedAt) {
-      throw new Error(`World repo metadata from ${WORLD_BUNDLE_REPO_URL} is missing pushed_at.`)
+    await this.ensureSettingsLoaded()
+    if (!this.initializationPromise) {
+      this.initializationPromise = Promise.resolve().then(() => {
+        this.db = new DatabaseSync(getMemoryDatabasePath())
+        this.repository = new MemoryIndexRepository(this.db)
+        this.repository.prepareDatabase()
+        this.initialized = true
+        void logger.info('memory', 'initialized', 'Character memory service initialized', {
+          trigger
+        })
+      })
     }
-
-    return updatedAt
+    await this.initializationPromise
   }
 
-  private async downloadAndInstallWorldBundle(
-    updatedAt: string,
-    signal?: AbortSignal,
-    throwIfCancelled?: () => void
-  ): Promise<string> {
-    const tempRoot = join(getAppDataRoot(), 'tmp', `world-bundle-${randomUUID()}`)
-    const archivePath = join(tempRoot, 'world.zip')
-    const extractRoot = join(tempRoot, 'extracted')
-    const stagedWorldRoot = join(tempRoot, 'world')
-    const targetRoot = getWorldRoot()
-    const backupRoot = join(getAppDataRoot(), `world-backup-${randomUUID()}`)
-
-    await mkdir(extractRoot, { recursive: true })
-
-    try {
-      throwIfCancelled?.()
-      const response = await this.fetchWorldResource(
-        WORLD_BUNDLE_ZIP_URL,
-        'download world bundle archive',
-        signal
-      )
-      throwIfCancelled?.()
-      const archiveBuffer = Buffer.from(await response.arrayBuffer())
-      throwIfCancelled?.()
-      await writeFile(archivePath, archiveBuffer)
-
-      const zip = new AdmZip(archivePath)
-      zip.extractAllTo(extractRoot, true)
-      throwIfCancelled?.()
-
-      const bundleRoot = await this.findWorldBundleRoot(extractRoot)
-      if (!bundleRoot) {
-        throw new Error('Downloaded world bundle does not contain recognizable world content.')
-      }
-
-      await rename(bundleRoot, stagedWorldRoot)
-      throwIfCancelled?.()
-      await this.replaceWorldDirectory(stagedWorldRoot, targetRoot, backupRoot)
-      throwIfCancelled?.()
-      await this.writeWorldBundleMetadata(updatedAt)
-
-      this.worldUpdatedAt = updatedAt
-      this.worldBundleError = null
-      return updatedAt
-    } catch (error) {
-      if (!(error instanceof MemoryTaskCancelledError)) {
-        this.worldBundleError = error instanceof Error ? error.message : String(error)
-      }
-      throw error
-    } finally {
-      await rm(tempRoot, { recursive: true, force: true })
-      await rm(backupRoot, { recursive: true, force: true })
-    }
-  }
-
-  private async replaceWorldDirectory(
-    sourceRoot: string,
-    targetRoot: string,
-    backupRoot: string
+  /**
+   * @description 生成单个角色的记忆向量并写入本地索引。
+   * @param characterId 角色标识。
+   * @param taskId 当前任务标识。
+   * @param updateTask 任务状态更新回调。
+   * @param control 任务取消控制器。
+   * @param start 进度起点。
+   * @param end 进度终点。
+   */
+  private async buildCharacterMemoryIndex(
+    characterId: string,
+    taskId: string,
+    updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
+    control: TaskCancellationState,
+    start = 15,
+    end = 100
   ): Promise<void> {
-    const targetExists = await pathExists(targetRoot)
-    if (targetExists) {
-      await rm(backupRoot, { recursive: true, force: true })
-      await rename(targetRoot, backupRoot)
-    }
-
-    try {
-      await rename(sourceRoot, targetRoot)
-    } catch (error) {
-      if (await pathExists(backupRoot)) {
-        await rm(targetRoot, { recursive: true, force: true })
-        await rename(backupRoot, targetRoot)
+    control.throwIfCancelled()
+    const entries = this.buildCharacterMemoryEntries(characterId)
+    const provider = await this.requireVectorEmbeddingProvider()
+    const result = await this.workerClient.buildVectorIndex({
+      type: 'build-character-memory-vectors',
+      entries,
+      provider,
+      createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
+      embedOptions: {
+        abortSignal: control.controller.signal,
+        throwIfAborted: control.throwIfCancelled,
+        onProgress: (progress) =>
+          updateTask(taskId, {
+            progress: this.mapEmbeddingProgress(progress, start, Math.max(start, end - 15)),
+            message: 'Generating character memory embeddings',
+            characterId
+          })
       }
-
-      throw error
-    }
-  }
-
-  private async findWorldBundleRoot(rootPath: string): Promise<string | null> {
-    const entries = await readdir(rootPath, { withFileTypes: true })
-    const hasMarkdownFile = entries.some(
-      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md')
+    })
+    control.throwIfCancelled()
+    this.getRepository().saveCharacterMemoryVectors(
+      characterId,
+      entries,
+      result.data.vectors,
+      result.data.fingerprint
     )
-    if (hasMarkdownFile) {
-      return rootPath
-    }
-
-    const directoryEntries = entries.filter((entry) => entry.isDirectory())
-    if (entries.length === 1 && directoryEntries.length === 1) {
-      return this.findWorldBundleRoot(join(rootPath, directoryEntries[0].name))
-    }
-
-    if (directoryEntries.length > 0) {
-      return rootPath
-    }
-
-    return null
-  }
-
-  private async hasWorldBundleContent(): Promise<boolean> {
-    const worldRoot = getWorldRoot()
-    if (!(await pathExists(worldRoot))) {
-      return false
-    }
-
-    const markdownFiles = await walkMarkdownFiles(worldRoot)
-    return markdownFiles.length > 0
-  }
-
-  private async readWorldBundleMetadata(): Promise<WorldBundleMetadata | null> {
-    const content = await readOptionalFile(getWorldMetadataPath())
-    if (!content) {
-      return null
-    }
-
-    try {
-      const parsed = JSON.parse(content) as Partial<WorldBundleMetadata>
-      const updatedAt = this.normalizeWorldVersion(parsed.updatedAt)
-      if (!updatedAt) {
-        return null
-      }
-
-      return {
-        updatedAt
-      }
-    } catch {
-      return null
-    }
-  }
-
-  private async writeWorldBundleMetadata(updatedAt: string): Promise<void> {
-    await writeJsonFileAtomic(getWorldMetadataPath(), {
-      updatedAt
-    } satisfies WorldBundleMetadata)
-  }
-
-  private async fetchWorldResource(
-    url: string,
-    action: string,
-    signal?: AbortSignal
-  ): Promise<Response> {
-    try {
-      const response = await fetch(url, { signal })
-      if (!response.ok) {
-        throw new Error(`${action} failed (${response.status} ${response.statusText})`)
-      }
-
-      return response
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new MemoryTaskCancelledError()
-      }
-      const reason = error instanceof Error ? error.message : String(error)
-      throw new Error(`${action} failed for ${url}: ${reason}`)
-    }
-  }
-
-  private normalizeWorldVersion(value: string | null | undefined): string | null {
-    if (typeof value !== 'string') {
-      return null
-    }
-
-    const trimmed = value.trim()
-    return trimmed || null
+    updateTask(taskId, { progress: end, message: 'Character memory rebuilt', characterId })
   }
 
   /**
-   * @description 使用字符串匹配检索剧情条目。
-   * @param query 查询文本。
-   * @param runtimeModeUsed 本次检索实际采用的运行模式。
-   * @returns 剧情命中列表。
+   * @description 构建角色现有会话的长期记忆条目。
+   * @param characterId 角色标识。
+   * @returns 可用于检索和向量化的记忆条目。
    */
-  private buildStoryStringHits(
-    query: string,
-    runtimeModeUsed: WorldIndexStatus['runtimeMode']
-  ): MemoryDebugRetrievalHit[] {
-    return this.retrievalQueryService.buildStoryStringHits(
-      query,
-      this.storyEntries,
-      this.settings.worldTopK,
-      runtimeModeUsed
-    )
+  private buildCharacterMemoryEntries(characterId: string): MemoryEntry[] {
+    return this.sessions
+      .filter((session) => session.characterId === characterId)
+      .flatMap((session) => {
+        const messages = session.messages.filter((message) => Boolean(message.content.trim()))
+        const recent = messages.slice(-Math.max(this.settings.summaryTriggerTurns, 4))
+        return recent.length === 0
+          ? []
+          : [
+              {
+                id: `memory:${characterId}:${session.id}`,
+                text: recent
+                  .map(
+                    (message) =>
+                      `${message.role === 'user' ? 'User' : 'Character'}: ${message.content}`
+                  )
+                  .join('\n'),
+                sourceType: 'summary' as const,
+                characterId,
+                sessionId: session.id,
+                createdAt: session.updatedAt,
+                updatedAt: session.updatedAt,
+                visibility: 'private' as const
+              }
+            ]
+      })
   }
 
   /**
-   * @description 使用字符串匹配检索名词解释条目，并执行嵌套词条扩展。
-   * @param query 查询文本。
-   * @param runtimeModeUsed 本次检索实际采用的运行模式。
-   * @returns 名词解释命中列表。
-   */
-  private buildGlossaryStringHits(
-    query: string,
-    runtimeModeUsed: WorldIndexStatus['runtimeMode']
-  ): MemoryDebugRetrievalHit[] {
-    return this.expandGlossaryHits(
-      this.retrievalQueryService.buildGlossaryStringHits(
-        query,
-        this.glossaryEntries,
-        this.settings.worldTopK,
-        runtimeModeUsed
-      ),
-      runtimeModeUsed
-    )
-  }
-
-  /**
-   * @description 使用字符串匹配检索指定会话目标的聊天记忆。
-   * @param query 查询文本。
+   * @description 按会话范围筛选当前可访问的角色记忆条目。
    * @param session 当前聊天会话。
-   * @param runtimeModeUsed 本次检索实际采用的运行模式。
-   * @returns 聊天记忆命中列表。
+   * @returns 当前检索范围内的记忆条目。
+   */
+  private getMemoryEntriesForSession(session: ConversationSession): MemoryEntry[] {
+    return this.buildCharacterMemoryEntries(session.characterId).filter(
+      (entry) => this.settings.crossSessionCharacterMemory || entry.sessionId === session.id
+    )
+  }
+
+  /**
+   * @description 执行角色长期记忆检索，向量不可用时回退字符串匹配。
+   * @param query 用户查询。
+   * @param session 当前会话；为空时无法检索。
+   * @returns 检索结果和运行状态。
+   */
+  private async retrieveChatMemoryDebugHits(
+    query: string,
+    session: ConversationSession | null
+  ): Promise<RetrievalExecution> {
+    if (!this.settings.memorySearchEnabled) {
+      return {
+        hits: [],
+        runtimeModeUsed: 'string',
+        fallbackReason: 'Chat memory retrieval is disabled.'
+      }
+    }
+    if (!session) {
+      return {
+        hits: [],
+        runtimeModeUsed: 'string',
+        fallbackReason: 'No matching chat session is available.'
+      }
+    }
+    const compatibility = this.getMemoryCompatibility(
+      this.resolveMemoryTarget({
+        characterId: session.characterId,
+        sessionId: session.id
+      })
+    )
+    if (this.settings.retrievalMode === 'vector-local' && compatibility.compatible) {
+      try {
+        return {
+          hits: await this.buildChatMemoryVectorHits(session, query),
+          runtimeModeUsed: 'vector'
+        }
+      } catch (error) {
+        return {
+          hits: this.buildChatMemoryStringHits(session, query, 'degraded'),
+          runtimeModeUsed: 'degraded',
+          fallbackReason: error instanceof Error ? error.message : String(error)
+        }
+      }
+    }
+    const availability = this.buildMemoryIndexStatus({
+      characterId: session.characterId,
+      sessionId: session.id
+    }).availability
+    return {
+      hits: this.buildChatMemoryStringHits(
+        session,
+        query,
+        getIndexRuntimeMode(this.settings.retrievalMode, availability)
+      ),
+      runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, availability),
+      fallbackReason: this.settings.retrievalMode === 'string' ? undefined : compatibility.message
+    }
+  }
+
+  /**
+   * @description 使用本地向量缓存检索角色长期记忆。
+   * @param session 当前聊天会话。
+   * @param query 用户查询。
+   * @returns 向量检索命中。
+   */
+  private async buildChatMemoryVectorHits(
+    session: ConversationSession,
+    query: string
+  ): Promise<MemoryDebugRetrievalHit[]> {
+    const targetId = this.settings.crossSessionCharacterMemory ? session.characterId : session.id
+    const manifest = this.getRepository().getManifest(targetId)
+    if (!manifest) {
+      return []
+    }
+    const provider = await this.requireVectorEmbeddingProvider()
+    return (
+      await this.workerClient.retrieveMemoryVectorHits({
+        type: 'retrieve-memory-vectors',
+        query,
+        provider,
+        rows: this.getRepository().getMemoryVectorRows(
+          manifest.fingerprintKey,
+          targetId,
+          this.settings.crossSessionCharacterMemory
+        ),
+        topK: this.settings.memoryTopK
+      })
+    ).data
+  }
+
+  /**
+   * @description 使用字符串匹配检索角色长期记忆。
+   * @param session 当前聊天会话。
+   * @param query 用户查询。
+   * @param mode 实际检索模式。
+   * @returns 字符串检索命中。
    */
   private buildChatMemoryStringHits(
-    query: string,
     session: ConversationSession,
-    runtimeModeUsed: WorldIndexStatus['runtimeMode']
+    query: string,
+    mode: RetrievalExecution['runtimeModeUsed']
   ): MemoryDebugRetrievalHit[] {
     return this.retrievalQueryService.buildChatMemoryStringHits(
       query,
       this.getMemoryEntriesForSession(session),
       this.settings.memoryTopK,
-      runtimeModeUsed
+      mode
     )
   }
 
   /**
-   * @description 使用向量索引检索指定知识 scope 的命中。
-   * @param scope 知识范围，区分剧情与名词解释。
-   * @param query 查询文本。
-   * @returns 对应知识 scope 的向量检索命中列表。
+   * @description 生成聊天记忆调试状态。
+   * @param result 检索执行结果。
+   * @param session 当前会话。
+   * @returns 可供提示词预览展示的状态。
    */
-  private async buildKnowledgeVectorHits(
-    scope: MemoryKnowledgeScope,
-    query: string
-  ): Promise<MemoryDebugRetrievalHit[]> {
-    const provider = await this.requireVectorEmbeddingProvider()
-    const manifest = this.getManifest(scope)
-    if (!manifest) {
-      return []
-    }
-
-    const response = await this.workerClient.retrieveWorldVectorHits({
-      type: 'retrieve-knowledge-vectors',
-      scope,
-      query,
-      provider,
-      rows: this.getRepository().getKnowledgeVectorRows(scope, manifest.fingerprintKey),
-      topK: this.settings.worldTopK
-    })
-
-    return scope === GLOSSARY_SCOPE
-      ? this.expandGlossaryHits(response.data, 'vector')
-      : response.data
-  }
-
-  /**
-   * @description 使用向量索引检索指定会话目标的聊天记忆命中。
-   * @param query 查询文本。
-   * @param session 当前聊天会话。
-   * @returns 聊天记忆向量检索命中列表。
-   */
-  private async buildChatMemoryVectorHits(
-    query: string,
-    session: ConversationSession
-  ): Promise<MemoryDebugRetrievalHit[]> {
-    const provider = await this.requireVectorEmbeddingProvider()
-    const targetId = this.settings.crossSessionCharacterMemory ? session.characterId : session.id
-    const manifest = this.getManifest(MEMORY_SCOPE, targetId)
-    if (!manifest) {
-      return []
-    }
-
-    const response = await this.workerClient.retrieveMemoryVectorHits({
-      type: 'retrieve-memory-vectors',
-      query,
-      provider,
-      rows: this.getRepository().getMemoryVectorRows(
-        manifest.fingerprintKey,
-        targetId,
-        this.settings.crossSessionCharacterMemory
-      ),
-      topK: this.settings.memoryTopK
-    })
-
-    return response.data
-  }
-
-  private buildCharacterMemoryEntries(characterId: string): MemoryEntry[] {
-    const characterSessions = this.sessions.filter((session) => session.characterId === characterId)
-
-    return characterSessions.flatMap((session) => {
-      const completedMessages = session.messages.filter((message) =>
-        Boolean(message.content.trim())
-      )
-      const recentMessages = completedMessages.slice(
-        -Math.max(this.settings.summaryTriggerTurns, 4)
-      )
-      if (recentMessages.length === 0) {
-        return []
-      }
-
-      return [
-        {
-          id: `memory:${characterId}:${session.id}`,
-          text: recentMessages
-            .map(
-              (message) => `${message.role === 'user' ? 'User' : 'Character'}: ${message.content}`
-            )
-            .join('\n'),
-          sourceType: 'summary',
-          characterId,
-          sessionId: session.id,
-          createdAt: session.updatedAt,
-          updatedAt: session.updatedAt,
-          visibility: 'private'
-        }
-      ]
-    })
-  }
-
-  private getMemoryEntriesForSession(session: ConversationSession): MemoryEntry[] {
-    return this.buildCharacterMemoryEntries(session.characterId).filter((entry) =>
-      this.settings.crossSessionCharacterMemory ? true : entry.sessionId === session.id
+  private buildChatMemoryRuntimeSummary(
+    result: RetrievalExecution,
+    session: ConversationSession | null
+  ): MemoryDebugRuntimeDetail {
+    const index = this.buildMemoryIndexStatus(
+      session ? { characterId: session.characterId, sessionId: session.id } : null
     )
-  }
-
-  private saveCharacterMemoryVectors(
-    characterId: string,
-    entries: MemoryEntry[],
-    vectors: number[][],
-    fingerprint: EmbeddingFingerprint
-  ): void {
-    this.getRepository().saveCharacterMemoryVectors(characterId, entries, vectors, fingerprint)
-  }
-
-  /**
-   * @description 构建单个知识 scope 的向量索引，并将结果写入本地 SQLite。
-   * @param scope 当前构建的知识范围。
-   * @param entries 待构建的条目列表。
-   * @param provider 当前启用的 embedding provider。
-   * @param taskId 当前任务 ID。
-   * @param updateTask 任务进度更新回调。
-   * @param taskControl 任务取消控制器。
-   * @param runtimeMessage embedding 运行时说明。
-   * @param stageStart 当前 scope 在总进度中的起始位置。
-   * @param stageEnd 当前 scope 在总进度中的结束位置。
-   * @returns 当前 scope 生成的 fingerprint。
-   */
-  private async buildKnowledgeScopeVectors(
-    scope: MemoryKnowledgeScope,
-    entries: MemoryEntry[],
-    provider: EmbeddingProvider,
-    taskId: string,
-    updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
-    taskControl: TaskCancellationState,
-    runtimeMessage: string | null,
-    stageStart: number,
-    stageEnd: number
-  ): Promise<EmbeddingFingerprint> {
-    const scopeLabel = scope === STORY_SCOPE ? 'story' : 'glossary'
-    if (entries.length === 0) {
-      const fingerprint = await this.createActiveEmbeddingFingerprint()
-      this.getRepository().saveKnowledgeVectors(scope, [], [], fingerprint)
-      return fingerprint
-    }
-
-    updateTask(taskId, {
-      progress: stageStart,
-      message: runtimeMessage
-        ? `Generating ${scopeLabel} embeddings (${runtimeMessage})`
-        : `Generating ${scopeLabel} embeddings`
-    })
-    const buildResult = await this.workerClient.buildVectorIndex({
-      type: 'build-world-vectors',
-      entries,
-      provider,
-      createFingerprint: (dimensions) => this.createActiveEmbeddingFingerprint(dimensions),
-      embedOptions: {
-        abortSignal: taskControl.controller.signal,
-        throwIfAborted: taskControl.throwIfCancelled,
-        onProgress: (progress) => {
-          updateTask(taskId, {
-            progress: this.mapEmbeddingProgress(progress, stageStart, stageEnd),
-            message: runtimeMessage
-              ? `Generating ${scopeLabel} embeddings (${runtimeMessage})`
-              : `Generating ${scopeLabel} embeddings`
-          })
-        }
-      }
-    })
-    taskControl.throwIfCancelled()
-    updateTask(taskId, {
-      progress: stageEnd,
-      message: `Writing ${scopeLabel} vectors into local SQLite index`
-    })
-    this.getRepository().saveKnowledgeVectors(
-      scope,
-      entries,
-      buildResult.data.vectors,
-      buildResult.data.fingerprint
-    )
-    return buildResult.data.fingerprint
-  }
-
-  /**
-   * @description 返回指定知识 scope 当前加载到内存中的条目列表。
-   * @param scope 知识范围。
-   * @returns 对应 scope 的条目数组。
-   */
-  private getKnowledgeEntries(scope: MemoryKnowledgeScope): MemoryEntry[] {
-    return scope === STORY_SCOPE ? this.storyEntries : this.glossaryEntries
-  }
-
-  /**
-   * @description 统计当前 world 知识总条目数，包含剧情与名词解释。
-   * @returns 当前内存中的 world 条目总量。
-   */
-  private getWorldEntryCount(): number {
-    return this.storyEntries.length + this.glossaryEntries.length
-  }
-
-  private getManifest(
-    scope: MemoryKnowledgeScope | 'character-memory',
-    targetId?: string | null
-  ): IndexManifestRecord | null {
-    return this.getRepository().getManifest(scope, targetId)
-  }
-
-  private fingerprintFromManifest(
-    manifest: IndexManifestRecord & { targetId?: string | null }
-  ): EmbeddingFingerprint | null {
-    return this.getRepository().fingerprintFromManifest(manifest)
-  }
-
-  private getExpectedFingerprint(): EmbeddingFingerprint | null {
-    if (this.settings.retrievalMode === 'vector-local' && this.settings.localEmbedding.modelPath) {
-      return createLocalEmbeddingFingerprint({
-        id: this.settings.localEmbedding.model,
-        repoId: this.settings.localEmbedding.model,
-        installedAt: now(),
-        dimensions: this.settings.localEmbedding.dimensions || 0,
-        runtime: 'transformers-js'
-      })
-    }
-
-    return null
-  }
-
-  /**
-   * @description 判断指定知识 scope 的向量索引是否与当前 embedding 配置兼容。
-   * @param scope 知识范围。
-   * @returns 兼容则返回 `true`。
-   */
-  private isKnowledgeScopeCompatible(scope: MemoryKnowledgeScope): boolean {
-    if (this.settings.retrievalMode === 'string') {
-      return true
-    }
-
-    const entries = this.getKnowledgeEntries(scope)
-    if (entries.length === 0) {
-      return true
-    }
-
-    const manifest = this.getManifest(scope)
-    const expected = this.getExpectedFingerprint()
-    const active = manifest ? this.fingerprintFromManifest(manifest) : null
-    return isSameEmbeddingFingerprint(active, expected)
-  }
-
-  /**
-   * @description 汇总剧情与名词解释索引的 embedding 兼容性。
-   * @returns 兼容旧接口的 world 兼容性状态。
-   */
-  private getWorldCompatibility(): EmbeddingCompatibilityStatus {
-    const storyManifest = this.getManifest(STORY_SCOPE)
-    const glossaryManifest = this.getManifest(GLOSSARY_SCOPE)
-    const expected = this.getExpectedFingerprint()
-    const storyActive = storyManifest ? this.fingerprintFromManifest(storyManifest) : null
-    const glossaryActive = glossaryManifest ? this.fingerprintFromManifest(glossaryManifest) : null
-    const compatible =
-      this.settings.retrievalMode === 'string' ||
-      (this.isKnowledgeScopeCompatible(STORY_SCOPE) &&
-        this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE))
-
     return {
-      scope: 'world',
-      compatible,
-      expectedFingerprint: expected,
-      activeFingerprint: storyActive || glossaryActive,
-      message:
-        this.settings.retrievalMode !== 'string' && !compatible
-          ? 'Current story/glossary indices do not match the active embedding model and need to be rebuilt.'
-          : undefined
+      scope: 'chat-memory',
+      enabled: this.settings.memorySearchEnabled,
+      indexAvailability: index.availability,
+      retrievalModeUsed: result.runtimeModeUsed,
+      resultCount: result.hits.length,
+      fallbackReason: result.fallbackReason,
+      targetCharacterId: index.targetCharacterId || null,
+      targetSessionId: index.targetSessionId || null
     }
   }
 
   /**
-   * @description 计算当前解析出的角色记忆目标与激活 embedding 配置之间的兼容性。
-   * @param resolvedTarget 已解析出的 memory 目标。
-   * @returns 角色记忆索引兼容性结果。
+   * @description 构建设置页展示的角色记忆索引状态。
+   * @param selection 当前查看的角色或会话。
+   * @returns 角色记忆索引状态。
    */
-  private getMemoryCompatibility(
-    resolvedTarget: MemoryResolvedTarget
-  ): EmbeddingCompatibilityStatus {
-    const manifest = this.getManifest(MEMORY_SCOPE, resolvedTarget.targetId)
-    const expected = this.getExpectedFingerprint()
-    const active = manifest ? this.fingerprintFromManifest(manifest) : null
-    const compatible =
-      this.settings.retrievalMode === 'string' || isSameEmbeddingFingerprint(active, expected)
-
+  private buildMemoryIndexStatus(
+    selection?: MemoryTargetSelection | null
+  ): CharacterMemoryIndexStatus {
+    const target = this.resolveMemoryTarget(selection)
+    const manifest = target.targetId ? this.getRepository().getManifest(target.targetId) : null
+    const compatibility = this.getMemoryCompatibility(target)
+    const availability = this.getMemoryAvailability(manifest, compatibility)
     return {
       scope: MEMORY_SCOPE,
-      targetId: resolvedTarget.targetId,
+      characterId: target.characterId,
+      targetCharacterId: target.characterId,
+      targetSessionId: target.sessionId,
+      availability,
+      runtimeMode: getIndexRuntimeMode(this.settings.retrievalMode, availability),
+      entryCount: manifest?.entryCount || this.countMemoryEntries(target),
+      indexedCharacterCount: this.getRepository().countIndexedCharacters(),
+      fingerprint: manifest ? this.getRepository().fingerprintFromManifest(manifest) : null,
+      builtAt: manifest?.builtAt || null
+    }
+  }
+
+  /**
+   * @description 获取角色记忆索引与当前 embedding 设置的兼容性。
+   * @param target 已解析的角色或会话目标。
+   * @returns embedding 兼容性说明。
+   */
+  private getMemoryCompatibility(target: MemoryResolvedTarget): EmbeddingCompatibilityStatus {
+    const manifest = target.targetId ? this.getRepository().getManifest(target.targetId) : null
+    const active = manifest ? this.getRepository().fingerprintFromManifest(manifest) : null
+    const expected = this.getExpectedFingerprint()
+    const compatible =
+      this.settings.retrievalMode === 'string' || isSameEmbeddingFingerprint(active, expected)
+    return {
+      scope: MEMORY_SCOPE,
+      targetId: target.targetId,
       compatible,
       expectedFingerprint: expected,
       activeFingerprint: active,
@@ -1550,745 +707,362 @@ export class MemoryService {
   }
 
   /**
-   * @description 计算单个知识 scope 的索引可用性。
-   * @param scope 知识范围。
-   * @param manifest 该 scope 对应的索引 manifest。
-   * @returns 当前可用性状态。
+   * @description 判断角色记忆索引的当前可用性。
+   * @param manifest 当前索引 manifest。
+   * @param compatibility embedding 兼容性。
+   * @returns 索引可用性。
    */
-  private getKnowledgeScopeAvailability(
-    scope: MemoryKnowledgeScope,
-    manifest: IndexManifestRecord | null
-  ): WorldIndexStatus['availability'] {
-    if (scope === STORY_SCOPE) {
-      return getStoryAvailability({
-        enabled: this.settings.worldSearchEnabled,
-        retrievalMode: this.settings.retrievalMode,
-        entries: this.storyEntries,
-        manifest,
-        compatible: this.isKnowledgeScopeCompatible(STORY_SCOPE),
-        fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-        worldBundleError: this.worldBundleError,
-        worldEntryCount: this.getWorldEntryCount(),
-        isBuilding: this.hasRunningWorldTask()
-      })
-    }
-
-    return getGlossaryAvailability({
-      enabled: this.settings.worldSearchEnabled,
-      retrievalMode: this.settings.retrievalMode,
-      entries: this.glossaryEntries,
-      manifest,
-      compatible: this.isKnowledgeScopeCompatible(GLOSSARY_SCOPE),
-      fingerprint: manifest ? this.fingerprintFromManifest(manifest) : null,
-      worldBundleError: this.worldBundleError,
-      worldEntryCount: this.getWorldEntryCount(),
-      isBuilding: this.hasRunningWorldTask()
-    })
-  }
-
-  /**
-   * @description 根据剧情与名词解释的独立状态计算兼容旧 UI 的 world 可用性。
-   * @param storyManifest 剧情索引 manifest。
-   * @param glossaryManifest 名词解释索引 manifest。
-   * @param compatibility world 兼容性聚合结果。
-   * @returns world 级别可用性状态。
-   */
-  private getWorldAvailability(
-    storyManifest: IndexManifestRecord | null,
-    glossaryManifest: IndexManifestRecord | null,
-    compatibility: EmbeddingCompatibilityStatus
-  ): WorldIndexStatus['availability'] {
-    const runningTask = this.getTasks().find(
-      (task) => task.scope === 'world' && (task.status === 'queued' || task.status === 'running')
-    )
-    if (runningTask) {
-      return 'building'
-    }
-
-    const storyAvailability = this.getKnowledgeScopeAvailability(STORY_SCOPE, storyManifest)
-    const glossaryAvailability = this.getKnowledgeScopeAvailability(
-      GLOSSARY_SCOPE,
-      glossaryManifest
-    )
-
-    if (storyAvailability === 'failed' || glossaryAvailability === 'failed') {
-      return 'failed'
-    }
-
-    if (this.settings.retrievalMode === 'string') {
-      return this.getWorldEntryCount() > 0 ? 'ready' : 'missing'
-    }
-
-    const storyNeedsIndex = this.storyEntries.length > 0
-    const glossaryNeedsIndex = this.glossaryEntries.length > 0
-    const anyPopulatedScopeMissing =
-      (storyNeedsIndex && storyAvailability === 'missing') ||
-      (glossaryNeedsIndex && glossaryAvailability === 'missing')
-
-    if (this.getWorldEntryCount() === 0 || anyPopulatedScopeMissing) {
-      return 'missing'
-    }
-
-    return compatibility.compatible ? 'ready' : 'incompatible'
-  }
-
   private getMemoryAvailability(
-    manifest: IndexManifestRecord | null,
+    manifest: import('@shared/memory-settings').IndexManifestRecord | null,
     compatibility: EmbeddingCompatibilityStatus
   ): CharacterMemoryIndexStatus['availability'] {
-    const runningTask = this.getTasks().find(
-      (task) =>
-        task.scope === 'character-memory' && (task.status === 'queued' || task.status === 'running')
-    )
-    if (runningTask) {
+    if (this.getTasks().some((task) => task.status === 'queued' || task.status === 'running')) {
       return 'building'
     }
-
     if (this.settings.retrievalMode === 'string') {
-      return this.countIndexedCharacters() > 0 ? 'ready' : 'missing'
+      return manifest ? 'ready' : 'missing'
     }
-
     if (!manifest) {
       return 'missing'
     }
-
-    if (manifest.status === 'failed') {
-      return 'failed'
-    }
-
-    return compatibility.compatible ? 'ready' : 'incompatible'
+    return manifest.status === 'failed'
+      ? 'failed'
+      : compatibility.compatible
+        ? 'ready'
+        : 'incompatible'
   }
 
   /**
-   * @description 按知识 scope 执行调试检索，优先向量，失败时降级到字符串匹配。
-   * @param scope 知识范围。
-   * @param query 查询文本。
-   * @returns 检索执行结果与降级原因。
-   */
-  private async retrieveKnowledgeDebugHits(
-    scope: MemoryKnowledgeScope,
-    query: string
-  ): Promise<RetrievalExecution> {
-    if (!this.settings.worldSearchEnabled) {
-      return {
-        hits: [],
-        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
-        fallbackReason: 'World retrieval is disabled in the current memory settings.'
-      }
-    }
-
-    const manifest = this.getManifest(scope)
-    const availability = this.getKnowledgeScopeAvailability(scope, manifest)
-    if (this.settings.retrievalMode !== 'string' && availability === 'ready') {
-      try {
-        return {
-          hits: await this.buildKnowledgeVectorHits(scope, query),
-          runtimeModeUsed: 'vector'
-        }
-      } catch (error) {
-        return {
-          hits:
-            scope === STORY_SCOPE
-              ? this.buildStoryStringHits(query, 'degraded')
-              : this.buildGlossaryStringHits(query, 'degraded'),
-          runtimeModeUsed: 'degraded',
-          fallbackReason: describeVectorFailure(error)
-        }
-      }
-    }
-
-    const degradedRuntimeMode = getIndexRuntimeMode(this.settings.retrievalMode, availability)
-    return {
-      hits:
-        scope === STORY_SCOPE
-          ? this.buildStoryStringHits(query, degradedRuntimeMode)
-          : this.buildGlossaryStringHits(query, degradedRuntimeMode),
-      runtimeModeUsed: degradedRuntimeMode,
-      fallbackReason:
-        this.settings.retrievalMode === 'string'
-          ? undefined
-          : this.getKnowledgeScopeCompatibilityReason(scope, availability)
-    }
-  }
-
-  /**
-   * @description 执行剧情调试检索。
-   * @param query 查询文本。
-   * @returns 剧情检索执行结果。
-   */
-  private async retrieveStoryDebugHits(query: string): Promise<RetrievalExecution> {
-    return this.retrieveKnowledgeDebugHits(STORY_SCOPE, query)
-  }
-
-  /**
-   * @description 执行名词解释调试检索。
-   * @param query 查询文本。
-   * @returns 名词解释检索执行结果。
-   */
-  private async retrieveGlossaryDebugHits(query: string): Promise<RetrievalExecution> {
-    return this.retrieveKnowledgeDebugHits(GLOSSARY_SCOPE, query)
-  }
-
-  /**
-   * @description 执行聊天记忆调试检索，缺少会话时返回可解释的空结果。
-   * @param query 查询文本。
-   * @param session 当前会话；为空时无法检索聊天记忆。
-   * @returns 聊天记忆检索执行结果。
-   */
-  private async retrieveChatMemoryDebugHits(
-    query: string,
-    session: ConversationSession | null
-  ): Promise<RetrievalExecution> {
-    if (!this.settings.memorySearchEnabled) {
-      return {
-        hits: [],
-        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
-        fallbackReason: 'Chat memory retrieval is disabled in the current memory settings.'
-      }
-    }
-
-    if (!session) {
-      return {
-        hits: [],
-        runtimeModeUsed: getIndexRuntimeMode(this.settings.retrievalMode, 'missing'),
-        fallbackReason:
-          'No matching session was found for the selected character, so chat memory cannot be inspected yet.'
-      }
-    }
-
-    const compatibility = this.getMemoryCompatibility({
-      targetId: this.settings.crossSessionCharacterMemory ? session.characterId : session.id,
-      characterId: session.characterId,
-      sessionId: session.id,
-      session
-    })
-    if (this.settings.retrievalMode !== 'string' && compatibility.compatible) {
-      try {
-        return {
-          hits: await this.buildChatMemoryVectorHits(query, session),
-          runtimeModeUsed: 'vector'
-        }
-      } catch (error) {
-        return {
-          hits: this.buildChatMemoryStringHits(query, session, 'degraded'),
-          runtimeModeUsed: 'degraded',
-          fallbackReason: describeVectorFailure(error)
-        }
-      }
-    }
-
-    const memoryRuntimeMode = getIndexRuntimeMode(
-      this.settings.retrievalMode,
-      this.buildMemoryIndexStatus({
-        characterId: session.characterId,
-        sessionId: session.id
-      }).availability
-    )
-    return {
-      hits: this.buildChatMemoryStringHits(query, session, memoryRuntimeMode),
-      runtimeModeUsed: memoryRuntimeMode,
-      fallbackReason:
-        this.settings.retrievalMode === 'string'
-          ? undefined
-          : this.getMemoryCompatibilityReason(compatibility, session)
-    }
-  }
-
-  /**
-   * @description 构建单个知识 scope 的调试运行摘要。
-   * @param scope 知识范围。
-   * @param result 检索执行结果。
-   * @returns 调试页可展示的运行摘要。
-   */
-  private buildRuntimeSummary(
-    scope: MemoryKnowledgeScope,
-    result: RetrievalExecution
-  ): MemoryDebugRuntimeDetail {
-    const manifest = this.getManifest(scope)
-    return {
-      scope,
-      enabled: this.settings.worldSearchEnabled,
-      indexAvailability: this.getKnowledgeScopeAvailability(scope, manifest),
-      retrievalModeUsed: result.runtimeModeUsed,
-      resultCount: result.hits.length,
-      fallbackReason: result.fallbackReason
-    }
-  }
-
-  /**
-   * @description 构建聊天记忆检索的调试运行摘要。
-   * @param result 检索执行结果。
-   * @param session 当前调试或预览使用的会话。
-   * @returns 聊天记忆运行摘要。
-   */
-  private buildChatMemoryRuntimeSummary(
-    result: RetrievalExecution,
-    session: ConversationSession | null
-  ): MemoryDebugRuntimeDetail {
-    const memoryIndex = this.buildMemoryIndexStatus(
-      session
-        ? {
-            characterId: session.characterId,
-            sessionId: session.id
-          }
-        : null
-    )
-    return {
-      scope: 'chat-memory',
-      enabled: this.settings.memorySearchEnabled,
-      indexAvailability: memoryIndex.availability,
-      retrievalModeUsed: result.runtimeModeUsed,
-      resultCount: result.hits.length,
-      fallbackReason: result.fallbackReason,
-      targetCharacterId: memoryIndex.targetCharacterId || null,
-      targetSessionId: memoryIndex.targetSessionId || null
-    }
-  }
-
-  /**
-   * @description 生成知识 scope 从向量检索降级到字符串匹配的原因。
-   * @param scope 知识范围。
-   * @param availability 当前可用性状态。
-   * @returns 面向调试界面的降级说明。
-   */
-  private getKnowledgeScopeCompatibilityReason(
-    scope: MemoryKnowledgeScope,
-    availability: WorldIndexStatus['availability']
-  ): string {
-    return scope === STORY_SCOPE
-      ? getStoryCompatibilityReason(availability)
-      : getGlossaryCompatibilityReason(availability)
-  }
-
-  private getMemoryCompatibilityReason(
-    compatibility: EmbeddingCompatibilityStatus,
-    session: ConversationSession
-  ): string {
-    const memoryIndex = this.buildMemoryIndexStatus({
-      characterId: session.characterId,
-      sessionId: session.id
-    })
-    if (memoryIndex.availability === 'missing') {
-      return 'Chat memory index is missing, so the query fell back to keyword matching.'
-    }
-
-    if (memoryIndex.availability === 'failed') {
-      return 'Chat memory index is marked as failed, so the query fell back to keyword matching.'
-    }
-
-    if (memoryIndex.availability === 'building') {
-      return 'Chat memory index is still building, so the query fell back to keyword matching.'
-    }
-
-    return (
-      compatibility.message ||
-      'Chat memory vector retrieval is unavailable, so the query fell back to keyword matching.'
-    )
-  }
-
-  /**
-   * @description 为已命中的名词解释追加少量被其解释文本引用的嵌套词条。
-   * @param hits 初始名词解释命中。
-   * @param retrievalModeUsed 本次检索实际采用的运行模式。
-   * @returns 已补充引用词条并重新编号的命中列表。
-   */
-  private expandGlossaryHits(
-    hits: MemoryDebugRetrievalHit[],
-    retrievalModeUsed: WorldIndexStatus['runtimeMode']
-  ): MemoryDebugRetrievalHit[] {
-    if (hits.length === 0) {
-      return hits
-    }
-
-    const glossaryEntriesByTerm = new Map(
-      this.glossaryEntries
-        .map((entry) => [entry.term?.trim(), entry] as const)
-        .filter(([term]) => term)
-    )
-    const usedIds = new Set(hits.map((hit) => hit.id))
-    const expanded = [...hits]
-
-    for (const hit of hits) {
-      if (expanded.length >= hits.length + GLOSSARY_REFERENCE_LIMIT) {
-        break
-      }
-
-      const entry = this.glossaryEntries.find((item) => item.id === hit.id)
-      for (const reference of entry?.references || []) {
-        if (expanded.length >= hits.length + GLOSSARY_REFERENCE_LIMIT) {
-          break
-        }
-
-        const linkedEntry = glossaryEntriesByTerm.get(reference)
-        if (!linkedEntry || usedIds.has(linkedEntry.id)) {
-          continue
-        }
-
-        usedIds.add(linkedEntry.id)
-        expanded.push({
-          id: linkedEntry.id,
-          scope: 'glossary',
-          text: linkedEntry.text,
-          score: Math.max(hit.score - 0.001 * expanded.length, 0),
-          rank: expanded.length + 1,
-          retrievalModeUsed,
-          sourceType: linkedEntry.sourceType,
-          sourcePath: linkedEntry.sourcePath || null,
-          term: linkedEntry.term || null
-        })
-      }
-    }
-
-    return expanded.map((item, index) => ({
-      ...item,
-      rank: index + 1
-    }))
-  }
-
-  /**
-   * @description 按当前 memory 设置解析界面选中的角色 / 会话目标，统一角色聚合与单会话模式下的 target 语义。
-   * @param selection 设置页或调试页传入的角色 / 会话选择。
-   * @returns 已补齐真实 targetId、角色、会话与可用 session 的解析结果。
+   * @description 解析角色聚合或会话级的记忆检索目标。
+   * @param selection 请求中的角色或会话选择。
+   * @returns 补齐后的检索目标。
    */
   private resolveMemoryTarget(selection?: MemoryTargetSelection | null): MemoryResolvedTarget {
-    const requestedCharacterId = selection?.characterId || null
-    const requestedSessionId = selection?.sessionId || null
-    const selectedSession = requestedSessionId
-      ? this.sessions.find((item) => item.id === requestedSessionId) || null
+    const selected = selection?.sessionId
+      ? this.sessions.find((session) => session.id === selection.sessionId) || null
       : null
+    const characterId = selection?.characterId || selected?.characterId || null
     const session =
-      selectedSession &&
-      (!requestedCharacterId || selectedSession.characterId === requestedCharacterId)
-        ? selectedSession
-        : null
-    const characterId = requestedCharacterId || session?.characterId || null
-    const resolvedSession =
-      session ||
-      (this.settings.crossSessionCharacterMemory
-        ? this.resolveLatestSessionForCharacter(characterId)
-        : null)
-    const sessionId = session?.id || null
-
+      selected ||
+      (this.settings.crossSessionCharacterMemory ? this.findLatestSession(characterId) : null)
     return {
-      targetId: this.settings.crossSessionCharacterMemory ? characterId : sessionId,
+      targetId: this.settings.crossSessionCharacterMemory ? characterId : selected?.id || null,
       characterId,
-      sessionId,
-      session: resolvedSession
+      sessionId: selected?.id || null,
+      session
     }
   }
 
   /**
-   * @description 查找指定角色最近更新的一条会话，供跨会话角色记忆模式下补全上下文目标。
-   * @param characterId 角色 ID。
-   * @returns 最近会话；若不存在则返回 `null`。
+   * @description 查找一个角色最近更新的会话。
+   * @param characterId 角色标识。
+   * @returns 最近会话；不存在时返回 `null`。
    */
-  private resolveLatestSessionForCharacter(characterId: string | null): ConversationSession | null {
+  private findLatestSession(characterId: string | null): ConversationSession | null {
     if (!characterId) {
       return null
     }
-
     return (
       this.sessions
-        .filter((item) => item.characterId === characterId)
+        .filter((session) => session.characterId === characterId)
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] || null
     )
   }
 
-  private resolveDebugSession(
-    characterId: string | null,
-    sessionId: string | null
-  ): ConversationSession | null {
-    return this.resolveMemoryTarget({ characterId, sessionId }).session
+  /**
+   * @description 统计当前目标可访问的角色记忆条目。
+   * @param target 已解析目标。
+   * @returns 条目数量。
+   */
+  private countMemoryEntries(target: MemoryResolvedTarget): number {
+    return target.targetId
+      ? this.getRepository().countMemoryEntries(
+          target.targetId,
+          this.settings.crossSessionCharacterMemory
+        )
+      : 0
   }
 
   /**
-   * @description 统计当前 memory 目标下可用于检索的记忆条目数。
-   * @param resolvedTarget 已解析出的 memory 目标。
-   * @returns 目标范围内的记忆条目数量。
+   * @description 读取并缓存本机硬件信息。
+   * @returns GPU 信息。
    */
-  private countMemoryEntries(resolvedTarget: MemoryResolvedTarget): number {
-    if (!resolvedTarget.targetId) {
-      return 0
+  private async getHardwareInfo(): Promise<MemoryHardwareInfo> {
+    if (!this.hardwareInfoPromise) {
+      this.hardwareInfoPromise = readMemoryHardwareInfo().catch((error) => {
+        void logger.warn('memory', 'hardware-info-read-failed', 'Failed to read GPU information', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return { gpuName: null }
+      })
     }
+    return this.hardwareInfoPromise
+  }
 
-    return this.getRepository().countMemoryEntries(
-      resolvedTarget.targetId,
-      this.settings.crossSessionCharacterMemory
+  /** @description 返回当前任务列表并按更新时间降序排列。 */
+  private getTasks(): MemoryTask[] {
+    return [...this.tasks.values()].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
     )
   }
 
-  private countIndexedCharacters(): number {
-    return this.getRepository().countIndexedCharacters()
+  /** @description 返回已初始化的角色记忆仓库。 */
+  private getRepository(): MemoryIndexRepository {
+    if (!this.repository) {
+      throw new Error('Memory index repository is not initialized.')
+    }
+    return this.repository
   }
 
+  /** @description 将当前设置持久化到统一设置存储。 */
+  private async persistSettings(): Promise<void> {
+    this.settings = await getUnifiedSettingsStore().update(
+      'memory',
+      normalizeMemorySettingsStore(this.settings)
+    )
+  }
+
+  /**
+   * @description 判断 local embedding 运行时缓存是否需因设置变更而清除。
+   * @param previous 旧设置。
+   * @param next 新设置。
+   * @returns 需要清理时返回 `true`。
+   */
   private shouldClearLocalEmbeddingPipelines(
-    previousSettings: MemorySettingsStore,
-    nextSettings: MemorySettingsStore
+    previous: MemorySettingsStore,
+    next: MemorySettingsStore
   ): boolean {
-    const previousUsesLocal = previousSettings.retrievalMode === 'vector-local'
-    const nextUsesLocal = nextSettings.retrievalMode === 'vector-local'
-
-    if (!previousUsesLocal && !nextUsesLocal) {
-      return false
-    }
-
     return (
-      previousSettings.retrievalMode !== nextSettings.retrievalMode ||
-      previousSettings.localEmbedding.model !== nextSettings.localEmbedding.model ||
-      previousSettings.localEmbedding.modelPath !== nextSettings.localEmbedding.modelPath ||
-      previousSettings.localEmbedding.useGpu !== nextSettings.localEmbedding.useGpu ||
-      previousSettings.localEmbedding.useHuggingFaceMirror !==
-        nextSettings.localEmbedding.useHuggingFaceMirror ||
-      previousSettings.localEmbedding.huggingFaceMirrorUrl !==
-        nextSettings.localEmbedding.huggingFaceMirrorUrl
+      previous.retrievalMode !== next.retrievalMode ||
+      previous.localEmbedding.model !== next.localEmbedding.model ||
+      previous.localEmbedding.modelPath !== next.localEmbedding.modelPath ||
+      previous.localEmbedding.useGpu !== next.localEmbedding.useGpu
     )
   }
 
+  /** @description 清空本地 embedding pipeline 缓存。 */
   private async clearLocalEmbeddingPipelines(): Promise<void> {
     const { clearAllPipelineCaches } = await this.getLocalEmbeddingModule()
     clearAllPipelineCaches()
   }
 
+  /** @description 延迟加载本地 embedding 模块。 */
   private async getLocalEmbeddingModule(): Promise<LocalEmbeddingModule> {
     if (!this.localEmbeddingModulePromise) {
       this.localEmbeddingModulePromise = import('../embedding/local')
     }
-
     return this.localEmbeddingModulePromise
   }
 
-  private async requireInstalledLocalModel(): Promise<InstalledLocalEmbeddingModel> {
-    if (this.settings.retrievalMode !== 'vector-local') {
-      throw new Error('Local embeddings are only available in vector-local mode')
+  /**
+   * @description 获取当前选择且已安装的本地 embedding 模型。
+   * @returns 已安装模型。
+   */
+  private async requireInstalledLocalModel(
+    requireMemoryVectorMode = true
+  ): Promise<InstalledLocalEmbeddingModel> {
+    if (requireMemoryVectorMode && this.settings.retrievalMode !== 'vector-local') {
+      throw new Error('Local embeddings are only available in vector-local mode.')
     }
-
     const { getInstalledLocalEmbeddingModel } = await this.getLocalEmbeddingModule()
-    const installedModel = await getInstalledLocalEmbeddingModel(this.settings.localEmbedding.model)
-    if (!installedModel) {
+    const model = await getInstalledLocalEmbeddingModel(this.settings.localEmbedding.model)
+    if (!model) {
       throw new Error('Selected local embedding model is not installed or is invalid.')
     }
-
-    return installedModel
+    return model
   }
 
+  /** @description 创建当前本地 embedding provider。 */
   private async requireVectorEmbeddingProvider(): Promise<EmbeddingProvider> {
-    if (this.settings.retrievalMode === 'vector-local') {
-      const installedModel = await this.requireInstalledLocalModel()
-      const { LocalEmbeddingProvider } = await this.getLocalEmbeddingModule()
-      return new LocalEmbeddingProvider(installedModel, this.settings.localEmbedding)
-    }
-
-    throw new Error('Vector embeddings are only available in vector modes')
+    const model = await this.requireInstalledLocalModel()
+    const { LocalEmbeddingProvider } = await this.getLocalEmbeddingModule()
+    return new LocalEmbeddingProvider(model, this.settings.localEmbedding)
   }
 
+  /**
+   * @description 创建 Lore 任务语义候选索引使用的 embedding provider，不受角色记忆检索模式限制。
+   * @returns 已安装本地 embedding 模型对应的 provider。
+   */
+  private async requireLoreEmbeddingProvider(): Promise<EmbeddingProvider> {
+    const model = await this.requireInstalledLocalModel(false)
+    const { LocalEmbeddingProvider } = await this.getLocalEmbeddingModule()
+    return new LocalEmbeddingProvider(model, this.settings.localEmbedding)
+  }
+
+  /** @description 获取当前可用于连接测试的 embedding provider。 */
   private async requireActiveEmbeddingProvider(): Promise<EmbeddingProvider> {
     if (this.settings.retrievalMode === 'string') {
-      throw new Error('Embedding connection test is only available in vector modes')
+      throw new Error('Embedding connection test is only available in vector modes.')
     }
-
     return this.requireVectorEmbeddingProvider()
   }
 
+  /**
+   * @description 依据当前本地 embedding 模型生成指纹。
+   * @param dimensions 实际向量维度。
+   * @returns 当前 embedding 指纹。
+   */
   private async createActiveEmbeddingFingerprint(
     dimensions?: number
   ): Promise<EmbeddingFingerprint> {
-    const installedModel = await this.requireInstalledLocalModel()
+    const model = await this.requireInstalledLocalModel()
     return createLocalEmbeddingFingerprint({
-      id: installedModel.id,
-      repoId: installedModel.repoId,
+      id: model.id,
+      repoId: model.repoId,
       installedAt: now(),
-      dimensions: dimensions || installedModel.dimensions,
-      runtime: installedModel.runtime
+      dimensions: dimensions || model.dimensions,
+      runtime: model.runtime
     })
   }
 
-  private getTaskStartMessage(taskType: MemoryTask['taskType']): string {
-    switch (taskType) {
-      case 'world-bundle-download':
-        return 'Refreshing world knowledge bundle'
-      case 'world-vector-build':
-        return 'Preparing world vector index build'
-      case 'character-memory-build':
-        return 'Preparing character memory rebuild'
-      case 'all-memory-build':
-        return 'Preparing full character memory rebuild'
-      case 'local-model-download':
-        return 'Preparing local embedding model download'
-      case 'local-model-validate':
-        return 'Preparing local embedding model validation'
-      default:
-        return 'Task started'
-    }
+  /**
+   * @description 依据已安装本地模型创建 Lore 任务语义索引使用的指纹。
+   * @param dimensions 实际生成的向量维度。
+   * @returns 当前 Lore embedding 指纹。
+   */
+  private async createLoreEmbeddingFingerprint(
+    dimensions?: number
+  ): Promise<EmbeddingFingerprint> {
+    const model = await this.requireInstalledLocalModel(false)
+    return createLocalEmbeddingFingerprint({
+      id: model.id,
+      repoId: model.repoId,
+      installedAt: now(),
+      dimensions: dimensions || model.dimensions,
+      runtime: model.runtime
+    })
   }
 
-  private formatTaskError(taskType: MemoryTask['taskType'], error: unknown): string {
-    const baseMessage = error instanceof Error ? error.message : String(error)
-
-    if (baseMessage === 'Selected local embedding model is not installed or is invalid.') {
-      return [
-        'Selected local embedding model is not installed or is invalid.',
-        'Choose an installed local embedding model before starting the vector build.',
-        'If you just changed the model in the UI, save settings first and then retry.'
-      ].join('\n')
-    }
-
-    if (baseMessage === 'Local embeddings are only available in vector-local mode') {
-      return [
-        'Local embeddings are only available in vector-local mode.',
-        'Switch retrieval mode to vector-local before running a local vector build.'
-      ].join('\n')
-    }
-
-    if (
-      taskType === 'world-vector-build' ||
-      taskType === 'character-memory-build' ||
-      taskType === 'all-memory-build'
-    ) {
-      return [
-        baseMessage,
-        'Check the active embedding configuration and local model selection, then retry the build.'
-      ].join('\n')
-    }
-
-    return baseMessage
+  /** @description 依据当前设置预测激活 embedding 指纹。 */
+  private getExpectedFingerprint(): EmbeddingFingerprint | null {
+    return this.settings.retrievalMode === 'vector-local' && this.settings.localEmbedding.modelPath
+      ? createLocalEmbeddingFingerprint({
+          id: this.settings.localEmbedding.model,
+          repoId: this.settings.localEmbedding.model,
+          installedAt: now(),
+          dimensions: this.settings.localEmbedding.dimensions || 0,
+          runtime: 'transformers-js'
+        })
+      : null
   }
 
-  private async runTask(
+  /**
+   * @description 将 embedding 批处理进度映射到任务进度区间。
+   * @param progress embedding 批处理进度。
+   * @param start 任务进度起点。
+   * @param end 任务进度终点。
+   * @returns 映射后的百分比。
+   */
+  private mapEmbeddingProgress(
+    progress: EmbeddingBatchProgress,
+    start: number,
+    end: number
+  ): number {
+    const ratio =
+      progress.total > 0 ? Math.max(0, Math.min(progress.completed / progress.total, 1)) : 1
+    return Math.round(start + (end - start) * ratio)
+  }
+
+  /**
+   * @description 创建并异步执行角色记忆后台任务。
+   * @param taskType 任务类型。
+   * @param scope 任务范围。
+   * @param callback 具体任务逻辑。
+   * @param characterId 可选角色标识。
+   * @returns 已创建任务。
+   */
+  private runTask(
     taskType: MemoryTask['taskType'],
     scope: MemoryTask['scope'],
     callback: (
       taskId: string,
       updateTask: (taskId: string, patch: Partial<MemoryTask>) => void,
-      taskControl: TaskCancellationState
+      control: TaskCancellationState
     ) => Promise<void>,
     characterId?: string
-  ): Promise<MemoryTask> {
+  ): MemoryTask {
     const task: MemoryTask = {
       taskId: randomUUID(),
       taskType,
-      status: 'queued',
-      progress: 0,
       scope,
       characterId,
+      status: 'queued',
+      progress: 0,
       createdAt: now(),
       updatedAt: now()
     }
-
     this.tasks.set(task.taskId, task)
-    this.taskLogStates.delete(task.taskId)
     const controller = new AbortController()
-    const taskControl: TaskCancellationState = {
+    const control: TaskCancellationState = {
       controller,
       throwIfCancelled: () => {
-        const currentTask = this.tasks.get(task.taskId)
-        if (controller.signal.aborted || currentTask?.status === 'cancelled') {
+        if (controller.signal.aborted || this.tasks.get(task.taskId)?.status === 'cancelled') {
           throw new MemoryTaskCancelledError()
         }
       }
     }
-    this.taskCancellationStates.set(task.taskId, taskControl)
+    this.taskCancellationStates.set(task.taskId, control)
     this.emitTask(task)
-
-    void (async () => {
-      try {
-        await runMonitoredTask({
-          scope: 'memory',
-          action: 'task-failed',
-          message: 'Memory task failed',
-          code: 'MEMORY_INDEX_ERROR',
-          context: {
-            taskId: task.taskId,
-            taskType,
-            scope,
-            characterId
-          },
-          shouldCaptureError: (error) => !(error instanceof MemoryTaskCancelledError),
-          run: async () => {
+    void runMonitoredTask({
+      scope: 'memory',
+      action: 'task-failed',
+      message: 'Memory task failed',
+      code: 'MEMORY_INDEX_ERROR',
+      context: { taskId: task.taskId, taskType, characterId },
+      shouldCaptureError: (error) => !(error instanceof MemoryTaskCancelledError),
+      run: async () => {
+        try {
+          this.updateTask(task.taskId, { status: 'running', progress: 5, message: 'Task started' })
+          await callback(task.taskId, (id, patch) => this.updateTask(id, patch), control)
+          if (this.tasks.get(task.taskId)?.status !== 'cancelled') {
             this.updateTask(task.taskId, {
-              status: 'running',
-              progress: 5,
-              message: this.getTaskStartMessage(taskType)
-            })
-            taskControl.throwIfCancelled()
-            await callback(task.taskId, (id, patch) => this.updateTask(id, patch), taskControl)
-            const current = this.tasks.get(task.taskId)
-            if (current?.status !== 'cancelled') {
-              this.updateTask(task.taskId, {
-                status: 'completed',
-                progress: 100,
-                message: current?.message || 'Task completed'
-              })
-            }
-          }
-        })
-      } catch (error) {
-        if (error instanceof MemoryTaskCancelledError) {
-          const current = this.tasks.get(task.taskId)
-          if (current?.status !== 'cancelled') {
-            this.updateTask(task.taskId, {
-              status: 'cancelled',
-              message: current?.message || 'Task cancelled'
+              status: 'completed',
+              progress: 100,
+              message: 'Task completed'
             })
           }
-        } else {
+        } catch (error) {
           this.updateTask(task.taskId, {
-            status: 'failed',
-            message: this.formatTaskError(taskType, error)
+            status: error instanceof MemoryTaskCancelledError ? 'cancelled' : 'failed',
+            message: error instanceof Error ? error.message : String(error)
           })
+          throw error
+        } finally {
+          this.taskCancellationStates.delete(task.taskId)
         }
-      } finally {
-        this.taskCancellationStates.delete(task.taskId)
       }
-    })()
-
+    }).catch((error) => {
+      void logger.error('memory', 'task-run-failed', 'Memory task failed', {
+        taskId: task.taskId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    })
     return task
   }
 
+  /**
+   * @description 更新任务状态并发布事件。
+   * @param taskId 任务标识。
+   * @param patch 需合并的字段。
+   */
   private updateTask(taskId: string, patch: Partial<MemoryTask>): void {
-    const task = this.tasks.get(taskId)
-    if (!task) {
+    const current = this.tasks.get(taskId)
+    if (!current) {
       return
     }
-
-    const nextTask = {
-      ...task,
-      ...patch,
-      updatedAt: now()
-    }
-
-    this.tasks.set(taskId, nextTask)
-    this.emitTask(nextTask)
+    const next = { ...current, ...patch, updatedAt: now() }
+    this.tasks.set(taskId, next)
+    this.emitTask(next)
   }
 
+  /**
+   * @description 向所有渲染窗口广播角色记忆任务更新。
+   * @param task 最新任务快照。
+   */
   private emitTask(task: MemoryTask): void {
-    const previousStatus = this.taskLogStates.get(task.taskId)
-    if (previousStatus !== task.status) {
-      this.taskLogStates.set(task.taskId, task.status)
-      const context = {
-        taskId: task.taskId,
-        taskType: task.taskType,
-        scope: task.scope,
-        characterId: task.characterId,
-        status: task.status,
-        progress: task.progress,
-        message: task.message
-      }
-      if (task.status === 'failed') {
-        void logger.error('memory', 'task-status-changed', 'Memory task status changed', context)
-      } else if (task.status === 'cancelled') {
-        void logger.warn('memory', 'task-status-changed', 'Memory task status changed', context)
-      } else {
-        void logger.info('memory', 'task-status-changed', 'Memory task status changed', context)
-      }
-    }
-
-    const event: MemoryTaskEvent = {
-      type: 'memory-task',
-      task
-    }
-
+    const event: MemoryTaskEvent = { type: 'memory-task', task }
     for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send('memory:task:event', event)
+      window.webContents.send('memory:taskEvent', event)
     }
   }
 }

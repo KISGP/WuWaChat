@@ -16,8 +16,6 @@ import type {
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type {
   CharacterMemoryIndexStatus,
-  MemoryDebugRetrieveRequest,
-  MemoryDebugRetrieveResult,
   EmbeddingCompatibilityStatus,
   EmbeddingConnectionTestResult,
   LocalEmbeddingCatalogItem,
@@ -25,8 +23,7 @@ import type {
   MemoryStatusSnapshot,
   MemoryTargetSelection,
   MemoryTask,
-  MemoryTaskEvent,
-  WorldIndexStatus
+  MemoryTaskEvent
 } from '@shared/memory-settings'
 import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
@@ -34,6 +31,7 @@ import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
 import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
+import type { LoreStatus } from '@shared/lore'
 
 declare global {
   interface Window {
@@ -83,17 +81,19 @@ declare global {
       getEmbeddingCompatibility: (
         selection?: MemoryTargetSelection | null
       ) => Promise<EmbeddingCompatibilityStatus[]>
-      getWorldIndexStatus: () => Promise<WorldIndexStatus>
       getMemoryIndexStatus: (
         selection?: MemoryTargetSelection | null
       ) => Promise<CharacterMemoryIndexStatus>
-      startWorldBundleDownload: () => Promise<MemoryTask>
-      startWorldVectorBuild: () => Promise<MemoryTask>
       startCharacterMemoryBuild: (characterId: string) => Promise<MemoryTask>
       startAllMemoryBuild: () => Promise<MemoryTask>
       cancelTask: (taskId: string) => Promise<boolean>
-      debugRetrieve?: (request: MemoryDebugRetrieveRequest) => Promise<MemoryDebugRetrieveResult>
       onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => () => void
+    }
+    lore: {
+      getStatus: () => Promise<LoreStatus>
+      updateSource: () => Promise<LoreStatus>
+      rebuild: () => Promise<LoreStatus>
+      buildSemanticIndex: () => Promise<LoreStatus>
     }
     logs: {
       track: (payload: RendererLogEventPayload) => Promise<void>

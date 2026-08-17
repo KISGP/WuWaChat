@@ -2,7 +2,7 @@ export type StorageCategoryId =
   | 'sessions'
   | 'characters'
   | 'memoryDatabase'
-  | 'world'
+  | 'loreSource'
   | 'localEmbeddingModels'
   | 'logs'
   | 'settings'

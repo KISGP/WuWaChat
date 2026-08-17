@@ -8,10 +8,13 @@ import {
   getCharactersRoot,
   getLocalEmbeddingRoot,
   getLogsRoot,
+  getLoreMarkdownSourceMetadataPath,
+  getLoreMarkdownSourceRoot,
+  getLorePackagePath,
+  getLoreSemanticIndexPath,
   getMemoryDatabasePath,
   getSettingsPath,
   getSessionsPath,
-  getWorldRoot,
   pathExists
 } from '@main/utils'
 
@@ -45,11 +48,16 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
     color: '#9fe870'
   },
   {
-    id: 'world',
-    label: '世界知识',
-    path: getWorldRoot(),
-    paths: [getWorldRoot()],
-    description: '世界知识包、元数据与向量索引',
+    id: 'loreSource',
+    label: '原作资料',
+    path: getLoreMarkdownSourceRoot(),
+    paths: [
+      getLoreMarkdownSourceRoot(),
+      getLoreMarkdownSourceMetadataPath(),
+      getLorePackagePath(),
+      getLoreSemanticIndexPath()
+    ],
+    description: '原作 Markdown、资料包元数据与向量索引',
     color: '#ff9f7a'
   },
   {

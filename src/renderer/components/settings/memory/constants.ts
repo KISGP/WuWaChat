@@ -8,11 +8,11 @@ export const RETRIEVAL_OPTIONS: {
   {
     value: 'string',
     label: '字符串检索',
-    description: '使用关键词匹配检索世界知识和长期记忆。'
+    description: '长期记忆使用关键词匹配。'
   },
   {
     value: 'vector-local',
     label: '本地向量检索',
-    description: '使用本地 Transformers.js embedding 模型进行语义检索。'
+    description: '长期记忆使用本地 embedding 模型进行语义检索。'
   }
 ]

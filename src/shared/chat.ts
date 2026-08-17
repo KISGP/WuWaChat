@@ -1,4 +1,5 @@
 import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeSummary } from './memory-settings'
+import type { LoreRouteDecision } from './lore'
 
 export type ProviderKind = 'openai' | 'deepseek'
 
@@ -127,8 +128,7 @@ export type ChatPromptPreviewResult = {
   storyContextHits: ChatPromptPreviewHit[]
   glossaryContextHits: ChatPromptPreviewHit[]
   chatMemoryContextHits: ChatPromptPreviewHit[]
-  worldContextHits: ChatPromptPreviewHit[]
-  memoryContextHits: ChatPromptPreviewHit[]
+  loreRoute: LoreRouteDecision | null
   runtimeSummary: MemoryDebugRuntimeSummary
   systemPromptText: string
   messages: ChatPromptPreviewMessage[]

@@ -2,8 +2,7 @@ import { Database } from 'lucide-react'
 import type { ReactElement } from 'react'
 import type {
   CharacterMemoryIndexStatus,
-  EmbeddingCompatibilityStatus,
-  WorldIndexStatus
+  EmbeddingCompatibilityStatus
 } from '@shared/memory-settings'
 import { cn } from '@renderer/utils'
 import {
@@ -23,7 +22,7 @@ export function StatusCard({
   emptyHint
 }: {
   title: string
-  index: WorldIndexStatus | CharacterMemoryIndexStatus | null
+  index: CharacterMemoryIndexStatus | null
   compatibility?: EmbeddingCompatibilityStatus
   metadataLabel: string
   metadataValue?: string | number | null
@@ -32,7 +31,7 @@ export function StatusCard({
   const availabilityMeta = getAvailabilityMeta(index?.availability, index)
   const runtimeMeta = getRuntimeModeMeta(index?.runtimeMode)
   const derivedEmptyHint = getStatusCardEmptyHint(index, emptyHint)
-  const derivedMetadataLabel = index?.scope === 'world' ? 'world 更新时间' : metadataLabel
+  const derivedMetadataLabel = metadataLabel
   const compatibilityMessage =
     compatibility && (index?.availability === 'ready' || index?.availability === 'incompatible')
       ? compatibility.compatible

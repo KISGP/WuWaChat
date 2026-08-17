@@ -56,11 +56,11 @@ export type MemoryHardwareInfo = {
 
 export type MemorySettingsStore = {
   retrievalMode: MemoryRetrievalMode
-  worldSearchEnabled: boolean
+  loreSearchEnabled: boolean
   memorySearchEnabled: boolean
   crossSessionCharacterMemory: boolean
   recentMessageCount: number
-  worldTopK: number
+  loreTopK: number
   memoryTopK: number
   summaryTriggerTurns: number
   localEmbedding: LocalEmbeddingSettings
@@ -83,7 +83,7 @@ export type EmbeddingConnectionTestResult = {
 }
 
 export type IndexManifestRecord = {
-  scope: 'story' | 'glossary' | 'character-memory'
+  scope: 'character-memory'
   targetId?: string | null
   fingerprintKey: string
   status: IndexAvailability
@@ -94,7 +94,7 @@ export type IndexManifestRecord = {
 }
 
 export type EmbeddingCompatibilityStatus = {
-  scope: 'world' | 'character-memory'
+  scope: 'character-memory'
   targetId?: string | null
   compatible: boolean
   expectedFingerprint: EmbeddingFingerprint | null
@@ -106,11 +106,7 @@ export type IndexAvailability = 'missing' | 'ready' | 'building' | 'incompatible
 
 export type IndexRuntimeMode = 'string' | 'vector' | 'degraded'
 
-export type MemoryKnowledgeScope = 'story' | 'glossary'
-
-export type MemoryRuntimeScope = MemoryKnowledgeScope | 'chat-memory'
-
-export type MemoryDebugScope = MemoryRuntimeScope | 'all'
+export type MemoryRuntimeScope = 'story' | 'glossary' | 'chat-memory'
 
 export type MemoryDebugRetrievalHit = {
   id: string
@@ -123,7 +119,6 @@ export type MemoryDebugRetrievalHit = {
   sourcePath?: string | null
   sessionId?: string | null
   characterId?: string | null
-  term?: string | null
 }
 
 export type MemoryDebugRuntimeDetail = {
@@ -144,46 +139,9 @@ export type MemoryDebugRuntimeSummary = {
   chatMemory: MemoryDebugRuntimeDetail
 }
 
-export type MemoryDebugRetrieveRequest = {
-  query: string
-  scope: MemoryDebugScope
-  characterId?: string | null
-  sessionId?: string | null
-}
-
 export type MemoryTargetSelection = {
   characterId?: string | null
   sessionId?: string | null
-}
-
-export type MemoryDebugRetrieveResult = {
-  query: string
-  scope: MemoryDebugScope
-  results: MemoryDebugRetrievalHit[]
-  runtimeSummary: MemoryDebugRuntimeSummary
-}
-
-export type WorldIndexStatus = {
-  scope: 'world'
-  availability: IndexAvailability
-  runtimeMode: IndexRuntimeMode
-  updatedAt?: string | null
-  entryCount: number
-  storyEntryCount?: number
-  glossaryEntryCount?: number
-  fingerprint?: EmbeddingFingerprint | null
-  builtAt?: string | null
-}
-
-export type WorldKnowledgeRouteStatus = {
-  scope: MemoryKnowledgeScope
-  enabled: boolean
-  entryCount: number
-  indexAvailability: IndexAvailability
-  retrievalModeUsed: IndexRuntimeMode
-  builtAt?: string | null
-  fingerprint?: EmbeddingFingerprint | null
-  message?: string
 }
 
 export type CharacterMemoryIndexStatus = {
@@ -200,8 +158,6 @@ export type CharacterMemoryIndexStatus = {
 }
 
 export type MemoryTaskType =
-  | 'world-bundle-download'
-  | 'world-vector-build'
   | 'character-memory-build'
   | 'all-memory-build'
   | 'local-model-download'
@@ -215,7 +171,7 @@ export type MemoryTask = {
   status: MemoryTaskStatus
   progress: number
   message?: string
-  scope?: 'world' | 'character-memory'
+  scope?: 'character-memory'
   characterId?: string
   createdAt: string
   updatedAt: string
@@ -228,9 +184,6 @@ export type MemoryTaskEvent = {
 
 export type MemoryStatusSnapshot = {
   settings: MemorySettingsStore
-  worldIndex: WorldIndexStatus
-  storyStatus: WorldKnowledgeRouteStatus
-  glossaryStatus: WorldKnowledgeRouteStatus
   memoryIndex: CharacterMemoryIndexStatus
   tasks: MemoryTask[]
   hardware: MemoryHardwareInfo
@@ -239,11 +192,11 @@ export type MemoryStatusSnapshot = {
 export function createDefaultMemorySettingsStore(): MemorySettingsStore {
   return {
     retrievalMode: 'string',
-    worldSearchEnabled: true,
+    loreSearchEnabled: true,
     memorySearchEnabled: true,
     crossSessionCharacterMemory: true,
     recentMessageCount: 10,
-    worldTopK: 4,
+    loreTopK: 4,
     memoryTopK: 4,
     summaryTriggerTurns: 12,
     localEmbedding: {
@@ -281,10 +234,10 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
 
   return {
     retrievalMode,
-    worldSearchEnabled:
-      typeof raw.worldSearchEnabled === 'boolean'
-        ? raw.worldSearchEnabled
-        : defaults.worldSearchEnabled,
+    loreSearchEnabled:
+      typeof raw.loreSearchEnabled === 'boolean'
+        ? raw.loreSearchEnabled
+        : defaults.loreSearchEnabled,
     memorySearchEnabled:
       typeof raw.memorySearchEnabled === 'boolean'
         ? raw.memorySearchEnabled
@@ -299,7 +252,7 @@ export function normalizeMemorySettingsStore(value: unknown): MemorySettingsStor
       2,
       50
     ),
-    worldTopK: normalizeInteger(raw.worldTopK, defaults.worldTopK, 1, 12),
+    loreTopK: normalizeInteger(raw.loreTopK, defaults.loreTopK, 1, 12),
     memoryTopK: normalizeInteger(raw.memoryTopK, defaults.memoryTopK, 1, 12),
     summaryTriggerTurns: normalizeInteger(
       raw.summaryTriggerTurns,

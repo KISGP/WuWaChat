@@ -14,10 +14,48 @@ import {
   saveCharacterPrompt
 } from '@main/characters'
 import { MemoryService } from '@main/memory'
+import { LoreService } from '@main/knowledge/lore'
 import { getProfiles } from '@main/settings'
+import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeDetail } from '@shared/memory-settings'
 import { ChatRuntime } from './runtime'
 
 const memoryService = new MemoryService()
+const loreService = new LoreService(
+  () => ({
+    loreSearchEnabled: memoryService.getSettings().loreSearchEnabled,
+    loreTopK: memoryService.getSettings().loreTopK
+  }),
+  () => memoryService.getLoreEmbeddingProvider(),
+  (dimensions) => memoryService.getLoreEmbeddingFingerprint(dimensions),
+  getProfiles
+)
+
+/**
+ * @description 将 Lore Package 的可用性转换为 prompt 预览所需的运行时摘要。
+ * @param scope 原作检索范围。
+ * @param hits 当前范围的 Lore 命中，用于反映实际定位方式。
+ * @param available Lore Package 是否可用。
+ * @returns 可供调试页面展示的原作检索运行时信息。
+ */
+function buildLoreRuntimeDetail(
+  scope: 'story' | 'glossary',
+  hits: MemoryDebugRetrievalHit[],
+  available: boolean
+): MemoryDebugRuntimeDetail {
+  const resultCount = hits.length
+  return {
+    scope,
+    enabled: memoryService.getSettings().loreSearchEnabled,
+    indexAvailability: available ? 'ready' : 'failed',
+    retrievalModeUsed: hits.some((hit) => hit.retrievalModeUsed === 'vector')
+      ? 'vector'
+      : available
+        ? 'string'
+        : 'degraded',
+    resultCount,
+    fallbackReason: available ? undefined : 'Lore source package is unavailable.'
+  }
+}
 
 const runtime = new ChatRuntime(
   {
@@ -27,11 +65,34 @@ const runtime = new ChatRuntime(
   },
   {
     getRecentMessageCount: () => memoryService.getRecentMessageCount(),
-    retrieveStoryContext: (query) => memoryService.retrieveStoryContext(query),
-    retrieveGlossaryContext: (query) => memoryService.retrieveGlossaryContext(query),
+    retrieveLoreContext: (query, character, history, profile, abortSignal) =>
+      loreService.retrieve(character, query, history, profile, abortSignal),
     retrieveChatMemoryContext: (query, session) =>
       memoryService.retrieveChatMemoryContext(query, session),
-    previewPromptContext: (query, session) => memoryService.previewPromptContext(query, session),
+    previewPromptContext: async (query, character, session, profile) => {
+      const [loreContext, loreStatus, chatMemoryPreview] = await Promise.all([
+        loreService.retrieve(character, query, session?.messages || [], profile),
+        loreService.getStatus(),
+        memoryService.previewChatMemoryContext(query, session)
+      ])
+
+      return {
+        storyHits: loreContext.storyHits,
+        glossaryHits: loreContext.glossaryHits,
+        chatMemoryHits: chatMemoryPreview.hits,
+        loreRoute: loreContext.route,
+        runtimeSummary: {
+          requestedMode: memoryService.getSettings().retrievalMode,
+          story: buildLoreRuntimeDetail('story', loreContext.storyHits, loreStatus.available),
+          glossary: buildLoreRuntimeDetail(
+            'glossary',
+            loreContext.glossaryHits,
+            loreStatus.available
+          ),
+          chatMemory: chatMemoryPreview.runtimeDetail
+        }
+      }
+    },
     syncSessions: (sessions) => memoryService.syncSessions(sessions)
   }
 )
@@ -98,4 +159,12 @@ export function abortRun(requestId: string): boolean {
  */
 export function getMemoryService(): MemoryService {
   return memoryService
+}
+
+/**
+ * @description 返回全局 LoreService 实例，供 IPC 查询原作资料包状态和重建缓存。
+ * @returns 当前进程唯一的 LoreService。
+ */
+export function getLoreService(): LoreService {
+  return loreService
 }

@@ -23,7 +23,7 @@ import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStor
 import { selectActiveProfile, useSettingsStore } from '@renderer/stores/settingsStore'
 import { cn } from '@renderer/utils'
 
-type SystemSectionId = 'prompt' | 'story' | 'glossary'
+type SystemSectionId = 'prompt' | 'lore-route' | 'story' | 'glossary'
 type PromptPreviewViewMode = 'preview' | 'raw'
 
 /**
@@ -94,9 +94,33 @@ function getInitialSelection(
 function createInitialOpenSections(): Record<SystemSectionId, boolean> {
   return {
     prompt: true,
+    'lore-route': true,
     story: true,
     glossary: true
   }
+}
+
+/**
+ * @description 将 Lore 路由决定格式化为仅供调试的可读文本。
+ * @param result 当前 Prompt 预览结果。
+ * @returns 路由状态、检索查询与降级原因文本。
+ */
+function buildLoreRoutePreviewText(result: ChatPromptPreviewResult): string {
+  const route = result.loreRoute
+  if (!route) {
+    return '未执行：Lore 原作资料检索已关闭或资料包不可用。'
+  }
+
+  return [
+    `决定：${route.disposition}`,
+    `置信度：${route.confidence.toFixed(2)}`,
+    `原因：${route.reason}`,
+    `路由模型：${route.routerProfileId}`,
+    `检索查询：${route.retrievalQuery}`,
+    route.fallbackReason ? `降级原因：${route.fallbackReason}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -107,8 +131,14 @@ function createInitialOpenSections(): Record<SystemSectionId, boolean> {
 function formatRetrievalHit(hit: ChatPromptPreviewHit): string {
   const scopeLabel =
     hit.scope === 'glossary' ? 'Glossary' : hit.scope === 'story' ? 'Story' : 'Chat Memory'
-  const locationLabel = hit.term ? ` (${hit.term})` : hit.sourcePath ? ` (${hit.sourcePath})` : ''
-  return `[${scopeLabel}${locationLabel}]\n${hit.text}`
+  const locationLabel = hit.sourcePath ? ` (${hit.sourcePath})` : ''
+  const locatorLabel =
+    hit.retrievalModeUsed === 'vector'
+      ? '任务语义候选'
+      : hit.retrievalModeUsed === 'string'
+        ? '原文锚点'
+        : '降级结果'
+  return `[${scopeLabel}${locationLabel} · ${locatorLabel}]\n${hit.text}`
 }
 
 /**
@@ -219,13 +249,18 @@ function SystemPreviewCard({
       content: result.prompt.trim() || '(empty)'
     },
     {
+      id: 'lore-route' as const,
+      title: 'Lore 路由（仅调试）',
+      content: buildLoreRoutePreviewText(result)
+    },
+    {
       id: 'story' as const,
-      title: '故事',
+      title: '原作场景',
       content: buildStoryPreviewText(result)
     },
     {
       id: 'glossary' as const,
-      title: '名词',
+      title: '原作术语',
       content: buildGlossaryPreviewText(result)
     }
   ]

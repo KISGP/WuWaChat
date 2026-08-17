@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -17,10 +17,9 @@ import { useShallow } from 'zustand/react/shallow'
 import type {
   CharacterMemoryIndexStatus,
   MemoryRetrievalMode,
-  MemoryTargetSelection,
-  WorldKnowledgeRouteStatus,
-  WorldIndexStatus
+  MemoryTargetSelection
 } from '@shared/memory-settings'
+import type { LoreStatus } from '@shared/lore'
 import { useMemorySettingsDraft } from '@renderer/hooks/useMemorySettingsDraft'
 import { useMemoryTabActions } from '@renderer/hooks/useMemoryTabActions'
 import { useMemoryTabLifecycle } from '@renderer/hooks/useMemoryTabLifecycle'
@@ -35,12 +34,9 @@ import { EmbeddingTestResultBanner } from '@renderer/components/settings/memory/
 import {
   formatDateTime,
   getAvailabilityMeta,
-  getRuntimeModeMeta,
-  getSelectedEmbeddingModeLabel,
-  getWorldRouteSummaryHint
+  getSelectedEmbeddingModeLabel
 } from '@renderer/components/settings/memory/helpers'
 import { LocalModelCard } from '@renderer/components/settings/memory/LocalModelCard'
-import { InfoPill } from '@renderer/components/settings/memory/InfoPill'
 import { TaskPanel } from '@renderer/components/settings/memory/TaskPanel'
 import { SectionCard } from '@renderer/components/settings/section'
 import { SettingItem } from '@renderer/components/settings/setting-item'
@@ -58,8 +54,7 @@ type MemoryTabProps = {
   isActive: boolean
 }
 
-type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
-type RouteStatus = WorldKnowledgeRouteStatus | null
+type IndexStatus = CharacterMemoryIndexStatus | null
 
 /**
  * @description 渲染索引管理区内的轻量状态行。
@@ -156,56 +151,6 @@ function IndexTipList({ tips }: { tips: string[] }): ReactElement | null {
 }
 
 /**
- * @description 渲染 world 细分路由的状态卡。
- * @param props 标题与路由状态。
- * @returns 状态卡节点。
- */
-function WorldRouteStatusCard({
-  title,
-  status,
-  tip
-}: {
-  title: string
-  status: RouteStatus
-  tip?: string
-}): ReactElement {
-  const availabilityMeta = getAvailabilityMeta(status?.indexAvailability)
-  const runtimeMeta = getRuntimeModeMeta(status?.retrievalModeUsed)
-  const routeHint = getWorldRouteSummaryHint(status, tip)
-  const fingerprintModel = status?.fingerprint?.model || '尚未生成'
-
-  function renderWorldRouteInfo(): ReactElement {
-    return (
-      <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-white/60 xl:grid-cols-5">
-        <InfoPill label="当前运行" value={runtimeMeta.label} />
-        <InfoPill label="条目来源" value={title} />
-        <InfoPill label="索引条目" value={status?.entryCount ?? '-'} />
-        <InfoPill label="最近构建" value={formatDateTime(status?.builtAt)} />
-        <InfoPill label="向量" value={fingerprintModel} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="rounded border border-white/10 bg-black/20 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm text-white/85">
-          <Database className="size-4 text-[#e8c690]" />
-          <span>{title}</span>
-        </div>
-        <span className={cn('rounded px-2 py-1 text-[11px]', availabilityMeta.tone)}>
-          {availabilityMeta.label}
-        </span>
-      </div>
-
-      {renderWorldRouteInfo()}
-
-      <i className="mt-2 ml-2 block text-xs leading-5 text-white/55">{routeHint}</i>
-    </div>
-  )
-}
-
-/**
  * @description 计算 Memory 页的初始本地角色 / 会话选择。
  * @param activeCharacter 当前主页面角色。
  * @param currentSession 当前主页面会话。
@@ -276,9 +221,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const {
     settings,
     isLoaded,
-    worldIndex,
-    storyStatus,
-    glossaryStatus,
     memoryIndex,
     compatibility,
     embeddingTestResult,
@@ -295,8 +237,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     removeLocalModel,
     clearLocalModelUiState,
     testEmbeddingConnection,
-    startWorldBundleDownload,
-    startWorldVectorBuild,
     startCharacterMemoryBuild,
     startAllMemoryBuild,
     cancelTask
@@ -304,9 +244,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     useShallow((state) => ({
       settings: state.settings,
       isLoaded: state.isLoaded,
-      worldIndex: state.worldIndex,
-      storyStatus: state.storyStatus,
-      glossaryStatus: state.glossaryStatus,
       memoryIndex: state.memoryIndex,
       compatibility: state.compatibility,
       embeddingTestResult: state.embeddingTestResult,
@@ -323,8 +260,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       removeLocalModel: state.removeLocalModel,
       clearLocalModelUiState: state.clearLocalModelUiState,
       testEmbeddingConnection: state.testEmbeddingConnection,
-      startWorldBundleDownload: state.startWorldBundleDownload,
-      startWorldVectorBuild: state.startWorldVectorBuild,
       startCharacterMemoryBuild: state.startCharacterMemoryBuild,
       startAllMemoryBuild: state.startAllMemoryBuild,
       cancelTask: state.cancelTask
@@ -356,25 +291,15 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
   const compatibilityForView = hasMemoryInspectionTarget ? compatibility : []
   const {
     vectorModeSelected,
-    worldBundleBusy,
-    worldVectorBusy,
     characterMemoryBusy,
-    activeWorldBundleTaskId,
-    activeWorldVectorTaskId,
     activeCharacterMemoryTaskId,
     activeAllMemoryTaskId,
-    storyNeedsBuild,
-    glossaryNeedsBuild,
-    worldRoutesNeedBuild,
     shouldSuggestMemoryBuild,
     operationTips
   } = useMemoryTabViewState({
     draft,
     compatibility: compatibilityForView,
     tasks,
-    worldIndex,
-    storyStatus,
-    glossaryStatus,
     memoryIndex: memoryIndexForView
   })
 
@@ -384,8 +309,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     buildLaunchNotice,
     clearBuildLaunchNotice,
     handleTestEmbedding,
-    handleStartWorldBundleDownload,
-    handleStartWorldVectorBuild,
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
     handleCancelTask,
@@ -402,14 +325,11 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     selectLocalModel,
     removeLocalModel,
     testEmbeddingConnection,
-    startWorldBundleDownload,
-    startWorldVectorBuild,
     startCharacterMemoryBuild,
     startAllMemoryBuild,
     cancelTask
   })
 
-  const worldVectorPending = pendingBuildTaskType === 'world-vector-build' || worldVectorBusy
   const characterMemoryPending =
     pendingBuildTaskType === 'character-memory-build' || characterMemoryBusy
   const allMemoryPending = pendingBuildTaskType === 'all-memory-build' || characterMemoryBusy
@@ -417,6 +337,9 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     (option) => option.value === draft.retrievalMode
   )
   const [localModelListOpen, setLocalModelListOpen] = useState(false)
+  const [loreStatus, setLoreStatus] = useState<LoreStatus | null>(null)
+  const [loreBusy, setLoreBusy] = useState(false)
+  const [loreError, setLoreError] = useState<string | null>(null)
   const selectedLocalModel = localModels.find((model) => model.isSelected) || null
   const installedLocalModelCount = localModels.filter(
     (model) => model.status === 'installed'
@@ -432,6 +355,82 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     setIsLoaded,
     clearBuildLaunchNotice
   })
+
+  useEffect(() => {
+    if (!isActive) {
+      return
+    }
+
+    let cancelled = false
+    void window.lore
+      .getStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setLoreStatus(status)
+          setLoreError(status.message || null)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLoreError(error instanceof Error ? error.message : String(error))
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isActive])
+
+  /**
+   * @description 强制以当前原作资料重新编译 Lore Package，并刷新设置页状态。
+   */
+  async function handleRebuildLore(): Promise<void> {
+    setLoreBusy(true)
+    setLoreError(null)
+    try {
+      const status = await window.lore.rebuild()
+      setLoreStatus(status)
+      setLoreError(status.message || null)
+    } catch (error) {
+      setLoreError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoreBusy(false)
+    }
+  }
+
+  /**
+   * @description 下载最新原作 Markdown 并重建对应的 Lore Package。
+   */
+  async function handleUpdateLoreSource(): Promise<void> {
+    setLoreBusy(true)
+    setLoreError(null)
+    try {
+      const status = await window.lore.updateSource()
+      setLoreStatus(status)
+      setLoreError(status.message || null)
+    } catch (error) {
+      setLoreError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoreBusy(false)
+    }
+  }
+
+  /**
+   * @description 为当前 LorePackage 构建任务级语义候选索引。
+   */
+  async function handleBuildLoreSemanticIndex(): Promise<void> {
+    setLoreBusy(true)
+    setLoreError(null)
+    try {
+      const status = await window.lore.buildSemanticIndex()
+      setLoreStatus(status)
+      setLoreError(status.message || null)
+    } catch (error) {
+      setLoreError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoreBusy(false)
+    }
+  }
 
   const autosaveMeta =
     autosaveState === 'saving'
@@ -476,19 +475,9 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
       ? '当前会话还没有可用于索引的记忆内容。你仍然可以重建当前角色记忆，系统会整理该角色名下的历史会话。'
       : '当前没有选择会话，无法判断会话级记忆索引内容。请选择会话，或开启同一角色跨会话共享记忆。'
   })
-  const generalIndexTips = operationTipsForView
-    .filter((tip) => tip.includes('字符串检索模式'))
-    .slice(0, 1)
-  const storyIndexTips = operationTipsForView.filter((tip) => tip.includes('故事')).slice(0, 1)
-  const glossaryIndexTips = operationTipsForView.filter((tip) => tip.includes('名词')).slice(0, 1)
-  const memoryIndexTips = operationTipsForView
-    .filter((tip) => !tip.includes('世界知识') && !tip.includes('字符串检索模式'))
-    .slice(0, 2)
+  const memoryIndexTips = operationTipsForView.slice(0, 2)
   const hasIncompatibleIndex =
-    draft.retrievalMode !== 'string' &&
-    (storyStatus?.indexAvailability === 'incompatible' ||
-      glossaryStatus?.indexAvailability === 'incompatible' ||
-      memoryIndexForView?.availability === 'incompatible')
+    draft.retrievalMode !== 'string' && memoryIndexForView?.availability === 'incompatible'
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto px-4">
@@ -525,13 +514,13 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
 
       <SectionCard title="检索设置">
         <SettingItem
-          title="启用世界知识检索"
-          description="从内置故事与名词知识库中检索相关内容，并追加到提示词上下文里。"
+          title="启用原作资料检索"
+          description="从原作任务、场景和术语原文中检索相关内容，并追加到提示词上下文里。"
         >
           <Switch
-            id="switch-world"
-            checked={draft.worldSearchEnabled}
-            onCheckedChange={(checked) => updateDraft({ worldSearchEnabled: checked })}
+            id="switch-lore"
+            checked={draft.loreSearchEnabled}
+            onCheckedChange={(checked) => updateDraft({ loreSearchEnabled: checked })}
             onClick={(e) => e.stopPropagation()}
             className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
           />
@@ -547,7 +536,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
           />
         </SettingItem>
-        <SettingItem title="检索模式">
+        <SettingItem
+          title="长期记忆检索模式"
+          description="只影响历史会话整理出的长期记忆，不影响原作资料检索。"
+        >
           <Select
             value={draft.retrievalMode}
             onValueChange={(value) => updateDraft({ retrievalMode: value as MemoryRetrievalMode })}
@@ -572,121 +564,117 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             </SelectContent>
           </Select>
         </SettingItem>
-        {draft.retrievalMode !== 'string' && (
-          <section className="space-y-6 rounded bg-[rgba(16,16,16,0.3)] px-4 py-3 pt-2">
-            <div className="mb-3 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-medium text-white/90">向量提供方设置</h2>
-                <p className="mt-1 text-xs text-white/45">
-                  选择、下载并管理本地 Transformers.js embedding 模型。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleTestEmbedding()}
-                disabled={isTestingEmbedding}
-                className="flex items-center gap-2 rounded border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
-              >
-                <Wifi className={cn('size-4', isTestingEmbedding && 'animate-pulse')} />
-                {isTestingEmbedding ? '测试中...' : '测试 embedding'}
-              </button>
+        <section className="space-y-6 rounded bg-[rgba(16,16,16,0.3)] px-4 py-3 pt-2">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-medium text-white/90">本地语义模型</h2>
+              <p className="mt-1 text-xs text-white/45">
+                用于长期记忆的向量检索，以及无明确原作锚点时的 Lore 任务级语义回退。
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => void handleTestEmbedding()}
+              disabled={isTestingEmbedding}
+              className="flex items-center gap-2 rounded border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
+            >
+              <Wifi className={cn('size-4', isTestingEmbedding && 'animate-pulse')} />
+              {isTestingEmbedding ? '测试中...' : '测试 embedding'}
+            </button>
+          </div>
 
-            {draft.retrievalMode === 'vector-local' && (
-              <div className="space-y-4">
-                <SettingItem
-                  title="使用 GPU 运行本地 embedding"
-                  description={`开启后会优先使用 GPU，如果当前环境不支持，则会自动切换到 CPU。当前 GPU：${hardware.gpuName}`}
-                >
-                  <Switch
-                    id="switch-local-gpu"
-                    checked={draft.localEmbedding.useGpu}
-                    onCheckedChange={(checked) =>
-                      updateDraft({
-                        localEmbedding: { ...draft.localEmbedding, useGpu: checked }
-                      })
+          <div className="space-y-4">
+            <SettingItem
+              title="使用 GPU 运行本地 embedding"
+              description={`开启后会优先使用 GPU，如果当前环境不支持，则会自动切换到 CPU。当前 GPU：${hardware.gpuName}`}
+            >
+              <Switch
+                id="switch-local-gpu"
+                checked={draft.localEmbedding.useGpu}
+                onCheckedChange={(checked) =>
+                  updateDraft({
+                    localEmbedding: { ...draft.localEmbedding, useGpu: checked }
+                  })
+                }
+                className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+              />
+            </SettingItem>
+            <SettingItem
+              title="使用 Hugging Face 镜像下载本地模型"
+              description="开启后会从 Hugging Face 镜像下载模型文件，适用于国内网络环境较差的用户。默认镜像地址为 https://hf-mirror.com 。"
+            >
+              <Switch
+                id="switch-mirror"
+                checked={draft.localEmbedding.useHuggingFaceMirror}
+                onCheckedChange={(checked) =>
+                  updateDraft({
+                    localEmbedding: {
+                      ...draft.localEmbedding,
+                      useHuggingFaceMirror: checked
                     }
-                    className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
-                  />
-                </SettingItem>
-                <SettingItem
-                  title="使用 Hugging Face 镜像下载本地模型"
-                  description="开启后会从 Hugging Face 镜像下载模型文件，适用于国内网络环境较差的用户。默认镜像地址为 https://hf-mirror.com 。"
+                  })
+                }
+                className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+              />
+            </SettingItem>
+            <SettingItem title="本地模型批处理大小" description="设置本地模型处理批次的大小。">
+              <Input
+                value={draft.localEmbedding.batchSize}
+                onChange={(value) => {
+                  const numberValue = Number(value.target.value)
+                  isPositiveInteger(numberValue) &&
+                    updateDraft({
+                      localEmbedding: {
+                        ...draft.localEmbedding,
+                        batchSize: numberValue
+                      }
+                    })
+                }}
+              />
+            </SettingItem>
+
+            <Collapsible open={localModelListOpen} onOpenChange={setLocalModelListOpen}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 rounded border border-white/10 bg-black/20 px-4 py-3 text-left transition-colors hover:bg-white/5"
                 >
-                  <Switch
-                    id="switch-mirror"
-                    checked={draft.localEmbedding.useHuggingFaceMirror}
-                    onCheckedChange={(checked) =>
-                      updateDraft({
-                        localEmbedding: {
-                          ...draft.localEmbedding,
-                          useHuggingFaceMirror: checked
-                        }
-                      })
-                    }
-                    className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
-                  />
-                </SettingItem>
-                <SettingItem title="本地模型批处理大小" description="设置本地模型处理批次的大小。">
-                  <Input
-                    value={draft.localEmbedding.batchSize}
-                    onChange={(value) => {
-                      const numberValue = Number(value.target.value)
-                      isPositiveInteger(numberValue) &&
-                        updateDraft({
-                          localEmbedding: {
-                            ...draft.localEmbedding,
-                            batchSize: numberValue
-                          }
-                        })
-                    }}
-                  />
-                </SettingItem>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-white/90">
+                      本地 embedding 模型
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-white/45">
+                      当前：
+                      {selectedLocalModel?.label || '未选择模型'} · 已安装{' '}
+                      {installedLocalModelCount}/{localModels.length}
+                    </span>
+                  </span>
+                  {localModelListOpen ? (
+                    <ChevronDown className="size-4 shrink-0 text-white/55" />
+                  ) : (
+                    <ChevronRight className="size-4 shrink-0 text-white/55" />
+                  )}
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-3 grid grid-cols-1 gap-3">
+                  {localModels.map((model) => (
+                    <LocalModelCard
+                      key={model.id}
+                      model={model}
+                      uiState={localModelUiState[model.id]}
+                      onDownload={handleDownloadLocalModel}
+                      onSelect={handleSelectLocalModel}
+                      onRemove={handleRemoveLocalModel}
+                    />
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
 
-                <Collapsible open={localModelListOpen} onOpenChange={setLocalModelListOpen}>
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 rounded border border-white/10 bg-black/20 px-4 py-3 text-left transition-colors hover:bg-white/5"
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-white/90">
-                          本地 embedding 模型
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-white/45">
-                          当前：
-                          {selectedLocalModel?.label || '未选择模型'} · 已安装{' '}
-                          {installedLocalModelCount}/{localModels.length}
-                        </span>
-                      </span>
-                      {localModelListOpen ? (
-                        <ChevronDown className="size-4 shrink-0 text-white/55" />
-                      ) : (
-                        <ChevronRight className="size-4 shrink-0 text-white/55" />
-                      )}
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="mt-3 grid grid-cols-1 gap-3">
-                      {localModels.map((model) => (
-                        <LocalModelCard
-                          key={model.id}
-                          model={model}
-                          uiState={localModelUiState[model.id]}
-                          onDownload={handleDownloadLocalModel}
-                          onSelect={handleSelectLocalModel}
-                          onRemove={handleRemoveLocalModel}
-                        />
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            )}
-
-            {embeddingTestResult && <EmbeddingTestResultBanner result={embeddingTestResult} />}
-          </section>
-        )}
+          {embeddingTestResult && <EmbeddingTestResultBanner result={embeddingTestResult} />}
+        </section>
       </SectionCard>
 
       <SectionCard title="记忆范围">
@@ -719,12 +707,12 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             }}
           />
         </SettingItem>
-        <SettingItem title="故事 / 名词 TopK">
+        <SettingItem title="原作资料 TopK">
           <Input
-            value={draft.worldTopK}
+            value={draft.loreTopK}
             onChange={(value) => {
               const numberValue = Number(value.target.value)
-              isPositiveInteger(numberValue) && updateDraft({ worldTopK: numberValue })
+              isPositiveInteger(numberValue) && updateDraft({ loreTopK: numberValue })
             }}
           />
         </SettingItem>
@@ -739,11 +727,63 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
         </SettingItem>
       </SectionCard>
 
+      <SectionCard title="原作资料包">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+            <span
+              className={cn(
+                'rounded border px-2 py-1 text-[11px]',
+                loreStatus?.available
+                  ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100'
+                  : 'border-amber-300/30 bg-amber-500/10 text-amber-100'
+              )}
+            >
+              {loreStatus?.available ? '可用' : '未就绪'}
+            </span>
+            <span>任务：{loreStatus?.taskCount ?? '-'}</span>
+            <span>场景：{loreStatus?.sceneCount ?? '-'}</span>
+            <span>术语：{loreStatus?.termCount ?? '-'}</span>
+            <span>语义索引：{formatDateTime(loreStatus?.semanticIndexBuiltAt)}</span>
+            <span>构建时间：{formatDateTime(loreStatus?.builtAt)}</span>
+          </div>
+
+          <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-white/55">
+            运行时只读取已安装的
+            LorePackage。先以任务、场景和术语定位原作锚点；没有锚点时才使用任务级语义索引。角色仅检索其参与过的任务。
+          </div>
+
+          {loreError && <div className="text-xs leading-5 text-amber-200/85">{loreError}</div>}
+
+          <div className="grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : Download}
+              label={loreBusy ? '正在更新原作资料' : '更新原作资料'}
+              disabled={loreBusy}
+              onClick={handleUpdateLoreSource}
+            />
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : RefreshCw}
+              label={loreBusy ? '正在重建原作资料包' : '重建原作资料包'}
+              disabled={loreBusy}
+              highlight={Boolean(loreError) || !loreStatus?.available}
+              onClick={handleRebuildLore}
+            />
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : Database}
+              label={loreBusy ? '正在构建任务语义索引' : '构建任务语义索引'}
+              disabledReason={selectedLocalModel ? undefined : '请先下载并选择一个本地语义模型。'}
+              disabled={loreBusy || !selectedLocalModel}
+              onClick={handleBuildLoreSemanticIndex}
+            />
+          </div>
+        </div>
+      </SectionCard>
+
       <SectionCard title="索引管理">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-white/80">当前设置：</span>
+              <span className="text-sm text-white/80">长期记忆当前设置：</span>
               <span className="rounded border border-[#e8c690]/30 bg-[#e8c690]/10 px-2 py-1 text-xs text-[#f2dfbd]">
                 {getSelectedEmbeddingModeLabel(draft.retrievalMode)}
               </span>
@@ -755,77 +795,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
                 <span>索引与当前 embedding 不一致，建议重建。</span>
               </div>
             )}
-          </div>
-
-          <IndexTipList tips={generalIndexTips} />
-
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <div className="rounded border border-white/10 bg-black/20 p-4">
-              <WorldRouteStatusCard title="故事" status={storyStatus} tip={storyIndexTips[0]} />
-            </div>
-            <div className="rounded border border-white/10 bg-black/20 p-4">
-              <WorldRouteStatusCard
-                title="名词"
-                status={glossaryStatus}
-                tip={glossaryIndexTips[0]}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3 rounded border border-white/10 bg-black/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-medium text-white/90">世界知识构建</div>
-              <IndexStatusLine
-                index={worldIndex}
-                metadataLabel="知识包更新时间"
-                metadataValue={formatDateTime(worldIndex?.updatedAt)}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <IndexActionButton
-                icon={worldBundleBusy ? XCircle : Download}
-                label={
-                  worldBundleBusy && activeWorldBundleTaskId ? '中止更新' : '更新故事/名词知识包'
-                }
-                highlight={worldBundleBusy || worldRoutesNeedBuild}
-                disabled={worldBundleBusy ? !activeWorldBundleTaskId : false}
-                disabledReason={worldBundleBusy ? '当前已有世界知识包更新任务在运行。' : undefined}
-                onClick={
-                  worldBundleBusy && activeWorldBundleTaskId
-                    ? () => handleCancelTask(activeWorldBundleTaskId)
-                    : handleStartWorldBundleDownload
-                }
-              />
-              <IndexActionButton
-                icon={worldVectorPending ? XCircle : RefreshCw}
-                label={
-                  worldVectorPending && activeWorldVectorTaskId ? '中止构建' : '构建故事/名词向量'
-                }
-                highlight={
-                  worldVectorPending ||
-                  worldRoutesNeedBuild ||
-                  storyNeedsBuild ||
-                  glossaryNeedsBuild
-                }
-                disabled={
-                  (worldVectorPending && !activeWorldVectorTaskId) ||
-                  (!worldVectorPending && !vectorModeSelected)
-                }
-                disabledReason={
-                  worldVectorPending
-                    ? '当前已有世界知识向量构建任务在运行。'
-                    : !vectorModeSelected
-                      ? '字符串检索模式下不需要构建向量索引。'
-                      : undefined
-                }
-                onClick={
-                  worldVectorPending && activeWorldVectorTaskId
-                    ? () => handleCancelTask(activeWorldVectorTaskId)
-                    : handleStartWorldVectorBuild
-                }
-              />
-            </div>
           </div>
 
           <div className="rounded border border-white/10 bg-black/20 p-4">

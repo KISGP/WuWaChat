@@ -11,8 +11,6 @@ type MemoryTabActionDependencies = {
   selectLocalModel: (modelId: string) => Promise<void>
   removeLocalModel: (modelId: string) => Promise<void>
   testEmbeddingConnection: () => Promise<void>
-  startWorldBundleDownload: () => Promise<void>
-  startWorldVectorBuild: () => Promise<void>
   startCharacterMemoryBuild: (characterId: string) => Promise<void>
   startAllMemoryBuild: () => Promise<void>
   cancelTask: (taskId: string) => Promise<void>
@@ -39,8 +37,6 @@ export function useMemoryTabActions({
   selectLocalModel,
   removeLocalModel,
   testEmbeddingConnection,
-  startWorldBundleDownload,
-  startWorldVectorBuild,
   startCharacterMemoryBuild,
   startAllMemoryBuild,
   cancelTask
@@ -50,8 +46,6 @@ export function useMemoryTabActions({
   buildLaunchNotice: BuildLaunchNotice
   clearBuildLaunchNotice: () => void
   handleTestEmbedding: () => Promise<void>
-  handleStartWorldBundleDownload: () => Promise<void>
-  handleStartWorldVectorBuild: () => Promise<void>
   handleStartCharacterMemoryBuild: () => Promise<void>
   handleStartAllMemoryBuild: () => Promise<void>
   handleCancelTask: (taskId: string) => Promise<void>
@@ -104,22 +98,6 @@ export function useMemoryTabActions({
       setIsTestingEmbedding(false)
     }
   }, [flushPendingChanges, testEmbeddingConnection])
-
-  const handleStartWorldBundleDownload = useCallback(async (): Promise<void> => {
-    await withBuildPreparation(
-      'world-bundle-download',
-      () => startWorldBundleDownload(),
-      '更新世界知识包失败'
-    )
-  }, [startWorldBundleDownload, withBuildPreparation])
-
-  const handleStartWorldVectorBuild = useCallback(async (): Promise<void> => {
-    await withBuildPreparation(
-      'world-vector-build',
-      () => startWorldVectorBuild(),
-      '构建世界知识向量失败'
-    )
-  }, [startWorldVectorBuild, withBuildPreparation])
 
   const handleStartCharacterMemoryBuild = useCallback(async (): Promise<void> => {
     if (!selectedCharacterId) {
@@ -189,8 +167,6 @@ export function useMemoryTabActions({
     buildLaunchNotice,
     clearBuildLaunchNotice,
     handleTestEmbedding,
-    handleStartWorldBundleDownload,
-    handleStartWorldVectorBuild,
     handleStartCharacterMemoryBuild,
     handleStartAllMemoryBuild,
     handleCancelTask,

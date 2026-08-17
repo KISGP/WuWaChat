@@ -141,11 +141,16 @@ export class ChatRuntime {
       throw new Error(`Profile not found: ${request.profileId}`)
     }
 
-    await this.dependencies.getCharacter(request.characterId)
+    const character = await this.dependencies.getCharacter(request.characterId)
     const promptDocument = await this.dependencies.getCharacterPrompt(request.characterId)
     const session = this.resolvePreviewSession(request.sessionId || null, request.characterId)
     const history = this.buildPreviewHistory(session, userMessage)
-    const retrievalPreview = await this.chatContext.previewPromptContext(userMessage, session)
+    const retrievalPreview = await this.chatContext.previewPromptContext(
+      userMessage,
+      character,
+      session,
+      profile
+    )
     const retrievalContext = [
       ...retrievalPreview.glossaryHits.map(formatRetrievalContextHit),
       ...retrievalPreview.storyHits.map(formatRetrievalContextHit),
@@ -176,8 +181,7 @@ export class ChatRuntime {
       storyContextHits: retrievalPreview.storyHits,
       glossaryContextHits: retrievalPreview.glossaryHits,
       chatMemoryContextHits: retrievalPreview.chatMemoryHits,
-      worldContextHits: [...retrievalPreview.glossaryHits, ...retrievalPreview.storyHits],
-      memoryContextHits: retrievalPreview.chatMemoryHits,
+      loreRoute: retrievalPreview.loreRoute,
       runtimeSummary: retrievalPreview.runtimeSummary,
       systemPromptText,
       messages

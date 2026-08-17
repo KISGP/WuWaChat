@@ -47,12 +47,37 @@ export function getTtsModelRoot(modelId: string): string {
   return join(getAppDataRoot(), 'models', 'tts', modelId)
 }
 
-export function getWorldRoot(): string {
+/**
+ * @description 返回当前 Markdown Lore 源包目录。
+ * @remarks 目录名保留为 `world`，以继续使用已安装的只读原作资料；运行时只将其作为当前编译来源。
+ * @returns 当前 Markdown 源包目录。
+ */
+export function getLoreMarkdownSourceRoot(): string {
   return join(getAppDataRoot(), 'world')
 }
 
-export function getWorldMetadataPath(): string {
+/**
+ * @description 返回当前 Markdown Lore 源包的版本元数据路径。
+ * @returns 当前 Markdown 源包元数据路径。
+ */
+export function getLoreMarkdownSourceMetadataPath(): string {
   return join(getAppDataRoot(), 'world-metadata.json')
+}
+
+/**
+ * @description 返回由原作 Markdown 确定性编译得到的 Lore Package 本地路径。
+ * @returns Lore Package 的固定应用数据路径。
+ */
+export function getLorePackagePath(): string {
+  return join(getAppDataRoot(), 'lore.json')
+}
+
+/**
+ * @description 返回 Lore 任务语义候选索引的本地缓存路径。
+ * @returns Lore 语义索引的固定应用数据路径。
+ */
+export function getLoreSemanticIndexPath(): string {
+  return join(getAppDataRoot(), 'lore-semantic-index.json')
 }
 
 export function getLogsRoot(): string {

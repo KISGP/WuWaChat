@@ -1,4 +1,5 @@
-import type { CharacterSummary, ConversationSession } from '@shared/chat'
+import type { CharacterSummary, ConversationSession, ModelProfile } from '@shared/chat'
+import type { LoreRouteDecision } from '@shared/lore'
 import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeSummary } from '@shared/memory-settings'
 import type { ProfilesStore } from '@shared/model-settings'
 
@@ -17,20 +18,28 @@ export type PromptContextPreview = {
   storyHits: MemoryDebugRetrievalHit[]
   glossaryHits: MemoryDebugRetrievalHit[]
   chatMemoryHits: MemoryDebugRetrievalHit[]
+  loreRoute: LoreRouteDecision | null
   runtimeSummary: MemoryDebugRuntimeSummary
 }
 
 export type ChatContextProvider = {
   getRecentMessageCount: () => number
-  retrieveStoryContext: (query: string) => Promise<MemoryDebugRetrievalHit[]>
-  retrieveGlossaryContext: (query: string) => Promise<MemoryDebugRetrievalHit[]>
+  retrieveLoreContext: (
+    query: string,
+    character: CharacterSummary,
+    history: ConversationSession['messages'],
+    profile: ModelProfile,
+    abortSignal?: AbortSignal
+  ) => Promise<Pick<PromptContextPreview, 'storyHits' | 'glossaryHits'>>
   retrieveChatMemoryContext: (
     query: string,
     session: ConversationSession
   ) => Promise<MemoryDebugRetrievalHit[]>
   previewPromptContext: (
     query: string,
-    session: ConversationSession | null
+    character: CharacterSummary,
+    session: ConversationSession | null,
+    profile: ModelProfile
   ) => Promise<PromptContextPreview>
   syncSessions: (sessions: ConversationSession[]) => void
 }

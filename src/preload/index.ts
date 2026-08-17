@@ -10,7 +10,6 @@ import type {
 import { CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
 import type { RendererLogEventPayload } from '@shared/logging'
 import type {
-  MemoryDebugRetrieveRequest,
   MemoryTargetSelection,
   MemorySettingsStore,
   MemoryTaskEvent
@@ -21,6 +20,7 @@ import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest } from '@shared/tools'
 import type { TtsSynthesisRequest } from '@shared/tts'
+import type { LoreStatus } from '@shared/lore'
 
 const ENABLE_DEV_TOOLS = import.meta.env.DEV
 
@@ -68,7 +68,8 @@ const characters = {
 }
 
 const settings = {
-  getUnifiedSettings: (): Promise<UnifiedSettings> => ipcRenderer.invoke('settings:getUnifiedSettings'),
+  getUnifiedSettings: (): Promise<UnifiedSettings> =>
+    ipcRenderer.invoke('settings:getUnifiedSettings'),
   getAppSettings: () => ipcRenderer.invoke('settings:getAppSettings'),
   saveAppSettings: (data: AppSettings) => ipcRenderer.invoke('settings:saveAppSettings', data),
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
@@ -89,21 +90,12 @@ const memory = {
   testEmbeddingConnection: () => ipcRenderer.invoke('memory:testEmbeddingConnection'),
   getEmbeddingCompatibility: (selection?: MemoryTargetSelection | null) =>
     ipcRenderer.invoke('memory:getEmbeddingCompatibility', selection),
-  getWorldIndexStatus: () => ipcRenderer.invoke('memory:getWorldIndexStatus'),
   getMemoryIndexStatus: (selection?: MemoryTargetSelection | null) =>
     ipcRenderer.invoke('memory:getMemoryIndexStatus', selection),
-  startWorldBundleDownload: () => ipcRenderer.invoke('memory:startWorldBundleDownload'),
-  startWorldVectorBuild: () => ipcRenderer.invoke('memory:startWorldVectorBuild'),
   startCharacterMemoryBuild: (characterId: string) =>
     ipcRenderer.invoke('memory:startCharacterMemoryBuild', characterId),
   startAllMemoryBuild: () => ipcRenderer.invoke('memory:startAllMemoryBuild'),
   cancelTask: (taskId: string) => ipcRenderer.invoke('memory:cancelTask', taskId),
-  ...(ENABLE_DEV_TOOLS
-    ? {
-        debugRetrieve: (request: MemoryDebugRetrieveRequest) =>
-          ipcRenderer.invoke('memory:debugRetrieve', request)
-      }
-    : {}),
   onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: MemoryTaskEvent): void => {
       listener(payload)
@@ -114,6 +106,13 @@ const memory = {
       ipcRenderer.removeListener('memory:task:event', wrappedListener)
     }
   }
+}
+
+const lore = {
+  getStatus: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:getStatus'),
+  updateSource: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:updateSource'),
+  rebuild: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:rebuild'),
+  buildSemanticIndex: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:buildSemanticIndex')
 }
 
 const logs = {
@@ -146,6 +145,7 @@ const exposedApis = {
   characters,
   settings,
   memory,
+  lore,
   logs,
   storage,
   tools,

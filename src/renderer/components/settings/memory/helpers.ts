@@ -1,12 +1,10 @@
 import type {
   CharacterMemoryIndexStatus,
   MemoryRetrievalMode,
-  MemoryTask,
-  WorldKnowledgeRouteStatus,
-  WorldIndexStatus
+  MemoryTask
 } from '@shared/memory-settings'
 
-type IndexStatus = WorldIndexStatus | CharacterMemoryIndexStatus | null
+type IndexStatus = CharacterMemoryIndexStatus | null
 
 export function renderStructuredMessage(message: string): string[] {
   return message
@@ -35,7 +33,7 @@ export function formatDateTime(value?: string | null): string {
 }
 
 export function getAvailabilityMeta(
-  availability?: WorldIndexStatus['availability'],
+  availability?: CharacterMemoryIndexStatus['availability'],
   index?: IndexStatus
 ): {
   label: string
@@ -94,7 +92,7 @@ export function getAvailabilityMeta(
   }
 }
 
-export function getRuntimeModeMeta(runtimeMode?: WorldIndexStatus['runtimeMode']): {
+export function getRuntimeModeMeta(runtimeMode?: CharacterMemoryIndexStatus['runtimeMode']): {
   label: string
   description: string
 } {
@@ -116,30 +114,6 @@ export function getRuntimeModeMeta(runtimeMode?: WorldIndexStatus['runtimeMode']
         description: '当前使用关键词匹配方式检索内容。'
       }
   }
-}
-
-/**
- * @description 为世界知识路由生成单条摘要提示，避免在卡片内重复堆叠说明信息。
- * @param status 当前世界知识路由状态。
- * @param fallbackTip 当前路由的专属提示文案。
- * @returns 适合展示在卡片底部的唯一摘要提示。
- */
-export function getWorldRouteSummaryHint(
-  status: WorldKnowledgeRouteStatus | null,
-  fallbackTip?: string
-): string {
-  if (status?.message?.trim()) {
-    return status.message
-  }
-
-  if (fallbackTip?.trim()) {
-    return fallbackTip
-  }
-
-  const availabilityMeta = getAvailabilityMeta(status?.indexAvailability)
-  const runtimeMeta = getRuntimeModeMeta(status?.retrievalModeUsed)
-
-  return `${availabilityMeta.description}${runtimeMeta.description ? ` ${runtimeMeta.description}` : ''}`
 }
 
 export function getSelectedEmbeddingModeLabel(mode: MemoryRetrievalMode): string {
@@ -183,20 +157,11 @@ export function hasRunningMemoryBuildTask(tasks: MemoryTask[]): boolean {
 }
 
 export function isVisibleMemoryTask(task: MemoryTask): boolean {
-  return (
-    task.taskType === 'world-bundle-download' ||
-    task.taskType === 'world-vector-build' ||
-    task.taskType === 'character-memory-build' ||
-    task.taskType === 'all-memory-build'
-  )
+  return task.taskType === 'character-memory-build' || task.taskType === 'all-memory-build'
 }
 
 export function getMemoryTaskTitle(task: MemoryTask): string {
   switch (task.taskType) {
-    case 'world-bundle-download':
-      return '更新世界知识包'
-    case 'world-vector-build':
-      return '构建世界知识向量'
     case 'character-memory-build':
       return task.characterId ? '重建当前角色记忆' : '重建角色记忆'
     case 'all-memory-build':
@@ -213,10 +178,6 @@ export function getMemoryTaskTitle(task: MemoryTask): string {
 export function getMemoryTaskScopeLabel(task: MemoryTask): string {
   if (task.taskType === 'all-memory-build') {
     return '全部角色'
-  }
-
-  if (task.scope === 'world') {
-    return '世界知识'
   }
 
   if (task.characterId) {

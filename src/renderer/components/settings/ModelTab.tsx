@@ -10,6 +10,13 @@ import { ModelProviderField } from './model/ModelProviderField'
 import { ModelSelectorField } from './model/ModelSelectorField'
 import { SectionCard } from '@renderer/components/settings/section'
 import { Input } from '@renderer/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 import { ConfirmActionModal } from '@renderer/components/settings/ConfirmActionModal'
 import { PROVIDER_LABELS } from '@shared/model-settings'
 
@@ -19,6 +26,7 @@ export function ModelTab(): ReactElement {
     store,
     isLoaded,
     setActiveProfileId,
+    setLoreRouterProfileId,
     updateProfile,
     updateProfileProvider,
     addProfile,
@@ -28,6 +36,7 @@ export function ModelTab(): ReactElement {
       store: state.store,
       isLoaded: state.isLoaded,
       setActiveProfileId: state.setActiveProfileId,
+      setLoreRouterProfileId: state.setLoreRouterProfileId,
       updateProfile: state.updateProfile,
       updateProfileProvider: state.updateProfileProvider,
       addProfile: state.addProfile,
@@ -83,6 +92,37 @@ export function ModelTab(): ReactElement {
             onSelectProfile={setActiveProfileId}
             onDeleteProfile={setDeleteTarget}
           />
+        </SectionCard>
+
+        <SectionCard title="Lore 路由">
+          <div className="rounded border border-white/8 bg-black/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white/90">Lore 路由模型</p>
+                <p className="mt-1 text-xs leading-5 text-white/50">
+                  自动判断本轮是否需要检索原作。默认跟随本轮聊天模型；可选择独立的快速模型。
+                </p>
+              </div>
+              <Select
+                value={store.loreRouterProfileId || 'current-chat'}
+                onValueChange={(value) =>
+                  setLoreRouterProfileId(value === 'current-chat' ? null : value)
+                }
+              >
+                <SelectTrigger className="w-60 max-w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="current-chat">跟随当前聊天模型</SelectItem>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </SectionCard>
 
         {currentProfile ? (
