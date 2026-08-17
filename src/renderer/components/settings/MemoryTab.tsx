@@ -438,27 +438,27 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
           icon: LoaderCircle,
           iconClassName: 'animate-spin text-amber-200',
           tone: 'border-amber-400/30 bg-amber-500/10 text-amber-100',
-          title: '正在自动保存记忆设置'
+          title: '正在自动保存记忆与知识设置'
         }
       : autosaveState === 'saved'
         ? {
             icon: CheckCircle2,
             iconClassName: 'text-emerald-200',
             tone: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100',
-            title: '记忆设置已自动保存'
+            title: '记忆与知识设置已自动保存'
           }
         : autosaveState === 'error'
           ? {
               icon: XCircle,
               iconClassName: 'text-red-200',
               tone: 'border-red-400/30 bg-red-500/10 text-red-100',
-              title: '记忆设置保存失败'
+              title: '记忆与知识设置保存失败'
             }
           : {
               icon: CheckCircle2,
               iconClassName: 'text-white/55',
               tone: 'border-white/10 bg-black/20 text-white/70',
-              title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆设置会自动保存'
+              title: hasPendingChanges || isDirty ? '有更改等待保存' : '记忆与知识设置会自动保存'
             }
 
   const AutosaveIcon = autosaveMeta.icon
@@ -483,7 +483,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto px-4">
       {!isLoaded && (
         <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">
-          正在读取记忆设置...
+          正在读取记忆与知识设置...
         </div>
       )}
 
@@ -512,10 +512,10 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
         )}
       </div>
 
-      <SectionCard title="检索设置">
+      <SectionCard title="Lore 知识">
         <SettingItem
-          title="启用原作资料检索"
-          description="从原作任务、场景和术语原文中检索相关内容，并追加到提示词上下文里。"
+          title="启用 Lore 知识检索"
+          description="从角色参与过的原作任务、场景和术语中检索知识，并追加到提示词上下文里。"
         >
           <Switch
             id="switch-lore"
@@ -525,6 +525,67 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
           />
         </SettingItem>
+        <SettingItem title="Lore 知识 TopK" description="限制每轮最多注入多少条 Lore 知识片段。">
+          <Input
+            value={draft.loreTopK}
+            onChange={(value) => {
+              const numberValue = Number(value.target.value)
+              isPositiveInteger(numberValue) && updateDraft({ loreTopK: numberValue })
+            }}
+          />
+        </SettingItem>
+        <div className="space-y-3 rounded border border-white/10 bg-black/20 p-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+            <span
+              className={cn(
+                'rounded border px-2 py-1 text-[11px]',
+                loreStatus?.available
+                  ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100'
+                  : 'border-amber-300/30 bg-amber-500/10 text-amber-100'
+              )}
+            >
+              {loreStatus?.available ? '可用' : '未就绪'}
+            </span>
+            <span>任务：{loreStatus?.taskCount ?? '-'}</span>
+            <span>场景：{loreStatus?.sceneCount ?? '-'}</span>
+            <span>术语：{loreStatus?.termCount ?? '-'}</span>
+            <span>语义索引：{formatDateTime(loreStatus?.semanticIndexBuiltAt)}</span>
+            <span>构建时间：{formatDateTime(loreStatus?.builtAt)}</span>
+          </div>
+
+          <div className="text-xs leading-5 text-white/55">
+            运行时读取已安装的
+            LorePackage。先以任务、场景和术语定位原作锚点；没有锚点时才使用任务级语义索引。
+          </div>
+
+          {loreError && <div className="text-xs leading-5 text-amber-200/85">{loreError}</div>}
+
+          <div className="grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : Download}
+              label={loreBusy ? '正在更新 Lore 知识' : '更新 Lore 知识'}
+              disabled={loreBusy}
+              onClick={handleUpdateLoreSource}
+            />
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : RefreshCw}
+              label={loreBusy ? '正在重建 Lore 知识包' : '重建 Lore 知识包'}
+              disabled={loreBusy}
+              highlight={Boolean(loreError) || !loreStatus?.available}
+              onClick={handleRebuildLore}
+            />
+            <IndexActionButton
+              icon={loreBusy ? LoaderCircle : Database}
+              label={loreBusy ? '正在构建任务语义索引' : '构建任务语义索引'}
+              disabledReason={selectedLocalModel ? undefined : '请先下载并选择一个本地语义模型。'}
+              disabled={loreBusy || !selectedLocalModel}
+              onClick={handleBuildLoreSemanticIndex}
+            />
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="长期记忆">
         <SettingItem
           title="启用长期记忆检索"
           description="从历史会话整理出的长期记忆里检索相关内容。"
@@ -564,10 +625,13 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             </SelectContent>
           </Select>
         </SettingItem>
+      </SectionCard>
+
+      <SectionCard title="共享本地语义模型">
         <section className="space-y-6 rounded bg-[rgba(16,16,16,0.3)] px-4 py-3 pt-2">
           <div className="mb-3 flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-base font-medium text-white/90">本地语义模型</h2>
+              <h2 className="text-base font-medium text-white/90">模型与运行设置</h2>
               <p className="mt-1 text-xs text-white/45">
                 用于长期记忆的向量检索，以及无明确原作锚点时的 Lore 任务级语义回退。
               </p>
@@ -677,7 +741,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
         </section>
       </SectionCard>
 
-      <SectionCard title="记忆范围">
+      <SectionCard title="长期记忆范围">
         <SettingItem
           title="同一角色跨会话共享记忆"
           description="开启后，同一角色名下的不同会话会共享同一套长期记忆索引。"
@@ -707,15 +771,6 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
             }}
           />
         </SettingItem>
-        <SettingItem title="原作资料 TopK">
-          <Input
-            value={draft.loreTopK}
-            onChange={(value) => {
-              const numberValue = Number(value.target.value)
-              isPositiveInteger(numberValue) && updateDraft({ loreTopK: numberValue })
-            }}
-          />
-        </SettingItem>
         <SettingItem title="历史记录 TopK">
           <Input
             value={draft.memoryTopK}
@@ -727,59 +782,7 @@ export function MemoryTab({ isActive }: MemoryTabProps): ReactElement {
         </SettingItem>
       </SectionCard>
 
-      <SectionCard title="原作资料包">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
-            <span
-              className={cn(
-                'rounded border px-2 py-1 text-[11px]',
-                loreStatus?.available
-                  ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100'
-                  : 'border-amber-300/30 bg-amber-500/10 text-amber-100'
-              )}
-            >
-              {loreStatus?.available ? '可用' : '未就绪'}
-            </span>
-            <span>任务：{loreStatus?.taskCount ?? '-'}</span>
-            <span>场景：{loreStatus?.sceneCount ?? '-'}</span>
-            <span>术语：{loreStatus?.termCount ?? '-'}</span>
-            <span>语义索引：{formatDateTime(loreStatus?.semanticIndexBuiltAt)}</span>
-            <span>构建时间：{formatDateTime(loreStatus?.builtAt)}</span>
-          </div>
-
-          <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-white/55">
-            运行时只读取已安装的
-            LorePackage。先以任务、场景和术语定位原作锚点；没有锚点时才使用任务级语义索引。角色仅检索其参与过的任务。
-          </div>
-
-          {loreError && <div className="text-xs leading-5 text-amber-200/85">{loreError}</div>}
-
-          <div className="grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
-            <IndexActionButton
-              icon={loreBusy ? LoaderCircle : Download}
-              label={loreBusy ? '正在更新原作资料' : '更新原作资料'}
-              disabled={loreBusy}
-              onClick={handleUpdateLoreSource}
-            />
-            <IndexActionButton
-              icon={loreBusy ? LoaderCircle : RefreshCw}
-              label={loreBusy ? '正在重建原作资料包' : '重建原作资料包'}
-              disabled={loreBusy}
-              highlight={Boolean(loreError) || !loreStatus?.available}
-              onClick={handleRebuildLore}
-            />
-            <IndexActionButton
-              icon={loreBusy ? LoaderCircle : Database}
-              label={loreBusy ? '正在构建任务语义索引' : '构建任务语义索引'}
-              disabledReason={selectedLocalModel ? undefined : '请先下载并选择一个本地语义模型。'}
-              disabled={loreBusy || !selectedLocalModel}
-              onClick={handleBuildLoreSemanticIndex}
-            />
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="索引管理">
+      <SectionCard title="长期记忆索引">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 bg-[rgb(4,4,4,0.5)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">

@@ -38,7 +38,7 @@ const TABS = [
   { id: 'general', label: '通用', icon: SlidersHorizontal },
   { id: 'tts', label: 'TTS', icon: Volume2 },
   { id: 'model', label: '模型', icon: Bot },
-  { id: 'memory', label: '记忆', icon: Brain },
+  { id: 'memory', label: '记忆与知识', icon: Brain },
   { id: 'character', label: '角色', icon: Bot },
   { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'log', label: '日志', icon: ScrollText },
