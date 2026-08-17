@@ -134,9 +134,10 @@ export function deleteMessage(request: ChatDeleteMessageRequest): ChatDeleteMess
 }
 
 /**
- * @description 生成一次只读的聊天提示词预览，不触发模型请求或会话写入。
+ * @description 生成一次只读的聊天提示词预览，并执行 Lore 路由模型以确定原作检索范围。
  * @param request 预览请求，包含角色、配置、会话与模拟用户输入。
  * @returns 提示词拆分结果与最终模型消息列表。
+ * @remarks 不会发送角色回复、不写入会话或记忆；启用 Lore 检索时会调用配置的 Lore 路由模型。
  */
 export async function previewModelInput(
   request: ChatPromptPreviewRequest

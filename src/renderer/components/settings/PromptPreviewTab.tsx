@@ -101,14 +101,14 @@ function createInitialOpenSections(): Record<SystemSectionId, boolean> {
 }
 
 /**
- * @description 将 Lore 路由决定格式化为仅供调试的可读文本。
+ * @description 将 Lore 路由模型返回的真实决定格式化为可读文本。
  * @param result 当前 Prompt 预览结果。
  * @returns 路由状态、检索查询与降级原因文本。
  */
 function buildLoreRoutePreviewText(result: ChatPromptPreviewResult): string {
   const route = result.loreRoute
   if (!route) {
-    return '未执行：Lore 原作资料检索已关闭或资料包不可用。'
+    return '未执行：Lore 原作资料检索已关闭。'
   }
 
   return [
@@ -251,7 +251,7 @@ function SystemPreviewCard({
     },
     {
       id: 'lore-route' as const,
-      title: 'Lore 路由（仅调试）',
+      title: 'Lore 路由（LLM 决策）',
       content: buildLoreRoutePreviewText(result)
     },
     {
@@ -495,7 +495,7 @@ export default function PromptPreviewTab(): ReactElement {
         <SectionCard title="Prompt 预览">
           <SettingItem
             title="角色与会话"
-            description="选择一个角色和会话，预览本次请求会携带的提示词。"
+            description="生成预览时会执行 Lore 路由模型，并展示本次请求携带的提示词。"
           >
             <CharacterSessionSelect
               characters={characters}

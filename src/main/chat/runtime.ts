@@ -127,7 +127,7 @@ export class ChatRuntime {
    * @description 基于当前角色、会话与记忆检索结果构建一次只读的模型输入预览。
    * @param request 预览请求，包含角色、配置、会话与模拟用户输入。
    * @returns 最终 system prompt、检索命中与完整消息列表。
-   * @remarks 该方法不会写入 session、不会注册 run，也不会触发任何模型请求。
+   * @remarks 该方法不会写入 session、不会注册角色回复；启用 Lore 检索时会调用 Lore 路由模型。
    */
   async previewModelInput(request: ChatPromptPreviewRequest): Promise<ChatPromptPreviewResult> {
     const userMessage = request.userMessage.trim()
