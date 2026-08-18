@@ -114,7 +114,7 @@ export function TtsTab(): ReactElement {
   useEffect(() => stopSpeech, [stopSpeech])
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-5">
+    <div className="h-full overflow-y-auto px-4">
       <SectionCard title="语音播放">
         <SettingItem title="启用语音" description="启用后，已完成的角色消息会显示语音播放按钮。">
           <button

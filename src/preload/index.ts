@@ -8,11 +8,8 @@ import type {
 } from '@shared/chat'
 import { CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
 import type { RendererLogEventPayload } from '@shared/logging'
-import type {
-  MemoryTargetSelection,
-  MemorySettingsStore,
-  MemoryTaskEvent
-} from '@shared/memory-settings'
+import type { MemorySettingsStore } from '@shared/memory-settings'
+import type { AgentSettingsStore } from '@shared/agent-settings'
 import type { OpenAIProfileConnectionTestRequest, ProfilesStore } from '@shared/model-settings'
 import type { AppSettings } from '@shared/app-settings'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
@@ -20,8 +17,6 @@ import type { StorageUsageSnapshot } from '@shared/storage'
 import type { GachaUrlRequest } from '@shared/tools'
 import type { TtsSynthesisRequest } from '@shared/tts'
 import type { LoreStatus } from '@shared/lore'
-
-const ENABLE_DEV_TOOLS = import.meta.env.DEV
 
 const api = {
   minimize: () => ipcRenderer.send('window:minimize')
@@ -38,12 +33,8 @@ const ai = {
     ipcRenderer.invoke('chat:deleteMessage', request),
   sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('chat:sendMessage', request),
   abortRun: (requestId: string) => ipcRenderer.invoke('chat:abortRun', requestId),
-  ...(ENABLE_DEV_TOOLS
-    ? {
-        previewModelInput: (request: ChatPromptPreviewRequest) =>
-          ipcRenderer.invoke('chat:previewModelInput', request)
-      }
-    : {}),
+  previewModelInput: (request: ChatPromptPreviewRequest) =>
+    ipcRenderer.invoke('chat:previewModelInput', request),
   onRunEvent: (listener: (event: ChatRunEvent) => void) => {
     const wrappedListener = (_event: IpcRendererEvent, payload: ChatRunEvent): void => {
       listener(payload)
@@ -73,6 +64,7 @@ const settings = {
   saveAppSettings: (data: AppSettings) => ipcRenderer.invoke('settings:saveAppSettings', data),
   getProfiles: () => ipcRenderer.invoke('settings:getProfiles'),
   saveProfiles: (data: ProfilesStore) => ipcRenderer.invoke('settings:saveProfiles', data),
+  saveAgent: (data: AgentSettingsStore) => ipcRenderer.invoke('settings:saveAgent', data),
   saveAppearance: (data: AppearanceSettings) => ipcRenderer.invoke('settings:saveAppearance', data),
   testProfile: (request: OpenAIProfileConnectionTestRequest) =>
     ipcRenderer.invoke('settings:testProfile', request),
@@ -82,39 +74,13 @@ const settings = {
 
 const memory = {
   getSettings: () => ipcRenderer.invoke('memory:getSettings'),
-  saveSettings: (data: MemorySettingsStore) => ipcRenderer.invoke('memory:saveSettings', data),
-  getStatus: (selection?: MemoryTargetSelection | null) =>
-    ipcRenderer.invoke('memory:getStatus', selection),
-  listLocalModels: () => ipcRenderer.invoke('memory:listLocalModels'),
-  downloadLocalModel: (modelId: string) => ipcRenderer.invoke('memory:downloadLocalModel', modelId),
-  selectLocalModel: (modelId: string) => ipcRenderer.invoke('memory:selectLocalModel', modelId),
-  removeLocalModel: (modelId: string) => ipcRenderer.invoke('memory:removeLocalModel', modelId),
-  testEmbeddingConnection: () => ipcRenderer.invoke('memory:testEmbeddingConnection'),
-  getEmbeddingCompatibility: (selection?: MemoryTargetSelection | null) =>
-    ipcRenderer.invoke('memory:getEmbeddingCompatibility', selection),
-  getMemoryIndexStatus: (selection?: MemoryTargetSelection | null) =>
-    ipcRenderer.invoke('memory:getMemoryIndexStatus', selection),
-  startCharacterMemoryBuild: (characterId: string) =>
-    ipcRenderer.invoke('memory:startCharacterMemoryBuild', characterId),
-  startAllMemoryBuild: () => ipcRenderer.invoke('memory:startAllMemoryBuild'),
-  cancelTask: (taskId: string) => ipcRenderer.invoke('memory:cancelTask', taskId),
-  onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => {
-    const wrappedListener = (_event: IpcRendererEvent, payload: MemoryTaskEvent): void => {
-      listener(payload)
-    }
-
-    ipcRenderer.on('memory:task:event', wrappedListener)
-    return () => {
-      ipcRenderer.removeListener('memory:task:event', wrappedListener)
-    }
-  }
+  saveSettings: (data: MemorySettingsStore) => ipcRenderer.invoke('memory:saveSettings', data)
 }
 
 const lore = {
   getStatus: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:getStatus'),
   updateSource: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:updateSource'),
-  rebuild: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:rebuild'),
-  buildSemanticIndex: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:buildSemanticIndex')
+  rebuild: (): Promise<LoreStatus> => ipcRenderer.invoke('lore:rebuild')
 }
 
 const logs = {

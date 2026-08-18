@@ -29,19 +29,11 @@ const SENSITIVE_KEYS = new Set([
   'userMessage',
   'messageContent',
   'messages',
-  'vector',
-  'vectors',
-  'vectorJson',
   'encryptedApiKey',
   'encryptedFishApiKey'
 ])
 
-const FULL_TEXT_LOG_KEYS = new Set([
-  'systemPromptText',
-  'retrievalContextText',
-  'chatMessages',
-  'modelInput'
-])
+const FULL_TEXT_LOG_KEYS = new Set(['systemPromptText', 'chatMessages', 'modelInput'])
 
 let writeQueue = Promise.resolve()
 

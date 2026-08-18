@@ -17,7 +17,6 @@ type SettingsStore = {
   saveError: string | null
   hydrateProfiles: (store: ProfilesStore) => void
   setActiveProfileId: (profileId: string) => void
-  setLoreRouterProfileId: (profileId: string | null) => void
   updateProfile: (profileId: string, patch: Partial<ModelProfile>) => void
   updateProfileProvider: (profileId: string, provider: ModelProfile['provider']) => void
   addProfile: () => string
@@ -114,19 +113,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       activeProfileId: profileId
     })
   },
-  /**
-   * @description 保存 Lore 路由模型的独立选择；`null` 表示动态跟随当前聊天模型。
-   * @param profileId 独立路由 Profile ID；不指定时传入 `null`。
-   */
-  setLoreRouterProfileId: (profileId) => {
-    trackUiEvent('lore-router-profile-selected', 'User selected a Lore router profile', {
-      profileId: profileId || 'current-chat'
-    })
-    commitProfilesStore(set, {
-      ...get().store,
-      loreRouterProfileId: profileId
-    })
-  },
   updateProfile: (profileId, patch) => {
     commitProfilesStore(set, {
       ...get().store,
@@ -192,8 +178,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     commitProfilesStore(set, {
       ...currentStore,
       activeProfileId: nextActiveProfileId,
-      loreRouterProfileId:
-        currentStore.loreRouterProfileId === profileId ? null : currentStore.loreRouterProfileId,
       profiles: nextProfiles
     })
   },

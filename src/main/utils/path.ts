@@ -22,10 +22,6 @@ export function getBundledResourcesRoot(): string {
     : join(app.getAppPath(), 'resources')
 }
 
-export function getBundledEmbeddingCatalogPath(): string {
-  return join(getBundledResourcesRoot(), 'embedding.json')
-}
-
 export function getAppDataRoot(): string {
   return join(app.getPath('userData'), 'app-data')
 }
@@ -72,14 +68,6 @@ export function getLorePackagePath(): string {
   return join(getAppDataRoot(), 'lore.json')
 }
 
-/**
- * @description 返回 Lore 任务语义候选索引的本地缓存路径。
- * @returns Lore 语义索引的固定应用数据路径。
- */
-export function getLoreSemanticIndexPath(): string {
-  return join(getAppDataRoot(), 'lore-semantic-index.json')
-}
-
 export function getLogsRoot(): string {
   return join(getAppDataRoot(), 'logs')
 }
@@ -90,14 +78,6 @@ export function getSettingsPath(): string {
 
 export function getSessionsPath(): string {
   return join(getAppDataRoot(), 'sessions.json')
-}
-
-export function getMemoryDatabasePath(): string {
-  return join(getAppDataRoot(), 'memory.db')
-}
-
-export function getLocalEmbeddingRoot(): string {
-  return join(getAppDataRoot(), 'models', 'embeddings')
 }
 
 export function getCharactersRoot(): string {

@@ -2,7 +2,6 @@ import type { ModelCatalog, ModelProfile, ProviderKind, ReasoningEffort } from '
 
 export type ProfilesStore = {
   activeProfileId: string
-  loreRouterProfileId: string | null
   profiles: ModelProfile[]
 }
 
@@ -73,7 +72,6 @@ export function createDefaultProfilesStore(): ProfilesStore {
 
   return {
     activeProfileId: profile.id,
-    loreRouterProfileId: null,
     profiles: [profile]
   }
 }
@@ -159,15 +157,8 @@ export function normalizeProfilesStore(value: unknown): ProfilesStore {
     nextProfiles.some((profile) => profile.id === raw.activeProfileId)
       ? raw.activeProfileId
       : nextProfiles[0].id
-  const loreRouterProfileId =
-    typeof raw.loreRouterProfileId === 'string' &&
-    nextProfiles.some((profile) => profile.id === raw.loreRouterProfileId)
-      ? raw.loreRouterProfileId
-      : null
-
   return {
     activeProfileId,
-    loreRouterProfileId,
     profiles: nextProfiles
   }
 }

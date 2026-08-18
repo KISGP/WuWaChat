@@ -1,6 +1,5 @@
 export * from './file'
 export * from './json'
-export * from './memory-route'
 export * from './path'
 export * from './time'
 export * from './url'

@@ -58,36 +58,5 @@ export type LoreStatus = {
   taskCount: number
   sceneCount: number
   termCount: number
-  semanticIndexBuiltAt: string | null
   message?: string
-}
-
-export type LoreSemanticIndex = {
-  sourceFingerprint: string
-  fingerprintKey: string
-  builtAt: string
-  taskVectors: Record<string, number[]>
-}
-
-export type LoreRouteDisposition = 'retrieve' | 'skip' | 'uncertain'
-
-export type LoreRetrievalTarget = 'story' | 'glossary'
-
-export type LoreRouteReason =
-  | 'past-event'
-  | 'character-history'
-  | 'lore-term'
-  | 'conversation-follow-up'
-  | 'daily-freeform'
-  | 'ambiguous'
-  | 'router-fallback'
-
-export type LoreRouteDecision = {
-  disposition: LoreRouteDisposition
-  confidence: number
-  retrievalQuery: string
-  targets: LoreRetrievalTarget[]
-  reason: LoreRouteReason
-  routerProfileId: string
-  fallbackReason?: string
 }

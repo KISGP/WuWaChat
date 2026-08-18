@@ -16,46 +16,15 @@ import {
 import { MemoryService } from '@main/memory'
 import { LoreService } from '@main/knowledge/lore'
 import { getProfiles } from '@main/settings'
-import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeDetail } from '@shared/memory-settings'
+import { getUnifiedSettingsStore } from '@main/settings/store'
+import { createAgentLoopPolicy } from '@main/agent/runtime/loop-policy'
+import { createResourceQueryPolicy } from '@main/agent/tools/resource-query/policy'
 import { ChatRuntime } from './runtime'
+import { createChatAgent, getEnabledChatAgentToolNames } from './agent'
 
 const memoryService = new MemoryService()
-const loreService = new LoreService(
-  () => ({
-    loreSearchEnabled: memoryService.getSettings().loreSearchEnabled,
-    loreTopK: memoryService.getSettings().loreTopK
-  }),
-  () => memoryService.getLoreEmbeddingProvider(),
-  (dimensions) => memoryService.getLoreEmbeddingFingerprint(dimensions),
-  getProfiles
-)
-
-/**
- * @description 将 Lore Package 的可用性转换为 prompt 预览所需的运行时摘要。
- * @param scope 原作检索范围。
- * @param hits 当前范围的 Lore 命中，用于反映实际定位方式。
- * @param available Lore Package 是否可用。
- * @returns 可供调试页面展示的原作检索运行时信息。
- */
-function buildLoreRuntimeDetail(
-  scope: 'story' | 'glossary',
-  hits: MemoryDebugRetrievalHit[],
-  available: boolean
-): MemoryDebugRuntimeDetail {
-  const resultCount = hits.length
-  return {
-    scope,
-    enabled: memoryService.getSettings().loreSearchEnabled,
-    indexAvailability: available ? 'ready' : 'failed',
-    retrievalModeUsed: hits.some((hit) => hit.retrievalModeUsed === 'vector')
-      ? 'vector'
-      : available
-        ? 'string'
-        : 'degraded',
-    resultCount,
-    fallbackReason: available ? undefined : 'Lore source package is unavailable.'
-  }
-}
+const loreService = new LoreService()
+const chatAgent = createChatAgent(loreService, memoryService)
 
 const runtime = new ChatRuntime(
   {
@@ -65,36 +34,22 @@ const runtime = new ChatRuntime(
   },
   {
     getRecentMessageCount: () => memoryService.getRecentMessageCount(),
-    retrieveLoreContext: (query, character, history, profile, abortSignal) =>
-      loreService.retrieve(character, query, history, profile, abortSignal),
-    retrieveChatMemoryContext: (query, session) =>
-      memoryService.retrieveChatMemoryContext(query, session),
-    previewPromptContext: async (query, character, session, profile) => {
-      const [loreContext, loreStatus, chatMemoryPreview] = await Promise.all([
-        loreService.retrieve(character, query, session?.messages || [], profile),
-        loreService.getStatus(),
-        memoryService.previewChatMemoryContext(query, session)
-      ])
-
+    getAgentPolicy: async () => {
+      const settings = await getUnifiedSettingsStore().get()
       return {
-        storyHits: loreContext.storyHits,
-        glossaryHits: loreContext.glossaryHits,
-        chatMemoryHits: chatMemoryPreview.hits,
-        loreRoute: loreContext.route,
-        runtimeSummary: {
-          requestedMode: memoryService.getSettings().retrievalMode,
-          story: buildLoreRuntimeDetail('story', loreContext.storyHits, loreStatus.available),
-          glossary: buildLoreRuntimeDetail(
-            'glossary',
-            loreContext.glossaryHits,
-            loreStatus.available
-          ),
-          chatMemory: chatMemoryPreview.runtimeDetail
-        }
+        ...createAgentLoopPolicy(),
+        ...createResourceQueryPolicy(
+          settings.agent.allowCrossResourceContext,
+          memoryService.getSettings().crossSessionCharacterMemory
+        ),
+        enabledToolPackageIds: settings.agent.enabledToolPackageIds
       }
     },
+    getAgentToolNames: (policy) =>
+      getEnabledChatAgentToolNames(loreService, memoryService, policy.enabledToolPackageIds),
     syncSessions: (sessions) => memoryService.syncSessions(sessions)
-  }
+  },
+  chatAgent
 )
 
 export { getCharacters, getCharacterPrompt, saveCharacterPrompt }

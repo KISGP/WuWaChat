@@ -19,7 +19,6 @@ export const GraphState = Annotation.Root({
   character: Annotation<CharacterSummary>,
   prompt: Annotation<string>,
   history: Annotation<ConversationMessage[]>(),
-  retrievalContext: Annotation<string[]>(),
   llmMessages: Annotation<BaseMessage[]>(),
   assistantDraft: Annotation<string>,
   abortSignal: Annotation<AbortSignal>

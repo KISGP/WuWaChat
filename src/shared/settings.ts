@@ -9,6 +9,11 @@ import {
   createDefaultProfilesStore,
   normalizeProfilesStore
 } from './model-settings'
+import {
+  type AgentSettingsStore,
+  createDefaultAgentSettingsStore,
+  normalizeAgentSettingsStore
+} from './agent-settings'
 
 export type AppearanceSettings = {
   backgroundId: string
@@ -18,6 +23,7 @@ export type UnifiedSettings = {
   app: AppSettings
   profiles: ProfilesStore
   memory: MemorySettingsStore
+  agent: AgentSettingsStore
   appearance: AppearanceSettings
 }
 
@@ -32,6 +38,7 @@ export function createDefaultUnifiedSettings(): UnifiedSettings {
     app: createDefaultAppSettings(),
     profiles: createDefaultProfilesStore(),
     memory: createDefaultMemorySettingsStore(),
+    agent: createDefaultAgentSettingsStore(),
     appearance: { backgroundId: DEFAULT_BACKGROUND_ID }
   }
 }
@@ -54,6 +61,7 @@ export function normalizeUnifiedSettings(value: unknown): UnifiedSettings {
     app: normalizeAppSettings(raw.app),
     profiles: normalizeProfilesStore(raw.profiles),
     memory: normalizeMemorySettingsStore(raw.memory),
+    agent: normalizeAgentSettingsStore(raw.agent),
     appearance: {
       backgroundId:
         typeof backgroundId === 'string' && backgroundId.trim()

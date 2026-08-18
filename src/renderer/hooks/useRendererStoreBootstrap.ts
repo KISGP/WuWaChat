@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ChatRunEvent } from '@shared/chat'
-import {
-  clearScheduledMemoryStatusRefresh,
-  isTaskActive,
-  scheduleMemoryStatusRefresh,
-  useMemoryStore
-} from '@renderer/stores/memoryStore'
+import { useMemoryStore } from '@renderer/stores/memoryStore'
 import { useCharacterStore } from '@renderer/stores/characterStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
@@ -17,9 +12,9 @@ import { useAppearanceStore } from '@renderer/stores/appearanceStore'
  * @returns 设置启动状态；主界面应仅在状态为 `ready` 时显示，避免外观设置回退闪烁。
  */
 export function useRendererStoreBootstrap(): 'loading' | 'ready' | 'error' {
-  const [settingsBootstrapState, setSettingsBootstrapState] = useState<'loading' | 'ready' | 'error'>(
-    'loading'
-  )
+  const [settingsBootstrapState, setSettingsBootstrapState] = useState<
+    'loading' | 'ready' | 'error'
+  >('loading')
 
   useEffect(() => {
     let isDisposed = false
@@ -64,29 +59,9 @@ export function useRendererStoreBootstrap(): 'loading' | 'ready' | 'error' {
       useSessionStore.getState().mergeRunEventSession(event)
     })
 
-    const unsubscribeMemoryTaskEvent = window.memory.onTaskEvent((event) => {
-      useMemoryStore.getState().reconcileTask(event.task)
-
-      if (isTaskActive(event.task)) {
-        scheduleMemoryStatusRefresh(120)
-      } else {
-        scheduleMemoryStatusRefresh(0)
-        if (event.task.taskType === 'local-model-download') {
-          void useMemoryStore
-            .getState()
-            .refreshLocalModels()
-            .catch((error) => {
-              console.error('Failed to refresh local embedding models', error)
-            })
-        }
-      }
-    })
-
     return () => {
       isDisposed = true
-      clearScheduledMemoryStatusRefresh()
       unsubscribeRunEvent?.()
-      unsubscribeMemoryTaskEvent()
     }
   }, [])
 

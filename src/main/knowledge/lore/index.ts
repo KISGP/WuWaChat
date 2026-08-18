@@ -1,200 +1,204 @@
-import type { CharacterSummary, ConversationMessage, ModelProfile } from '@shared/chat'
-import type { KnowledgeHit, KnowledgeRetrievalPlan } from '@shared/knowledge'
-import type { LoreRouteDecision, LoreStatus } from '@shared/lore'
-import type { MemoryDebugRetrievalHit, MemorySettingsStore } from '@shared/memory-settings'
-import type { ProfilesStore } from '@shared/model-settings'
-import type { EmbeddingProvider } from '@main/embedding/types'
-import { KnowledgeProviderRegistry } from '@main/knowledge/provider-registry'
-import { logger } from '@main/logging'
+import type { AgentResourcePage } from '@shared/agent'
+import type { LoreStatus } from '@shared/lore'
 import { MarkdownLorePackageLoader } from './package-loader'
-import { LoreGlossaryProvider } from './glossary-provider'
-import { LoreRouter } from './router'
-import { LoreStoryProvider } from './story-provider'
-
-type LoreRetrievalResult = {
-  storyHits: MemoryDebugRetrievalHit[]
-  glossaryHits: MemoryDebugRetrievalHit[]
-  route: LoreRouteDecision | null
-}
 
 /**
- * @description 将 Lore 路由决定转换为通用知识检索计划。
- * @param route 当前轮的 Lore 路由决定。
- * @returns 仅请求路由模型选中的 Lore 知识域的计划。
- */
-function toKnowledgeRetrievalPlan(route: LoreRouteDecision): KnowledgeRetrievalPlan {
-  return {
-    disposition: route.disposition,
-    confidence: route.confidence,
-    query: route.retrievalQuery,
-    sourceIds: route.targets.map((target) => `lore-${target}` as const),
-    reason: route.reason,
-    routerProfileId: route.routerProfileId,
-    fallbackReason: route.fallbackReason
-  }
-}
-
-/**
- * @description 将通用原作知识映射为现有聊天 Prompt 与调试页使用的检索片段。
- * @param hit Lore Provider 返回的原作知识。
- * @returns 带剧情或术语范围的上下文片段。
- */
-function toRetrievalHit(hit: KnowledgeHit, rank: number): MemoryDebugRetrievalHit {
-  const scope = hit.sourceId === 'lore-glossary' ? 'glossary' : 'story'
-  return {
-    id: hit.id,
-    scope,
-    text: hit.text,
-    score: hit.score,
-    rank,
-    retrievalModeUsed: hit.locator === 'exact' ? 'string' : 'vector',
-    sourceType: scope,
-    sourcePath: hit.sourceLocation
-  }
-}
-
-/**
- * @description 协调 Lore 路由、资料包加载与原作知识 Provider。
- * @remarks 聊天运行时只依赖本服务返回的知识，Markdown 构建与未来远程资料包加载均隐藏在 Loader 后。
+ * @description 管理 Lore 资料包维护，并为聊天 Agent 提供全库只读资源查询。
  */
 export class LoreService {
   private readonly loader = new MarkdownLorePackageLoader()
-  private readonly storyProvider: LoreStoryProvider
-  private readonly glossaryProvider: LoreGlossaryProvider
-  private readonly providers: KnowledgeProviderRegistry
-  private readonly router = new LoreRouter()
 
-  /**
-   * @description 创建 Lore 服务并注入设置、embedding 与模型配置读取能力。
-   * @param getRetrievalSettings 读取 Lore 开关与知识返回上限。
-   * @param getEmbeddingProvider 获取可选语义候选索引的 embedding provider。
-   * @param getEmbeddingFingerprint 获取语义候选索引的 embedding 指纹。
-   * @param getProfiles 获取独立 Lore 路由模型配置。
-   */
-  constructor(
-    private readonly getRetrievalSettings: () => Pick<
-      MemorySettingsStore,
-      'loreSearchEnabled' | 'loreTopK'
-    >,
-    getEmbeddingProvider: () => Promise<EmbeddingProvider>,
-    getEmbeddingFingerprint: (
-      dimensions?: number
-    ) => Promise<import('@shared/memory-settings').EmbeddingFingerprint>,
-    private readonly getProfiles: () => Promise<ProfilesStore>
-  ) {
-    this.storyProvider = new LoreStoryProvider(
-      this.loader,
-      getEmbeddingProvider,
-      getEmbeddingFingerprint
-    )
-    this.glossaryProvider = new LoreGlossaryProvider(this.loader)
-    this.providers = new KnowledgeProviderRegistry([this.storyProvider, this.glossaryProvider])
-  }
-
-  /**
-   * @description 返回当前 Lore Provider 与资料包状态。
-   * @returns 原作资料包状态。
-   */
+  /** @description 返回当前 Lore 资料包状态。 */
   async getStatus(): Promise<LoreStatus> {
-    return this.storyProvider.getLoreStatus()
-  }
-
-  /**
-   * @description 强制以当前资料来源重建可安装 LorePackage。
-   * @returns 重建后的资料包状态。
-   */
-  async rebuild(): Promise<LoreStatus> {
-    return this.storyProvider.rebuildPackage()
-  }
-
-  /**
-   * @description 更新当前资料来源并安装新版本 LorePackage。
-   * @returns 更新后的资料包状态。
-   */
-  async updateSource(): Promise<LoreStatus> {
-    return this.storyProvider.updatePackage()
-  }
-
-  /**
-   * @description 为无锚点问题构建任务级语义候选索引。
-   * @returns 构建后的资料包状态。
-   */
-  async buildSemanticIndex(): Promise<LoreStatus> {
-    return this.storyProvider.buildSemanticIndex()
-  }
-
-  /**
-   * @description 根据路由计划从当前角色可知范围内取得 Lore 原作知识。
-   * @param character 当前聊天角色。
-   * @param query 当前用户消息。
-   * @param history 已筛选的近期聊天记录。
-   * @param chatProfile 当前聊天模型；未指定独立路由模型时复用它。
-   * @param abortSignal 当前聊天运行取消信号。
-   * @returns 分组后的剧情、术语原文与可观测路由决定。
-   */
-  async retrieve(
-    character: CharacterSummary,
-    query: string,
-    history: ConversationMessage[],
-    chatProfile: ModelProfile,
-    abortSignal?: AbortSignal
-  ): Promise<LoreRetrievalResult> {
-    const settings = this.getRetrievalSettings()
-    if (!settings.loreSearchEnabled) {
-      return { storyHits: [], glossaryHits: [], route: null }
-    }
-
-    const route = await this.router.route({
-      character,
-      userMessage: query,
-      history,
-      profile: await this.resolveRouterProfile(chatProfile),
-      abortSignal
-    })
-    let knowledgeHits: KnowledgeHit[] = []
     try {
-      knowledgeHits = await this.providers.retrieve(toKnowledgeRetrievalPlan(route), {
-        characterId: character.id,
-        characterName: character.name,
-        resultLimit: settings.loreTopK
-      })
-    } catch (error) {
-      if (abortSignal?.aborted) {
-        throw error
+      const packageData = await this.loader.ensurePackage()
+      return {
+        sourceId: 'lore',
+        available: true,
+        sourceFingerprint: packageData.source.sourceFingerprint,
+        sourceKind: packageData.source.kind,
+        sourceUpdatedAt: await this.loader.getSourceUpdatedAt(),
+        builtAt: packageData.source.builtAt,
+        taskCount: packageData.story.tasks.length,
+        sceneCount: packageData.story.scenes.length,
+        termCount: packageData.glossary.terms.length
       }
-
-      void logger.warn(
-        'ai',
-        'lore-knowledge-unavailable',
-        'Lore knowledge retrieval is unavailable',
-        {
-          characterId: character.id,
-          error: error instanceof Error ? error.message : String(error)
-        }
-      )
-    }
-    const storyHits = knowledgeHits
-      .filter((hit) => hit.sourceId === 'lore-story')
-      .map((hit, index) => toRetrievalHit(hit, index + 1))
-    const glossaryHits = knowledgeHits
-      .filter((hit) => hit.sourceId === 'lore-glossary')
-      .map((hit, index) => toRetrievalHit(hit, index + 1))
-    return {
-      storyHits,
-      glossaryHits,
-      route
+    } catch (error) {
+      return {
+        sourceId: 'lore',
+        available: false,
+        sourceFingerprint: null,
+        sourceKind: null,
+        sourceUpdatedAt: null,
+        builtAt: null,
+        taskCount: 0,
+        sceneCount: 0,
+        termCount: 0,
+        message: error instanceof Error ? error.message : String(error)
+      }
     }
   }
 
+  /** @description 从当前 Markdown 来源更新并重建 Lore 资料包。 */
+  async updateSource(): Promise<LoreStatus> {
+    await this.loader.updatePackage()
+    return this.getStatus()
+  }
+
+  /** @description 强制重建当前 Lore 资料包。 */
+  async rebuild(): Promise<LoreStatus> {
+    await this.loader.rebuildPackage()
+    return this.getStatus()
+  }
+
   /**
-   * @description 解析独立 Lore 路由模型；缺失或失效时复用当前聊天模型。
-   * @param chatProfile 当前聊天模型配置。
-   * @returns 实际执行路由调用的模型配置。
+   * @description 查询可供 Agent 阅读的 Lore 场景或术语资源记录。
+   * @param input 声明式资源查询参数。
    */
-  private async resolveRouterProfile(chatProfile: ModelProfile): Promise<ModelProfile> {
-    const store = await this.getProfiles()
-    return store.loreRouterProfileId
-      ? store.profiles.find((profile) => profile.id === store.loreRouterProfileId) || chatProfile
-      : chatProfile
+  async queryAgentResource(input: Record<string, unknown>): Promise<AgentResourcePage> {
+    const packageData = await this.loader.ensurePackage()
+    const limit = getLimit(input.limit)
+    const cursor = getCursor(input.cursor)
+    const taskById = new Map(packageData.story.tasks.map((task) => [task.id, task]))
+
+    if (input.source === 'lore.glossary') {
+      const records = packageData.glossary.terms
+        .filter((term) =>
+          matchesConditions(input.conditions, {
+            id: term.id,
+            term: term.term,
+            definition: term.definition,
+            sourcePath: term.sourcePath,
+            knownByTaskIds: term.knownByTaskIds
+          })
+        )
+        .map((term) => ({
+          id: term.id,
+          source: 'lore.glossary' as const,
+          text: term.definition,
+          title: term.term,
+          location: `术语：${term.term} / ${term.sourcePath}`
+        }))
+      return toResourcePage(records, cursor, limit)
+    }
+
+    if (input.source !== 'lore.scenes') {
+      throw new Error('Lore resource source must be lore.scenes or lore.glossary.')
+    }
+
+    const records = packageData.story.scenes
+      .filter((scene) => {
+        const task = taskById.get(scene.taskId)
+        return matchesConditions(input.conditions, {
+          id: scene.id,
+          taskId: scene.taskId,
+          title: scene.title,
+          text: scene.text,
+          taskTitle: task?.title || '',
+          participantLabels: task?.participantLabels || []
+        })
+      })
+      .map((scene) => ({
+        id: scene.id,
+        source: 'lore.scenes' as const,
+        text: scene.text,
+        title: scene.title,
+        location: `${taskById.get(scene.taskId)?.title || scene.taskId} / ${scene.title}`,
+        metadata: { ordinal: scene.ordinal }
+      }))
+    return toResourcePage(records, cursor, limit)
+  }
+
+  /**
+   * @description 按 ID 读取完整 Lore 场景或术语记录。
+   * @param input 含 source 与 ids 的读取参数。
+   */
+  async readAgentResource(input: Record<string, unknown>): Promise<AgentResourcePage> {
+    const packageData = await this.loader.ensurePackage()
+    const ids = Array.isArray(input.ids)
+      ? input.ids.filter((id): id is string => typeof id === 'string')
+      : []
+    if (input.source === 'lore.glossary') {
+      return {
+        records: packageData.glossary.terms
+          .filter((term) => ids.includes(term.id))
+          .map((term) => ({
+            id: term.id,
+            source: 'lore.glossary' as const,
+            text: term.definition,
+            title: term.term,
+            location: `术语：${term.term} / ${term.sourcePath}`
+          })),
+        nextCursor: null,
+        truncated: false
+      }
+    }
+
+    const taskById = new Map(packageData.story.tasks.map((task) => [task.id, task]))
+    return {
+      records: packageData.story.scenes
+        .filter((scene) => input.source === 'lore.scenes' && ids.includes(scene.id))
+        .map((scene) => ({
+          id: scene.id,
+          source: 'lore.scenes' as const,
+          text: scene.text,
+          title: scene.title,
+          location: `${taskById.get(scene.taskId)?.title || scene.taskId} / ${scene.title}`
+        })),
+      nextCursor: null,
+      truncated: false
+    }
+  }
+}
+
+/** @description 规范化资源查询的页大小。 */
+function getLimit(value: unknown): number {
+  return Math.max(1, Math.min(Number(value) || 8, 20))
+}
+
+/** @description 规范化资源查询游标。 */
+function getCursor(value: unknown): number {
+  return Math.max(0, Number(value) || 0)
+}
+
+/** @description 判断一个记录是否满足声明式查询条件。 */
+function matchesConditions(rawConditions: unknown, values: Record<string, unknown>): boolean {
+  if (!Array.isArray(rawConditions) || rawConditions.length === 0) {
+    return true
+  }
+
+  return rawConditions.every((condition) => {
+    if (!condition || typeof condition !== 'object') {
+      return false
+    }
+    const item = condition as { field?: unknown; operator?: unknown; value?: unknown }
+    const actual = values[typeof item.field === 'string' ? item.field : '']
+    const actualText = Array.isArray(actual)
+      ? actual.join(' ')
+      : typeof actual === 'string'
+        ? actual
+        : ''
+    if (item.operator === 'equals') {
+      return actualText === item.value
+    }
+    if (item.operator === 'contains') {
+      return typeof item.value === 'string' && actualText.includes(item.value)
+    }
+    return item.operator === 'in' && Array.isArray(item.value)
+      ? item.value.some((value) => actualText.includes(String(value)))
+      : false
+  })
+}
+
+/** @description 将完整资源记录数组转换为安全的分页结果。 */
+function toResourcePage<T extends AgentResourcePage['records'][number]>(
+  records: T[],
+  cursor: number,
+  limit: number
+): AgentResourcePage {
+  return {
+    records: records.slice(cursor, cursor + limit),
+    nextCursor: cursor + limit < records.length ? String(cursor + limit) : null,
+    truncated: cursor + limit < records.length
   }
 }

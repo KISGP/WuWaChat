@@ -7,17 +7,22 @@ import { ModelTab } from './ModelTab'
 import { ToolsTab } from './tools'
 import {
   Bot,
+  Workflow,
   Brain,
   Wrench,
-  ScrollText,
-  FileCode2,
   HardDrive,
   PanelLeftClose,
   PanelLeftOpen,
   SlidersHorizontal,
+  UserRound,
   Volume2,
-  RotateCcw
+  RotateCcw,
+  BookOpenText,
+  ClipboardList,
+  Braces,
+  type LucideIcon
 } from 'lucide-react'
+import { AgentTab } from './AgentTab'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { GeneralTab } from './GeneralTab'
@@ -28,41 +33,50 @@ import { useSettingsStore } from '@renderer/stores/settingsStore'
 
 gsap.registerPlugin(useGSAP)
 
-const ENABLE_DEBUG_TAB = import.meta.env.DEV
-
 const MemoryTab = lazy(() =>
   import('./MemoryTab').then((module) => ({ default: module.MemoryTab }))
 )
 const LoreTab = lazy(() => import('./LoreTab').then((module) => ({ default: module.LoreTab })))
-const EmbeddingTab = lazy(() =>
-  import('./EmbeddingTab').then((module) => ({ default: module.EmbeddingTab }))
-)
 const CharacterTab = lazy(() =>
   import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
 )
 const StorageTab = lazy(() =>
   import('./StorageTab').then((module) => ({ default: module.StorageTab }))
 )
-const PromptPreviewTab = ENABLE_DEBUG_TAB ? lazy(() => import('./PromptPreviewTab')) : null
+const PromptPreviewTab = lazy(() => import('./PromptPreviewTab'))
 
-const TABS = [
-  { id: 'general', label: '通用', icon: SlidersHorizontal },
-  { id: 'tts', label: 'TTS', icon: Volume2 },
+type SettingsTabId =
+  | 'general'
+  | 'tts'
+  | 'model'
+  | 'lore'
+  | 'memory'
+  | 'character'
+  | 'storage'
+  | 'log'
+  | 'tools'
+  | 'agent'
+  | 'prompt-preview'
+
+type SettingsTabDefinition = {
+  id: SettingsTabId
+  label: string
+  icon: LucideIcon
+}
+
+const SETTINGS_TABS: readonly SettingsTabDefinition[] = [
   { id: 'model', label: '模型', icon: Bot },
-  { id: 'lore', label: 'Lore 知识', icon: ScrollText },
+  { id: 'character', label: '角色', icon: UserRound },
+  { id: 'agent', label: '回答与工具', icon: Workflow },
+  { id: 'lore', label: 'Lore 资料', icon: BookOpenText },
   { id: 'memory', label: '长期记忆', icon: Brain },
-  { id: 'embedding', label: '语义模型', icon: FileCode2 },
-  { id: 'character', label: '角色', icon: Bot },
+  { id: 'general', label: '通用', icon: SlidersHorizontal },
+  { id: 'tts', label: '语音', icon: Volume2 },
   { id: 'storage', label: '存储', icon: HardDrive },
-  { id: 'log', label: '日志', icon: ScrollText },
-  { id: 'tools', label: '工具', icon: Wrench }
-] as const
-
-const ALL_TABS = PromptPreviewTab
-  ? [...TABS, { id: 'prompt-preview', label: 'Prompt', icon: FileCode2 }]
-  : TABS
-
-type SettingsTabId = (typeof ALL_TABS)[number]['id']
+  { id: 'log', label: '日志', icon: ClipboardList },
+  { id: 'tools', label: '抽卡链接', icon: Wrench },
+  { id: 'prompt-preview', label: '请求预览', icon: Braces }
+]
 
 /**
  * @description Renders the lazy settings page loading indicator.
@@ -82,16 +96,16 @@ function TabLoadingFallback(): ReactElement {
  * @returns The settings overlay content.
  */
 export default function Settings({ onClose }: { onClose: () => void }): ReactElement {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(ALL_TABS[0].id)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(SETTINGS_TABS[0].id)
   const [mounted, setMounted] = useState(false)
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
   const sidebarRef = useRef<HTMLElement>(null)
   const { shouldAnimate } = useMotionPreference()
   const appSaveError = useAppSettingsStore((state) => state.saveError)
   const retryAppSave = useAppSettingsStore((state) => state.retrySave)
   const profilesSaveError = useSettingsStore((state) => state.saveError)
   const retryProfilesSave = useSettingsStore((state) => state.retrySave)
-  const activeTabItem = ALL_TABS.find((tab) => tab.id === activeTab) ?? ALL_TABS[0]
+  const activeTabItem = SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0]
   const saveFailure = appSaveError
     ? { message: '通用设置保存失败', retry: retryAppSave }
     : profilesSaveError
@@ -116,7 +130,7 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
         return
       }
 
-      const width = isSidebarExpanded ? 208 : 72
+      const width = isSidebarExpanded ? 168 : 70
       const labelOpacity = isSidebarExpanded ? 1 : 0
       gsap.killTweensOf([sidebar, labels])
       if (!shouldAnimate) {
@@ -156,12 +170,6 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
             <LoreTab />
           </Suspense>
         )
-      case 'embedding':
-        return (
-          <Suspense fallback={<TabLoadingFallback />}>
-            <EmbeddingTab />
-          </Suspense>
-        )
       case 'character':
         return (
           <Suspense fallback={<TabLoadingFallback />}>
@@ -177,17 +185,15 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
       case 'log':
         return <LogTab />
       case 'prompt-preview':
-        return PromptPreviewTab ? (
+        return (
           <Suspense fallback={<TabLoadingFallback />}>
             <PromptPreviewTab />
           </Suspense>
-        ) : (
-          <div className="flex h-full items-center justify-center rounded border border-white/10 bg-white/3 px-6 py-4 text-sm text-white/60">
-            Prompt preview unavailable.
-          </div>
         )
       case 'tools':
         return <ToolsTab />
+      case 'agent':
+        return <AgentTab />
       default:
         return <ModelTab />
     }
@@ -225,9 +231,12 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
             }`}
           >
             <div className="flex h-full min-h-0 flex-col">
-              <nav className="min-h-0 flex-1 overflow-hidden" aria-label="设置导航">
-                <div className="flex h-full flex-col justify-between gap-3">
-                  {ALL_TABS.map((tab) => (
+              <nav
+                className="min-h-0 flex-1 flex-col items-center overflow-hidden"
+                aria-label="设置导航"
+              >
+                <div className="space-y-4 pb-2">
+                  {SETTINGS_TABS.map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
@@ -238,7 +247,7 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
                     >
                       <tab.icon
                         className={cn(
-                          'text-background size-8 hover:text-yellow-300',
+                          'text-background ml-1 size-8 hover:text-yellow-300',
                           activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
                         )}
                       />
@@ -258,7 +267,7 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
               <button
                 type="button"
                 onClick={() => setIsSidebarExpanded((expanded) => !expanded)}
-                className="text-background/70 mt-4 flex size-8 shrink-0 items-center justify-center hover:text-yellow-300"
+                className="text-background/70 mt-4 ml-1 flex size-8 shrink-0 items-center justify-center hover:text-yellow-300"
                 title={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
                 aria-label={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
                 aria-expanded={isSidebarExpanded}

@@ -1,11 +1,13 @@
 import type { AppSettings } from '@shared/app-settings'
 import type { OpenAIProfileConnectionTestRequest, ProfilesStore } from '@shared/model-settings'
 import type { AppearanceSettings } from '@shared/settings'
+import type { AgentSettingsStore } from '@shared/agent-settings'
 import {
   getProfiles,
   cancelProfileTest,
   getUnifiedSettings,
   saveAppearanceSettings,
+  saveAgentSettings,
   saveProfiles,
   testProfile
 } from '@main/settings'
@@ -21,6 +23,9 @@ export function registerSettingsIpc(): void {
   handleLogged('settings:getProfiles', () => getProfiles())
   handleLogged('settings:saveAppearance', (_event, appearance: AppearanceSettings) =>
     saveAppearanceSettings(appearance)
+  )
+  handleLogged('settings:saveAgent', (_event, settings: AgentSettingsStore) =>
+    saveAgentSettings(settings)
   )
   handleLogged(
     'settings:saveProfiles',

@@ -13,17 +13,8 @@ import type {
   ConversationSession
 } from '@shared/chat'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
-import type {
-  CharacterMemoryIndexStatus,
-  EmbeddingCompatibilityStatus,
-  EmbeddingConnectionTestResult,
-  LocalEmbeddingCatalogItem,
-  MemorySettingsStore,
-  MemoryStatusSnapshot,
-  MemoryTargetSelection,
-  MemoryTask,
-  MemoryTaskEvent
-} from '@shared/memory-settings'
+import type { MemorySettingsStore } from '@shared/memory-settings'
+import type { AgentSettingsStore } from '@shared/agent-settings'
 import type {
   OpenAIProfileConnectionTestRequest,
   OpenAIProfileConnectionTestResult,
@@ -51,7 +42,7 @@ declare global {
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
-      previewModelInput?: (request: ChatPromptPreviewRequest) => Promise<ChatPromptPreviewResult>
+      previewModelInput: (request: ChatPromptPreviewRequest) => Promise<ChatPromptPreviewResult>
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
@@ -69,6 +60,7 @@ declare global {
       saveAppSettings: (settings: AppSettings) => Promise<AppSettings>
       getProfiles: () => Promise<ProfilesStore>
       saveProfiles: (store: ProfilesStore) => Promise<ProfilesStore>
+      saveAgent: (settings: AgentSettingsStore) => Promise<AgentSettingsStore>
       saveAppearance: (appearance: AppearanceSettings) => Promise<AppearanceSettings>
       testProfile: (
         request: OpenAIProfileConnectionTestRequest
@@ -78,28 +70,11 @@ declare global {
     memory: {
       getSettings: () => Promise<MemorySettingsStore>
       saveSettings: (store: MemorySettingsStore) => Promise<MemorySettingsStore>
-      getStatus: (selection?: MemoryTargetSelection | null) => Promise<MemoryStatusSnapshot>
-      listLocalModels: () => Promise<LocalEmbeddingCatalogItem[]>
-      downloadLocalModel: (modelId: string) => Promise<MemoryTask>
-      selectLocalModel: (modelId: string) => Promise<MemorySettingsStore>
-      removeLocalModel: (modelId: string) => Promise<boolean>
-      testEmbeddingConnection: () => Promise<EmbeddingConnectionTestResult>
-      getEmbeddingCompatibility: (
-        selection?: MemoryTargetSelection | null
-      ) => Promise<EmbeddingCompatibilityStatus[]>
-      getMemoryIndexStatus: (
-        selection?: MemoryTargetSelection | null
-      ) => Promise<CharacterMemoryIndexStatus>
-      startCharacterMemoryBuild: (characterId: string) => Promise<MemoryTask>
-      startAllMemoryBuild: () => Promise<MemoryTask>
-      cancelTask: (taskId: string) => Promise<boolean>
-      onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => () => void
     }
     lore: {
       getStatus: () => Promise<LoreStatus>
       updateSource: () => Promise<LoreStatus>
       rebuild: () => Promise<LoreStatus>
-      buildSemanticIndex: () => Promise<LoreStatus>
     }
     logs: {
       track: (payload: RendererLogEventPayload) => Promise<void>

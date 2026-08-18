@@ -29,7 +29,7 @@ export function GeneralTab(): ReactElement {
   )
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-5">
+    <div className="h-full overflow-y-auto px-4">
       <SectionCard title="动效">
         <SettingItem
           title="界面动画"

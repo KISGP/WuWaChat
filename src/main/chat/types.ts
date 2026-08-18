@@ -1,7 +1,6 @@
-import type { CharacterSummary, ConversationSession, ModelProfile } from '@shared/chat'
-import type { LoreRouteDecision } from '@shared/lore'
-import type { MemoryDebugRetrievalHit, MemoryDebugRuntimeSummary } from '@shared/memory-settings'
+import type { CharacterSummary, ConversationSession } from '@shared/chat'
 import type { ProfilesStore } from '@shared/model-settings'
+import type { AgentPolicy } from '@shared/agent'
 
 export type CharacterPromptRecord = {
   characterId: string
@@ -14,32 +13,9 @@ export type ChatRuntimeDependencies = {
   getProfiles: () => Promise<ProfilesStore>
 }
 
-export type PromptContextPreview = {
-  storyHits: MemoryDebugRetrievalHit[]
-  glossaryHits: MemoryDebugRetrievalHit[]
-  chatMemoryHits: MemoryDebugRetrievalHit[]
-  loreRoute: LoreRouteDecision | null
-  runtimeSummary: MemoryDebugRuntimeSummary
-}
-
 export type ChatContextProvider = {
   getRecentMessageCount: () => number
-  retrieveLoreContext: (
-    query: string,
-    character: CharacterSummary,
-    history: ConversationSession['messages'],
-    profile: ModelProfile,
-    abortSignal?: AbortSignal
-  ) => Promise<Pick<PromptContextPreview, 'storyHits' | 'glossaryHits'>>
-  retrieveChatMemoryContext: (
-    query: string,
-    session: ConversationSession
-  ) => Promise<MemoryDebugRetrievalHit[]>
-  previewPromptContext: (
-    query: string,
-    character: CharacterSummary,
-    session: ConversationSession | null,
-    profile: ModelProfile
-  ) => Promise<PromptContextPreview>
+  getAgentPolicy: () => Promise<AgentPolicy>
+  getAgentToolNames: (policy: AgentPolicy) => string[]
   syncSessions: (sessions: ConversationSession[]) => void
 }

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, type ReactElement } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { CharacterSummary, ConversationSession } from '@shared/chat'
-import { formatDateTime } from '@renderer/components/settings/memory/helpers'
 import { cn } from '@renderer/utils'
 import {
   DropdownMenu,
@@ -66,6 +65,16 @@ const MENU_SUB_TRIGGER_CLASS =
 const MENU_ITEM_SELECTED_CLASS = 'bg-white/10 text-white [&_span]:!text-white'
 const MENU_META_CLASS =
   'block truncate text-xs leading-5 text-white/45 group-focus/dropdown-menu-item:!text-white/60 group-data-open:!text-white/60'
+
+/**
+ * @description 将会话更新时间格式化为下拉菜单中的本地时间文本。
+ * @param value ISO 时间字符串。
+ * @returns 可读的本地时间；无效值原样返回。
+ */
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
 
 /**
  * @description 按角色 ID 分组会话，并将每组会话按更新时间倒序排列。

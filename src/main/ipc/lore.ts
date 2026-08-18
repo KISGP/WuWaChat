@@ -10,5 +10,4 @@ export function registerLoreIpc(): void {
   handleLogged('lore:getStatus', () => lore.getStatus())
   handleLogged('lore:updateSource', () => lore.updateSource())
   handleLogged('lore:rebuild', () => lore.rebuild())
-  handleLogged('lore:buildSemanticIndex', () => lore.buildSemanticIndex())
 }

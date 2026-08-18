@@ -9,6 +9,7 @@ import {
 } from '@shared/model-settings'
 import { createHash } from 'crypto'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
+import { type AgentSettingsStore, normalizeAgentSettingsStore } from '@shared/agent-settings'
 import { joinUrl } from '@main/utils'
 import { logger } from '@main/logging'
 import { getUnifiedSettingsStore } from './store'
@@ -52,6 +53,15 @@ export async function saveAppearanceSettings(
 ): Promise<AppearanceSettings> {
   const backgroundId = appearance.backgroundId.trim() || 'default'
   return getUnifiedSettingsStore().update('appearance', { backgroundId })
+}
+
+/**
+ * @description 规范化并保存聊天 Agent 的只读工具策略。
+ * @param settings 待保存的 Agent 策略设置。
+ * @returns 已保存的规范化策略设置。
+ */
+export async function saveAgentSettings(settings: AgentSettingsStore): Promise<AgentSettingsStore> {
+  return getUnifiedSettingsStore().update('agent', normalizeAgentSettingsStore(settings))
 }
 
 function requireBaseUrl(profile: ModelProfile): string {

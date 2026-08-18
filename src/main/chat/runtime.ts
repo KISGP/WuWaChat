@@ -12,16 +12,12 @@ import { logger } from '@main/logging'
 import { SessionStore } from './session-store'
 import { createAiGraph } from './graph-factory'
 import type { GraphStateValue } from './graph-state'
-import {
-  buildSystemPromptText,
-  formatRetrievalContextHit,
-  toLoggableMessages,
-  toModelMessages
-} from './model-message-builder'
+import { buildSystemPromptText, toLoggableMessages, toModelMessages } from './model-message-builder'
 import { handleRunError } from './run-error-handler'
 import { RunEventPublisher } from './run-event-publisher'
 import { RunRegistry } from './run-registry'
 import type { ChatRuntimeDependencies, ChatContextProvider } from './types'
+import type { ChatAgent } from './agent'
 
 export class ChatRuntime {
   private readonly sessionStore = new SessionStore()
@@ -31,14 +27,16 @@ export class ChatRuntime {
 
   constructor(
     private readonly dependencies: ChatRuntimeDependencies,
-    private readonly chatContext: ChatContextProvider
+    private readonly chatContext: ChatContextProvider,
+    private readonly agent: ChatAgent
   ) {
     this.graph = createAiGraph({
       dependencies: this.dependencies,
       chatContext: this.chatContext,
       sessionStore: this.sessionStore,
       runRegistry: this.runRegistry,
-      eventPublisher: this.eventPublisher
+      eventPublisher: this.eventPublisher,
+      agent: this.agent
     })
   }
 
@@ -124,10 +122,10 @@ export class ChatRuntime {
   }
 
   /**
-   * @description 基于当前角色、会话与记忆检索结果构建一次只读的模型输入预览。
+   * @description 基于当前角色和会话构建一次不执行工具的模型输入预览。
    * @param request 预览请求，包含角色、配置、会话与模拟用户输入。
-   * @returns 最终 system prompt、检索命中与完整消息列表。
-   * @remarks 该方法不会写入 session、不会注册角色回复；启用 Lore 检索时会调用 Lore 路由模型。
+   * @returns 最终 system prompt、可用工具和完整消息列表。
+   * @remarks 该方法不会写入 session、不会注册角色回复或执行 Agent 工具。
    */
   async previewModelInput(request: ChatPromptPreviewRequest): Promise<ChatPromptPreviewResult> {
     const userMessage = request.userMessage.trim()
@@ -141,34 +139,19 @@ export class ChatRuntime {
       throw new Error(`Profile not found: ${request.profileId}`)
     }
 
-    const character = await this.dependencies.getCharacter(request.characterId)
     const promptDocument = await this.dependencies.getCharacterPrompt(request.characterId)
     const session = this.resolvePreviewSession(request.sessionId || null, request.characterId)
     const history = this.buildPreviewHistory(session, userMessage)
-    const retrievalPreview = await this.chatContext.previewPromptContext(
-      userMessage,
-      character,
-      session,
-      profile
-    )
-    const retrievalContext = [
-      ...retrievalPreview.glossaryHits.map(formatRetrievalContextHit),
-      ...retrievalPreview.storyHits.map(formatRetrievalContextHit),
-      ...retrievalPreview.chatMemoryHits.map(formatRetrievalContextHit)
-    ]
-    const systemPromptText = buildSystemPromptText(promptDocument.prompt, retrievalContext)
-    const messages = toLoggableMessages(
-      toModelMessages(promptDocument.prompt, history, retrievalContext)
-    )
+    const systemPromptText = buildSystemPromptText(promptDocument.prompt)
+    const messages = toLoggableMessages(toModelMessages(promptDocument.prompt, history))
+    const agentPolicy = await this.chatContext.getAgentPolicy()
 
     void logger.info('ai', 'prompt-preview-built', 'Built chat prompt preview', {
       characterId: request.characterId,
       profileId: profile.id,
       sessionId: session?.id || null,
       historyMessageCount: history.length,
-      retrievalContextCount: retrievalContext.length,
       systemPromptText,
-      retrievalContextText: retrievalContext.join('\n\n'),
       chatMessages: messages
     })
 
@@ -178,11 +161,8 @@ export class ChatRuntime {
       profileId: profile.id,
       userMessage,
       prompt: promptDocument.prompt,
-      storyContextHits: retrievalPreview.storyHits,
-      glossaryContextHits: retrievalPreview.glossaryHits,
-      chatMemoryContextHits: retrievalPreview.chatMemoryHits,
-      loreRoute: retrievalPreview.loreRoute,
-      runtimeSummary: retrievalPreview.runtimeSummary,
+      agentTools: this.chatContext.getAgentToolNames(agentPolicy),
+      agentTrace: [],
       systemPromptText,
       messages
     }

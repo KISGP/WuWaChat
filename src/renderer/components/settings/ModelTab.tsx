@@ -206,11 +206,6 @@ export function ModelTab(): ReactElement {
             </SectionCard>
           )}
         </div>
-        {isLoaded && saveStatus !== 'idle' && (
-          <div className="pointer-events-none absolute right-5 bottom-3 text-xs text-white/45">
-            {saveStatus === 'saving' ? '正在保存模型配置...' : '模型配置已保存'}
-          </div>
-        )}
       </div>
 
       {deleteTarget && (

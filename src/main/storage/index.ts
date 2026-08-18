@@ -6,13 +6,10 @@ import {
   getAppDataRoot,
   getCharactersCachePath,
   getCharactersRoot,
-  getLocalEmbeddingRoot,
   getLogsRoot,
   getLoreMarkdownSourceMetadataPath,
   getLoreMarkdownSourceRoot,
   getLorePackagePath,
-  getLoreSemanticIndexPath,
-  getMemoryDatabasePath,
   getSettingsPath,
   getSessionsPath,
   pathExists
@@ -40,33 +37,12 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
     color: '#77d6ff'
   },
   {
-    id: 'memoryDatabase',
-    label: '记忆数据库',
-    path: getMemoryDatabasePath(),
-    paths: [getMemoryDatabasePath()],
-    description: '角色记忆索引与检索数据库',
-    color: '#9fe870'
-  },
-  {
     id: 'loreSource',
     label: '原作资料',
     path: getLoreMarkdownSourceRoot(),
-    paths: [
-      getLoreMarkdownSourceRoot(),
-      getLoreMarkdownSourceMetadataPath(),
-      getLorePackagePath(),
-      getLoreSemanticIndexPath()
-    ],
-    description: '原作 Markdown、资料包元数据与向量索引',
+    paths: [getLoreMarkdownSourceRoot(), getLoreMarkdownSourceMetadataPath(), getLorePackagePath()],
+    description: '原作 Markdown 与资料包元数据',
     color: '#ff9f7a'
-  },
-  {
-    id: 'localEmbeddingModels',
-    label: 'Embedding 模型',
-    path: getLocalEmbeddingRoot(),
-    paths: [getLocalEmbeddingRoot()],
-    description: '本地 embedding 模型文件',
-    color: '#b996ff'
   },
   {
     id: 'logs',

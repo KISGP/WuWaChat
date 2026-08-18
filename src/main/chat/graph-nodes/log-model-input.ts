@@ -12,7 +12,6 @@ export function createLogModelInputNode() {
       .map((message) => contentToText(message.content))
       .filter(Boolean)
       .join('\n\n')
-    const retrievalContextText = state.retrievalContext.join('\n\n')
 
     await logger.info('ai', 'run-model-input-built', 'Built chat model input', {
       requestId: state.requestId,
@@ -21,13 +20,10 @@ export function createLogModelInputNode() {
       profileId: state.profileId,
       messageCount: state.llmMessages.length,
       historyMessageCount: state.history.length,
-      retrievalContextCount: state.retrievalContext.length,
       systemPromptText,
-      retrievalContextText,
       chatMessages,
       modelInput: {
         systemPromptText,
-        retrievalContextText,
         chatMessages
       }
     })
