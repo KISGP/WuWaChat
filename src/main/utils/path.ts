@@ -22,44 +22,36 @@ export function getBundledResourcesRoot(): string {
     : join(app.getAppPath(), 'resources')
 }
 
-export function getBundledEmbeddingCatalogPath(): string {
-  return join(getBundledResourcesRoot(), 'embedding.json')
-}
-
 export function getAppDataRoot(): string {
   return join(app.getPath('userData'), 'app-data')
 }
 
-export function getWorldRoot(): string {
-  return join(getAppDataRoot(), 'world')
+/**
+ * @description 返回本地 TTS 生成音频的应用数据目录。
+ * @returns 可由主进程读写的临时音频缓存目录。
+ */
+export function getTtsAudioRoot(): string {
+  return join(getAppDataRoot(), 'tts', 'audio')
 }
 
-export function getWorldMetadataPath(): string {
-  return join(getAppDataRoot(), 'world-metadata.json')
+/**
+ * @description 返回指定本地 TTS 模型的应用托管运行时目录。
+ * @param modelId 应用设置中的模型标识。
+ * @returns 模型运行时的固定托管目录。
+ */
+export function getTtsModelRoot(modelId: string): string {
+  return join(getAppDataRoot(), 'models', 'tts', modelId)
 }
-
 export function getLogsRoot(): string {
   return join(getAppDataRoot(), 'logs')
 }
 
-export function getProfilesPath(): string {
+export function getSettingsPath(): string {
   return join(getAppDataRoot(), 'settings.json')
 }
 
 export function getSessionsPath(): string {
   return join(getAppDataRoot(), 'sessions.json')
-}
-
-export function getMemorySettingsPath(): string {
-  return join(getAppDataRoot(), 'memory-settings.json')
-}
-
-export function getMemoryDatabasePath(): string {
-  return join(getAppDataRoot(), 'memory.db')
-}
-
-export function getLocalEmbeddingRoot(): string {
-  return join(getAppDataRoot(), 'models', 'embeddings')
 }
 
 export function getCharactersRoot(): string {

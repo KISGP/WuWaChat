@@ -5,6 +5,7 @@ import AreaRight from '@renderer/components/area-right'
 import Settings from '@renderer/components/settings'
 import Display from '@renderer/components/display'
 import { useRendererStoreBootstrap } from '@renderer/hooks/useRendererStoreBootstrap'
+import { Spinner } from '@renderer/components/ui/spinner'
 
 /**
  * @description Renders the main application shell and coordinates modal-style settings overlays.
@@ -14,7 +15,16 @@ function App(): ReactElement {
   const [isDisplayOpen, setIsDisplayOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const isOverlayOpen = isSettingsOpen || isDisplayOpen
-  useRendererStoreBootstrap()
+  const settingsBootstrapState = useRendererStoreBootstrap()
+
+  if (settingsBootstrapState !== 'ready') {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-neutral-950 text-sm text-white/70">
+        {settingsBootstrapState === 'loading' ? <Spinner className="mr-2" /> : null}
+        <span>{settingsBootstrapState === 'loading' ? '正在加载设置...' : '设置加载失败'}</span>
+      </div>
+    )
+  }
 
   return (
     <div className="relative h-screen w-full overflow-hidden">

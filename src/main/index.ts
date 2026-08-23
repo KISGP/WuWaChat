@@ -2,11 +2,13 @@ import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerAppEvents } from '@main/app/events'
 import { initializeChat } from '@main/chat'
+import { synchronizeCharacters } from '@main/characters'
 import { bootstrapAppData } from '@main/app/bootstrap-data'
 import { registerIpc } from '@main/ipc'
 import { logger } from '@main/logging'
 import { createMainWindow } from '@main/app/window'
 import { captureError } from '@main/observability/error-monitor'
+import { registerTtsAudioProtocol, registerTtsAudioScheme } from '@main/tts/protocol'
 
 function registerProcessErrorHandlers(): void {
   process.on('uncaughtException', (error) => {
@@ -31,9 +33,11 @@ function registerProcessErrorHandlers(): void {
 }
 
 registerProcessErrorHandlers()
+registerTtsAudioScheme()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
+  registerTtsAudioProtocol()
   void bootstrapAppData()
     .then(() => {
       void logger.info('main', 'app-ready', 'Electron app is ready')
@@ -48,6 +52,7 @@ app.whenReady().then(() => {
       void logger.info('main', 'window-create-start', 'Creating main window')
       createMainWindow()
       void logger.info('main', 'window-create-success', 'Main window created')
+      void synchronizeCharacters()
     })
     .catch((error) => {
       void captureError({

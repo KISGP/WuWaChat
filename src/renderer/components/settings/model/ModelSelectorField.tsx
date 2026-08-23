@@ -8,7 +8,7 @@ export function ModelSelectorField({
   placeholder,
   hasModelOptions,
   modelDropdownOpen,
-  visibleModelOptions,
+  modelOptions,
   onChange,
   onToggleDropdown,
   onOpenDropdown,
@@ -19,7 +19,7 @@ export function ModelSelectorField({
   placeholder: string
   hasModelOptions: boolean
   modelDropdownOpen: boolean
-  visibleModelOptions: string[]
+  modelOptions: string[]
   onChange: (value: string) => void
   onToggleDropdown: () => void
   onOpenDropdown: () => void
@@ -59,9 +59,9 @@ export function ModelSelectorField({
 
         {hasModelOptions && modelDropdownOpen && (
           <div className="absolute top-10 right-0 left-0 z-10 max-h-44 overflow-hidden rounded border border-white/15 bg-[#171717] shadow-xl">
-            {visibleModelOptions.length > 0 ? (
+            {modelOptions.length > 0 ? (
               <div className="max-h-44 overflow-y-auto py-1">
-                {visibleModelOptions.map((option) => (
+                {modelOptions.map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -78,7 +78,7 @@ export function ModelSelectorField({
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-2 text-xs text-white/40">无匹配的模型</div>
+              <div className="px-3 py-2 text-xs text-white/40">没有可用模型</div>
             )}
           </div>
         )}

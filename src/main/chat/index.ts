@@ -1,8 +1,7 @@
 import type {
+  ChatDiagnosticRunRequest,
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
-  ChatPromptPreviewRequest,
-  ChatPromptPreviewResult,
   ChatRunAccepted,
   ChatRunRequest,
   ConversationSession
@@ -13,11 +12,14 @@ import {
   getCharacters,
   saveCharacterPrompt
 } from '@main/characters'
-import { MemoryService } from '@main/memory'
+import { memoryService, worldService } from '@main/app/services'
 import { getProfiles } from '@main/settings'
+import { getUnifiedSettingsStore } from '@main/settings/store'
+import { createAgentLoopPolicy } from '@main/agent/runtime/loop-policy'
 import { ChatRuntime } from './runtime'
+import { createChatAgent, getEnabledChatAgentToolNames } from './agent'
 
-const memoryService = new MemoryService()
+const chatAgent = createChatAgent(worldService.story, memoryService, worldService.glossary)
 
 const runtime = new ChatRuntime(
   {
@@ -27,11 +29,28 @@ const runtime = new ChatRuntime(
   },
   {
     getRecentMessageCount: () => memoryService.getRecentMessageCount(),
-    retrieveWorldContext: (query) => memoryService.retrieveWorldContext(query),
-    retrieveMemoryContext: (query, session) => memoryService.retrieveMemoryContext(query, session),
-    previewPromptContext: (query, session) => memoryService.previewPromptContext(query, session),
+    getAgentPolicy: async () => {
+      const settings = await getUnifiedSettingsStore().get()
+      return {
+        ...createAgentLoopPolicy(settings.agent.maxToolRounds),
+        memoryScope: memoryService.getSettings().crossSessionCharacterMemory
+          ? 'character-all-sessions'
+          : 'current-session',
+        enabledToolPackageIds: settings.agent.enabledToolPackageIds,
+        moegirlpedia: settings.agent.moegirlpedia
+      }
+    },
+    getAgentToolNames: (policy) =>
+      getEnabledChatAgentToolNames(
+        worldService.story,
+        memoryService,
+        worldService.glossary,
+        policy.enabledToolPackageIds,
+        policy.moegirlpedia
+      ),
     syncSessions: (sessions) => memoryService.syncSessions(sessions)
-  }
+  },
+  chatAgent
 )
 
 export { getCharacters, getCharacterPrompt, saveCharacterPrompt }
@@ -71,17 +90,6 @@ export function deleteMessage(request: ChatDeleteMessageRequest): ChatDeleteMess
 }
 
 /**
- * @description 生成一次只读的聊天提示词预览，不触发模型请求或会话写入。
- * @param request 预览请求，包含角色、配置、会话与模拟用户输入。
- * @returns 提示词拆分结果与最终模型消息列表。
- */
-export async function previewModelInput(
-  request: ChatPromptPreviewRequest
-): Promise<ChatPromptPreviewResult> {
-  return runtime.previewModelInput(request)
-}
-
-/**
  * @description 取消当前正在执行的请求任务。
  * @param requestId 要取消的请求 ID。
  * @returns 成功取消则返回 `true`。
@@ -91,9 +99,21 @@ export function abortRun(requestId: string): boolean {
 }
 
 /**
- * @description 导出全局的 MemoryService 实例，供 IPC 与其它模块使用。
- * @returns 全局 MemoryService 实例。
+ * @description 启动一次不写入真实会话的 Agent 诊断运行。
+ * @param request 诊断运行请求与本次工具开关。
+ * @returns 已接受的诊断请求标识。
  */
-export function getMemoryService(): MemoryService {
-  return memoryService
+export async function startDiagnosticRun(
+  request: ChatDiagnosticRunRequest
+): Promise<{ requestId: string }> {
+  return runtime.startDiagnosticRun(request)
+}
+
+/**
+ * @description 中断指定的 Agent 诊断运行。
+ * @param requestId 要中断的诊断请求标识。
+ * @returns 请求存在且已发出中断信号时返回 `true`。
+ */
+export function abortDiagnosticRun(requestId: string): boolean {
+  return runtime.abortDiagnosticRun(requestId)
 }

@@ -3,7 +3,26 @@ import type { ReactElement } from 'react'
 import type { ModelProfile } from '@shared/chat'
 import { PARAMETER_FIELDS } from './helpers'
 import { Input } from '@renderer/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 
+const REASONING_EFFORT_OPTIONS = [
+  { value: 'auto', label: '自动' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' }
+] as const
+
+/**
+ * @description Renders collapsible generation parameters for the selected model profile.
+ * @param props The expanded state, profile values, and profile update handlers.
+ * @returns The advanced model configuration section.
+ */
 export function ModelAdvancedSection({
   advancedOpen,
   profile,
@@ -52,6 +71,31 @@ export function ModelAdvancedSection({
               />
             </label>
           ))}
+          {profile.provider === 'openai' && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-white/55">思考等级</span>
+              <Select
+                value={profile.reasoningEffort}
+                onValueChange={(value) =>
+                  onUpdate({
+                    reasoningEffort: value as ModelProfile['reasoningEffort']
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {REASONING_EFFORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-white/35">仅推理模型支持；自动不会传递该参数。</span>
+            </label>
+          )}
         </div>
       )}
     </section>

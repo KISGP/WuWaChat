@@ -10,7 +10,6 @@ import { createLoadPromptNode } from './graph-nodes/load-prompt'
 import { createLoadSessionNode } from './graph-nodes/load-session'
 import { createLogModelInputNode } from './graph-nodes/log-model-input'
 import { createPrepareHistoryNode } from './graph-nodes/prepare-history'
-import { createRetrieveContextNode } from './graph-nodes/retrieve-context'
 
 export function createAiGraph(context: ChatGraphNodeContext): {
   invoke: (input: Partial<GraphStateValue>) => Promise<unknown>
@@ -21,7 +20,6 @@ export function createAiGraph(context: ChatGraphNodeContext): {
     .addNode('loadCharacter', createLoadCharacterNode(context))
     .addNode('loadPrompt', createLoadPromptNode(context))
     .addNode('prepareHistory', createPrepareHistoryNode(context))
-    .addNode('retrieveContext', createRetrieveContextNode(context))
     .addNode('buildMessages', createBuildMessagesNode())
     .addNode('logModelInput', createLogModelInputNode())
     .addNode('invokeModel', createInvokeModelNode(context))
@@ -31,8 +29,7 @@ export function createAiGraph(context: ChatGraphNodeContext): {
     .addEdge('loadSession', 'loadCharacter')
     .addEdge('loadCharacter', 'loadPrompt')
     .addEdge('loadPrompt', 'prepareHistory')
-    .addEdge('prepareHistory', 'retrieveContext')
-    .addEdge('retrieveContext', 'buildMessages')
+    .addEdge('prepareHistory', 'buildMessages')
     .addEdge('buildMessages', 'logModelInput')
     .addEdge('logModelInput', 'invokeModel')
     .addEdge('invokeModel', 'commitAssistantMessage')

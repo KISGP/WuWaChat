@@ -1,9 +1,7 @@
 export type StorageCategoryId =
   | 'sessions'
   | 'characters'
-  | 'memoryDatabase'
   | 'world'
-  | 'localEmbeddingModels'
   | 'logs'
   | 'settings'
   | 'cache'

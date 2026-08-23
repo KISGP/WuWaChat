@@ -8,8 +8,8 @@ import type {
   LogSource,
   LogViewerState,
   RendererLogEventPayload
-} from '../../shared/logging'
-import { getLogsRoot, pathExists } from '../utils'
+} from '@shared/logging'
+import { getLogsRoot, pathExists } from '@main/utils'
 
 type LogInput = {
   level: LogLevel
@@ -21,6 +21,7 @@ type LogInput = {
 
 const SENSITIVE_KEYS = new Set([
   'apiKey',
+  'fishApiKey',
   'apikey',
   'authorization',
   'Authorization',
@@ -28,18 +29,11 @@ const SENSITIVE_KEYS = new Set([
   'userMessage',
   'messageContent',
   'messages',
-  'vector',
-  'vectors',
-  'vectorJson',
-  'encryptedApiKey'
+  'encryptedApiKey',
+  'encryptedFishApiKey'
 ])
 
-const FULL_TEXT_LOG_KEYS = new Set([
-  'systemPromptText',
-  'retrievalContextText',
-  'chatMessages',
-  'modelInput'
-])
+const FULL_TEXT_LOG_KEYS = new Set(['systemPromptText', 'chatMessages', 'modelInput'])
 
 let writeQueue = Promise.resolve()
 

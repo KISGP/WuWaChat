@@ -1,0 +1,1 @@
+export { ttsService } from './service'

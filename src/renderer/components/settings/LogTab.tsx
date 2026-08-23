@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { List, type RowComponentProps } from 'react-window'
+import { Check, Copy } from 'lucide-react'
 import type { LogEntry, LogViewerState } from '@shared/logging'
 import { trackUiEvent } from '@renderer/logging'
 import { ConfirmActionModal } from '@renderer/components/settings/ConfirmActionModal'
@@ -8,6 +9,8 @@ import { formatBytes } from '@renderer/utils'
 
 type RowData = {
   entries: LogEntry[]
+  onCopy: (entry: LogEntry) => void
+  copiedEntry: LogEntry | null
 }
 
 type LogLevelFilter = LogEntry['level'] | 'all'
@@ -65,19 +68,54 @@ function formatLogLine(entry: LogEntry): [string, string, string] {
   ]
 }
 
-function LogRow({ index, style, entries }: RowComponentProps<RowData>): ReactElement {
+/**
+ * @description 将单条日志格式化为适合复制的完整文本。
+ * @param entry 需要复制的日志条目。
+ * @returns 包含日志级别、元数据与详情的单行文本。
+ */
+function formatLogEntryForCopy(entry: LogEntry): string {
+  const [levelLabel, metaText, detailText] = formatLogLine(entry)
+  return [levelLabel, metaText, detailText.trimStart()].filter(Boolean).join(' ')
+}
+
+/**
+ * @description 渲染虚拟化日志列表中的单条记录及其悬浮复制操作。
+ */
+function LogRow({
+  index,
+  style,
+  entries,
+  onCopy,
+  copiedEntry
+}: RowComponentProps<RowData>): ReactElement {
   const entry = entries[index]
   const [levelLabel, metaText, detailText] = formatLogLine(entry)
+  const isCopied = entry === copiedEntry
+  const copyLabel = isCopied ? '已复制日志' : '复制日志'
 
   return (
-    <div style={style} className={`px-3 py-2 text-xs leading-6.25 ${getLogLevelClass(entry)}`}>
+    <div
+      style={style}
+      className={`group relative px-3 py-2 text-xs leading-6.25 ${getLogLevelClass(entry)}`}
+    >
+      <button
+        type="button"
+        onClick={() => onCopy(entry)}
+        className={`absolute top-2 right-3 flex size-6 items-center justify-center rounded bg-black/45 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/70 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-white/60 focus-visible:outline-none ${
+          isCopied ? 'text-green-400 hover:text-green-300' : 'text-white/65 hover:text-white'
+        }`}
+        title={copyLabel}
+        aria-label={copyLabel}
+      >
+        {isCopied ? <Check size={14} strokeWidth={2.5} /> : <Copy size={14} />}
+      </button>
       <span className="flex min-w-0 items-center gap-2 font-mono">
         <span
           className={`w-12 shrink-0 rounded text-center text-[10px] font-semibold ${getLogLevelBadgeClass(entry.level)}`}
         >
           {levelLabel}
         </span>
-        <span className="truncate">{metaText}</span>
+        <span className="truncate pr-7">{metaText}</span>
       </span>
       <span className="ml-14 block truncate font-mono">{detailText}</span>
     </div>
@@ -92,11 +130,46 @@ export function LogTab(): ReactElement {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all')
+  const [copiedEntry, setCopiedEntry] = useState<LogEntry | null>(null)
+  const copyResetTimerRef = useRef<number | null>(null)
 
   const filteredEntries = useMemo(
     () => entries.filter((entry) => levelFilter === 'all' || entry.level === levelFilter),
     [entries, levelFilter]
   )
+
+  /**
+   * @description 将选中的日志条目写入系统剪贴板。
+   * @param entry 用户请求复制的日志条目。
+   * @remarks 剪贴板访问失败时记录错误，避免用户操作静默失败。
+   */
+  const handleCopyLog = useCallback((entry: LogEntry): void => {
+    void navigator.clipboard
+      .writeText(formatLogEntryForCopy(entry))
+      .then(() => {
+        setCopiedEntry(entry)
+
+        if (copyResetTimerRef.current !== null) {
+          window.clearTimeout(copyResetTimerRef.current)
+        }
+
+        copyResetTimerRef.current = window.setTimeout(() => {
+          setCopiedEntry(null)
+          copyResetTimerRef.current = null
+        }, 1600)
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to copy log entry:', error)
+      })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current)
+      }
+    }
+  }, [])
 
   /**
    * @description 读取日志元数据与日志列表，并同步更新日志页展示状态。
@@ -252,7 +325,7 @@ export function LogTab(): ReactElement {
                 rowComponent={LogRow}
                 rowCount={filteredEntries.length}
                 rowHeight={60}
-                rowProps={{ entries: filteredEntries }}
+                rowProps={{ entries: filteredEntries, onCopy: handleCopyLog, copiedEntry }}
               />
             )}
           </div>

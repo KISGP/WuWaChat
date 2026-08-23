@@ -21,11 +21,16 @@ body {
   user-select: none;
 }
 
+.json-preview-content,
+.json-preview-content * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .scrollbar-thin {
   overflow-y: scroll !important;
 }
 
-/* 极细滚动条样式 */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -38,15 +43,12 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #b1b4b5 !important;
-  /* 轨道透明 */
+  background: #0f0f11 !important;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #0f0f11 !important;
-  /* 滚动条颜色 (对应 Tailwind gray-200) */
+  background-color: #c9d9d7 !important;
   border-radius: 9999px !important;
-  /* 圆角 */
 }
 
 @custom-variant dark (&:is(.dark *));

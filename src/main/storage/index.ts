@@ -6,15 +6,12 @@ import {
   getAppDataRoot,
   getCharactersCachePath,
   getCharactersRoot,
-  getLocalEmbeddingRoot,
   getLogsRoot,
-  getMemoryDatabasePath,
-  getMemorySettingsPath,
-  getProfilesPath,
+  getSettingsPath,
   getSessionsPath,
-  getWorldRoot,
   pathExists
 } from '@main/utils'
+import { getWorldRoot } from '@main/world/paths'
 
 type StorageCategoryDefinition = Omit<StorageUsageItem, 'sizeBytes'> & {
   paths: string[]
@@ -38,28 +35,12 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
     color: '#77d6ff'
   },
   {
-    id: 'memoryDatabase',
-    label: '记忆数据库',
-    path: getMemoryDatabasePath(),
-    paths: [getMemoryDatabasePath()],
-    description: '角色记忆索引与检索数据库',
-    color: '#9fe870'
-  },
-  {
     id: 'world',
-    label: '世界知识',
+    label: 'World 资料',
     path: getWorldRoot(),
     paths: [getWorldRoot()],
-    description: '世界知识包、元数据与向量索引',
-    color: '#ff9f7a'
-  },
-  {
-    id: 'localEmbeddingModels',
-    label: 'Embedding 模型',
-    path: getLocalEmbeddingRoot(),
-    paths: [getLocalEmbeddingRoot()],
-    description: '本地 embedding 模型文件',
-    color: '#b996ff'
+    description: 'Story、Glossary 和其他 World 资料',
+    color: '#c69cff'
   },
   {
     id: 'logs',
@@ -72,9 +53,9 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
   {
     id: 'settings',
     label: '设置',
-    path: dirname(getProfilesPath()),
-    paths: [getProfilesPath(), getMemorySettingsPath()],
-    description: '模型配置与记忆设置',
+    path: dirname(getSettingsPath()),
+    paths: [getSettingsPath()],
+    description: '模型配置、通用设置、记忆设置与界面外观',
     color: '#7adbc4'
   },
   {

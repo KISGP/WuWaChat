@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { optimizer } from '@electron-toolkit/utils'
 import { logger } from '@main/logging'
 import { createMainWindow } from '@main/app/window'
+import { ttsService } from '@main/tts'
 
 export function registerAppEvents(): void {
   app.on('browser-window-created', (_, window) => {
@@ -25,5 +26,9 @@ export function registerAppEvents(): void {
     if (process.platform !== 'darwin') {
       app.quit()
     }
+  })
+
+  app.on('before-quit', () => {
+    ttsService.shutdown()
   })
 }

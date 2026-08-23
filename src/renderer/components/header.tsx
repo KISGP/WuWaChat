@@ -20,13 +20,6 @@ export default function Header({
     setIsInfoOpen(true)
   }
 
-  // const handleMinimize = (): void => {
-  //   if (window.api?.minimize) {
-  //     window.api.minimize()
-  //     return
-  //   }
-  // }
-
   const handleClose = (): void => {
     window.close()
   }
@@ -63,7 +56,6 @@ export default function Header({
           onClick={openInfo}
         />
 
-        {/* <MinIcon onClick={handleMinimize} /> */}
         <CloseIcon onClick={handleClose} />
       </div>
 

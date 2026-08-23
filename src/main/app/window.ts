@@ -37,7 +37,7 @@ export function createMainWindow(): BrowserWindow {
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    // only on windows
+    // Electron applies acrylic only on Windows; other platforms ignore this option.
     backgroundMaterial: 'acrylic',
     icon: IconPath,
     webPreferences: {

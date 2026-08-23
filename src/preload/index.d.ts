@@ -1,36 +1,35 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  ChatDiagnosticRunEvent,
+  ChatDiagnosticRunRequest,
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
-  ChatPromptPreviewRequest,
-  ChatPromptPreviewResult,
   ChatRunAccepted,
   CharacterCatalog,
   ChatRunEvent,
   ChatRunRequest,
   CharacterPromptDocument,
   CharacterSummary,
-  ConversationSession,
-  ModelProfile
+  ConversationSession
 } from '@shared/chat'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
+import type { MemorySettingsStore } from '@shared/memory-settings'
 import type {
-  CharacterMemoryIndexStatus,
-  MemoryDebugRetrieveRequest,
-  MemoryDebugRetrieveResult,
-  EmbeddingCompatibilityStatus,
-  EmbeddingConnectionTestResult,
-  LocalEmbeddingCatalogItem,
-  MemorySettingsStore,
-  MemoryStatusSnapshot,
-  MemoryTargetSelection,
-  MemoryTask,
-  MemoryTaskEvent,
-  WorldIndexStatus
-} from '@shared/memory-settings'
-import type { OpenAIProfileConnectionTestResult, ProfilesStore } from '@shared/model-settings'
+  AgentSettingsStore,
+  MoeGirlpediaConnectionTestRequest,
+  MoeGirlpediaConnectionTestResult
+} from '@shared/agent-settings'
+import type {
+  OpenAIProfileConnectionTestRequest,
+  OpenAIProfileConnectionTestResult,
+  ProfilesStore
+} from '@shared/model-settings'
+import type { AppSettings } from '@shared/app-settings'
+import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
+import type { WorldSyncProgress, WorldSyncResult, WorldSyncStatus } from '@shared/world'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
+import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
 
 declare global {
   interface Window {
@@ -47,46 +46,39 @@ declare global {
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
-      previewModelInput?: (request: ChatPromptPreviewRequest) => Promise<ChatPromptPreviewResult>
+      startDiagnosticRun: (request: ChatDiagnosticRunRequest) => Promise<{ requestId: string }>
+      abortDiagnosticRun: (requestId: string) => Promise<boolean>
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
+      onDiagnosticRunEvent: (listener: (event: ChatDiagnosticRunEvent) => void) => () => void
     }
     characters: {
       getCharacterCatalog: () => Promise<CharacterCatalog>
-      refreshRemoteCharacters: () => Promise<CharacterCatalog>
-      getRemoteCharacterPrompt: (characterId: string) => Promise<string>
-      downloadCharacter: (characterId: string) => Promise<CharacterSummary>
-      resetPresetCharacter: (characterId: string) => Promise<CharacterSummary>
+      getPendingRemoteCharacterPrompt: (characterId: string) => Promise<string>
+      retryCharacterSync: (characterId: string) => Promise<CharacterCatalog>
+      applyPendingRemoteCharacterPrompt: (characterId: string) => Promise<CharacterSummary>
     }
     settings: {
+      getUnifiedSettings: () => Promise<UnifiedSettings>
+      getAppSettings: () => Promise<AppSettings>
+      saveAppSettings: (settings: AppSettings) => Promise<AppSettings>
       getProfiles: () => Promise<ProfilesStore>
       saveProfiles: (store: ProfilesStore) => Promise<ProfilesStore>
-      testProfile: (profile: ModelProfile) => Promise<OpenAIProfileConnectionTestResult>
+      saveAgent: (settings: AgentSettingsStore) => Promise<AgentSettingsStore>
+      testMoeGirlpedia: (
+        request: MoeGirlpediaConnectionTestRequest
+      ) => Promise<MoeGirlpediaConnectionTestResult>
+      cancelMoeGirlpediaTest: (requestId: string) => Promise<boolean>
+      saveAppearance: (appearance: AppearanceSettings) => Promise<AppearanceSettings>
+      testProfile: (
+        request: OpenAIProfileConnectionTestRequest
+      ) => Promise<OpenAIProfileConnectionTestResult>
+      cancelProfileTest: (requestId: string) => Promise<boolean>
     }
     memory: {
       getSettings: () => Promise<MemorySettingsStore>
       saveSettings: (store: MemorySettingsStore) => Promise<MemorySettingsStore>
-      getStatus: (selection?: MemoryTargetSelection | null) => Promise<MemoryStatusSnapshot>
-      listLocalModels: () => Promise<LocalEmbeddingCatalogItem[]>
-      downloadLocalModel: (modelId: string) => Promise<MemoryTask>
-      selectLocalModel: (modelId: string) => Promise<MemorySettingsStore>
-      removeLocalModel: (modelId: string) => Promise<boolean>
-      testEmbeddingConnection: () => Promise<EmbeddingConnectionTestResult>
-      getEmbeddingCompatibility: (
-        selection?: MemoryTargetSelection | null
-      ) => Promise<EmbeddingCompatibilityStatus[]>
-      getWorldIndexStatus: () => Promise<WorldIndexStatus>
-      getMemoryIndexStatus: (
-        selection?: MemoryTargetSelection | null
-      ) => Promise<CharacterMemoryIndexStatus>
-      startWorldBundleDownload: () => Promise<MemoryTask>
-      startWorldVectorBuild: () => Promise<MemoryTask>
-      startCharacterMemoryBuild: (characterId: string) => Promise<MemoryTask>
-      startAllMemoryBuild: () => Promise<MemoryTask>
-      cancelTask: (taskId: string) => Promise<boolean>
-      debugRetrieve?: (request: MemoryDebugRetrieveRequest) => Promise<MemoryDebugRetrieveResult>
-      onTaskEvent: (listener: (event: MemoryTaskEvent) => void) => () => void
     }
     logs: {
       track: (payload: RendererLogEventPayload) => Promise<void>
@@ -98,8 +90,18 @@ declare global {
     storage: {
       getUsage: () => Promise<StorageUsageSnapshot>
     }
+    world: {
+      getStatus: () => Promise<WorldSyncStatus>
+      checkForUpdates: () => Promise<WorldSyncStatus>
+      download: () => Promise<WorldSyncResult>
+      onDownloadProgress: (listener: (progress: WorldSyncProgress) => void) => () => void
+    }
     tools: {
       getGachaUrl: (request?: GachaUrlRequest) => Promise<GachaUrlResult>
+    }
+    tts: {
+      synthesize: (request: TtsSynthesisRequest) => Promise<TtsSynthesisResult>
+      cancel: (requestId: string) => Promise<boolean>
     }
   }
 }

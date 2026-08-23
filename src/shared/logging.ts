@@ -1,6 +1,14 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export type LogSource = 'main' | 'renderer' | 'ipc' | 'ai' | 'memory' | 'settings' | 'window'
+export type LogSource =
+  | 'main'
+  | 'renderer'
+  | 'ipc'
+  | 'ai'
+  | 'memory'
+  | 'settings'
+  | 'tts'
+  | 'window'
 
 export type LogContext = Record<string, unknown>
 
