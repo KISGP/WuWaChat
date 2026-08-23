@@ -1,8 +1,9 @@
 import type { GraphStateValue } from '@main/chat/graph-state'
-import { toModelMessages } from '@main/chat/model-message-builder'
+import { buildSystemPromptText, toConversationMessages } from '@main/chat/model-message-builder'
 
 export function createBuildMessagesNode() {
   return (state: GraphStateValue) => ({
-    llmMessages: toModelMessages(state.prompt, state.history)
+    systemPromptText: buildSystemPromptText(state.prompt),
+    llmMessages: toConversationMessages(state.history)
   })
 }

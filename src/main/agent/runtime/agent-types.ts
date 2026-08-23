@@ -1,5 +1,6 @@
 import type { CharacterSummary, ConversationSession, ModelProfile } from '@shared/chat'
 import type { AgentPolicy, AgentResourceId, AgentResourcePage, AgentToolTrace } from '@shared/agent'
+import type { StoryScopeResult } from '@shared/story'
 import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages'
 
 export type AgentToolContext = {
@@ -7,6 +8,8 @@ export type AgentToolContext = {
   session: ConversationSession
   policy: AgentPolicy
   accessedResourceIds: Set<AgentResourceId>
+  storyScope?: StoryScopeResult
+  abortSignal?: AbortSignal
 }
 
 export type AgentResource = {
@@ -60,23 +63,38 @@ export type AgentToolPackage = {
 }
 
 export type AgentModel = {
-  bindTools?: (tools: AgentToolDefinition[]) => AgentModel
+  bindTools?: (
+    tools: AgentToolDefinition[],
+    options?: { parallel_tool_calls?: boolean; tool_choice?: 'auto' | 'required' }
+  ) => AgentModel
   stream: (
     messages: BaseMessage[],
     options?: { signal?: AbortSignal }
   ) => AsyncIterable<AIMessageChunk> | Promise<AsyncIterable<AIMessageChunk>>
 }
 
-export type AgentModelFactory = (profile: ModelProfile) => AgentModel
+export type AgentModelFactoryOptions = {
+  onProviderRequest?: (body: Record<string, unknown>) => void
+}
+
+export type AgentModelFactory = (
+  profile: ModelProfile,
+  options?: AgentModelFactoryOptions
+) => AgentModel
+
+export type AgentRunPhase = 'tool-routing' | 'final-response'
 
 export type AgentRunRequest = {
   profile: ModelProfile
   history: BaseMessage[]
+  systemPromptText: string
   context: AgentToolContext
   tools: AgentToolPackage[]
   abortSignal: AbortSignal
   onChunk: (text: string) => void
   onTrace?: (trace: AgentToolTrace) => void
+  onModelResponse?: (response: AIMessageChunk, phase: AgentRunPhase) => void
+  onProviderRequest?: (body: Record<string, unknown>, phase: AgentRunPhase) => void
 }
 
 export type AgentRunResult = {

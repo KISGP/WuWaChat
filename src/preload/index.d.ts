@@ -1,9 +1,9 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  ChatDiagnosticRunEvent,
+  ChatDiagnosticRunRequest,
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
-  ChatPromptPreviewRequest,
-  ChatPromptPreviewResult,
   ChatRunAccepted,
   CharacterCatalog,
   ChatRunEvent,
@@ -14,7 +14,11 @@ import type {
 } from '@shared/chat'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type { MemorySettingsStore } from '@shared/memory-settings'
-import type { AgentSettingsStore } from '@shared/agent-settings'
+import type {
+  AgentSettingsStore,
+  MoeGirlpediaConnectionTestRequest,
+  MoeGirlpediaConnectionTestResult
+} from '@shared/agent-settings'
 import type {
   OpenAIProfileConnectionTestRequest,
   OpenAIProfileConnectionTestResult,
@@ -23,9 +27,9 @@ import type {
 import type { AppSettings } from '@shared/app-settings'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
+import type { WorldSyncProgress, WorldSyncResult, WorldSyncStatus } from '@shared/world'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
 import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
-import type { LoreStatus } from '@shared/lore'
 
 declare global {
   interface Window {
@@ -42,17 +46,18 @@ declare global {
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
-      previewModelInput: (request: ChatPromptPreviewRequest) => Promise<ChatPromptPreviewResult>
+      startDiagnosticRun: (request: ChatDiagnosticRunRequest) => Promise<{ requestId: string }>
+      abortDiagnosticRun: (requestId: string) => Promise<boolean>
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
+      onDiagnosticRunEvent: (listener: (event: ChatDiagnosticRunEvent) => void) => () => void
     }
     characters: {
       getCharacterCatalog: () => Promise<CharacterCatalog>
-      refreshRemoteCharacters: () => Promise<CharacterCatalog>
-      getRemoteCharacterPrompt: (characterId: string) => Promise<string>
-      downloadCharacter: (characterId: string) => Promise<CharacterSummary>
-      resetPresetCharacter: (characterId: string) => Promise<CharacterSummary>
+      getPendingRemoteCharacterPrompt: (characterId: string) => Promise<string>
+      retryCharacterSync: (characterId: string) => Promise<CharacterCatalog>
+      applyPendingRemoteCharacterPrompt: (characterId: string) => Promise<CharacterSummary>
     }
     settings: {
       getUnifiedSettings: () => Promise<UnifiedSettings>
@@ -61,6 +66,10 @@ declare global {
       getProfiles: () => Promise<ProfilesStore>
       saveProfiles: (store: ProfilesStore) => Promise<ProfilesStore>
       saveAgent: (settings: AgentSettingsStore) => Promise<AgentSettingsStore>
+      testMoeGirlpedia: (
+        request: MoeGirlpediaConnectionTestRequest
+      ) => Promise<MoeGirlpediaConnectionTestResult>
+      cancelMoeGirlpediaTest: (requestId: string) => Promise<boolean>
       saveAppearance: (appearance: AppearanceSettings) => Promise<AppearanceSettings>
       testProfile: (
         request: OpenAIProfileConnectionTestRequest
@@ -71,11 +80,6 @@ declare global {
       getSettings: () => Promise<MemorySettingsStore>
       saveSettings: (store: MemorySettingsStore) => Promise<MemorySettingsStore>
     }
-    lore: {
-      getStatus: () => Promise<LoreStatus>
-      updateSource: () => Promise<LoreStatus>
-      rebuild: () => Promise<LoreStatus>
-    }
     logs: {
       track: (payload: RendererLogEventPayload) => Promise<void>
       getViewerState: () => Promise<LogViewerState>
@@ -85,6 +89,12 @@ declare global {
     }
     storage: {
       getUsage: () => Promise<StorageUsageSnapshot>
+    }
+    world: {
+      getStatus: () => Promise<WorldSyncStatus>
+      checkForUpdates: () => Promise<WorldSyncStatus>
+      download: () => Promise<WorldSyncResult>
+      onDownloadProgress: (listener: (progress: WorldSyncProgress) => void) => () => void
     }
     tools: {
       getGachaUrl: (request?: GachaUrlRequest) => Promise<GachaUrlResult>

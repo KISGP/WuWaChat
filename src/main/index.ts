@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
 import { registerAppEvents } from '@main/app/events'
 import { initializeChat } from '@main/chat'
+import { synchronizeCharacters } from '@main/characters'
 import { bootstrapAppData } from '@main/app/bootstrap-data'
 import { registerIpc } from '@main/ipc'
 import { logger } from '@main/logging'
@@ -51,6 +52,7 @@ app.whenReady().then(() => {
       void logger.info('main', 'window-create-start', 'Creating main window')
       createMainWindow()
       void logger.info('main', 'window-create-success', 'Main window created')
+      void synchronizeCharacters()
     })
     .catch((error) => {
       void captureError({

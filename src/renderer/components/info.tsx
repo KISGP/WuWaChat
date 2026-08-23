@@ -55,7 +55,6 @@ export default function Info({ isOpen, onClose, className }: InfoProps): ReactEl
               className
             )}
           >
-            {/* 背景 */}
             <img src={InfoBg} draggable="false" className="pointer-events-none" />
             <img
               src={InfoBgLine}
@@ -63,7 +62,6 @@ export default function Info({ isOpen, onClose, className }: InfoProps): ReactEl
               className="pointer-events-none absolute top-0 right-2 bottom-0 h-104"
             />
 
-            {/* 顶部拖拽区域 & 关闭按钮 */}
             <div data-drag-region className="absolute h-14 w-full">
               <span className="absolute top-5 left-6 z-100 scale-90 text-2xl font-semibold">
                 飞讯说明
@@ -74,7 +72,6 @@ export default function Info({ isOpen, onClose, className }: InfoProps): ReactEl
               />
             </div>
 
-            {/* 内容区域 */}
             <div className="absolute top-24 bottom-4 flex flex-col justify-between px-20">
               <span className="text-lg text-neutral-700">
                 飞讯是先行公约为终端开发的远程通讯程序，生活在索拉里斯的人们可以用飞讯互相联系。
@@ -87,13 +84,13 @@ export default function Info({ isOpen, onClose, className }: InfoProps): ReactEl
                   className="cursor-pointer hover:text-[#e8c690]"
                   onClick={() =>
                     window.open(
-                      'https://github.com/wuwachat/wuwachat',
+                      'https://github.com/KISGP/WuWaChat',
                       '_blank',
                       'noopener,noreferrer'
                     )
                   }
                 >
-                  https://github.com/wuwachat/wuwachat
+                  https://github.com/KISGP/WuWaChat
                 </span>
               </div>
             </div>

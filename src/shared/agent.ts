@@ -1,6 +1,8 @@
-export type AgentResourceId = 'lore.scenes' | 'lore.glossary' | 'memory.entries'
+import type { MoeGirlpediaSettings } from './agent-settings'
 
-export type AgentToolPackageId = 'resource-query' | 'datetime'
+export type AgentResourceId = 'memory.entries'
+
+export type AgentToolPackageId = 'story' | 'glossary' | 'memory' | 'datetime' | 'moegirlpedia'
 
 export type AgentQueryOperator = 'equals' | 'contains' | 'in'
 
@@ -36,16 +38,18 @@ export type AgentResourcePage = {
 
 export type AgentToolTrace = {
   round: number
+  toolCallId: string
   toolName: string
   input: Record<string, unknown>
   outputSummary: string
+  output?: unknown
   status: 'completed' | 'failed' | 'rejected'
   sourceIds?: string[]
 }
 
 export type AgentPolicy = {
-  maxToolRounds: 3
-  allowCrossResourceContext: boolean
-  memoryScope: 'current-session' | 'character-all-sessions'
+  maxToolRounds: number
+  memoryScope: 'none' | 'current-session' | 'character-all-sessions'
   enabledToolPackageIds: AgentToolPackageId[]
+  moegirlpedia: MoeGirlpediaSettings
 }

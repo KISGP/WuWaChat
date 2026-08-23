@@ -1,28 +1,26 @@
 import {
-  downloadCharacter,
+  applyPendingRemoteCharacterPrompt,
   getCharacterCatalog,
-  getRemoteCharacterPrompt,
-  refreshRemoteCharacters,
-  resetPresetCharacter
+  getPendingRemoteCharacterPrompt,
+  retryCharacterSync
 } from '../characters'
 import { handleLogged } from './logged-handler'
 
 export function registerCharacterIpc(): void {
   handleLogged('character:getCatalog', () => getCharacterCatalog())
-  handleLogged('character:refreshRemote', () => refreshRemoteCharacters())
   handleLogged(
-    'character:getRemotePrompt',
-    (_event, characterId: string) => getRemoteCharacterPrompt(characterId),
+    'character:getPendingRemotePrompt',
+    (_event, characterId: string) => getPendingRemoteCharacterPrompt(characterId),
     (characterId) => ({ characterId })
   )
   handleLogged(
-    'character:download',
-    (_event, characterId: string) => downloadCharacter(characterId),
+    'character:retrySync',
+    (_event, characterId: string) => retryCharacterSync(characterId),
     (characterId) => ({ characterId })
   )
   handleLogged(
-    'character:resetPreset',
-    (_event, characterId: string) => resetPresetCharacter(characterId),
+    'character:applyPendingPrompt',
+    (_event, characterId: string) => applyPendingRemoteCharacterPrompt(characterId),
     (characterId) => ({ characterId })
   )
 }

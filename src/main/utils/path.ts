@@ -42,32 +42,6 @@ export function getTtsAudioRoot(): string {
 export function getTtsModelRoot(modelId: string): string {
   return join(getAppDataRoot(), 'models', 'tts', modelId)
 }
-
-/**
- * @description 返回当前 Markdown Lore 源包目录。
- * @remarks 目录名保留为 `world`，以继续使用已安装的只读原作资料；运行时只将其作为当前编译来源。
- * @returns 当前 Markdown 源包目录。
- */
-export function getLoreMarkdownSourceRoot(): string {
-  return join(getAppDataRoot(), 'world')
-}
-
-/**
- * @description 返回当前 Markdown Lore 源包的版本元数据路径。
- * @returns 当前 Markdown 源包元数据路径。
- */
-export function getLoreMarkdownSourceMetadataPath(): string {
-  return join(getAppDataRoot(), 'world-metadata.json')
-}
-
-/**
- * @description 返回由原作 Markdown 确定性编译得到的 Lore Package 本地路径。
- * @returns Lore Package 的固定应用数据路径。
- */
-export function getLorePackagePath(): string {
-  return join(getAppDataRoot(), 'lore.json')
-}
-
 export function getLogsRoot(): string {
   return join(getAppDataRoot(), 'logs')
 }

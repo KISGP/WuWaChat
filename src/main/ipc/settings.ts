@@ -1,14 +1,16 @@
 import type { AppSettings } from '@shared/app-settings'
 import type { OpenAIProfileConnectionTestRequest, ProfilesStore } from '@shared/model-settings'
 import type { AppearanceSettings } from '@shared/settings'
-import type { AgentSettingsStore } from '@shared/agent-settings'
+import type { AgentSettingsStore, MoeGirlpediaConnectionTestRequest } from '@shared/agent-settings'
 import {
   getProfiles,
   cancelProfileTest,
   getUnifiedSettings,
+  cancelMoeGirlpediaTest,
   saveAppearanceSettings,
   saveAgentSettings,
   saveProfiles,
+  testMoeGirlpedia,
   testProfile
 } from '@main/settings'
 import { getAppSettings, saveAppSettings } from '@main/settings/app-settings'
@@ -26,6 +28,9 @@ export function registerSettingsIpc(): void {
   )
   handleLogged('settings:saveAgent', (_event, settings: AgentSettingsStore) =>
     saveAgentSettings(settings)
+  )
+  handleLogged('settings:testMoeGirlpedia', (_event, request: MoeGirlpediaConnectionTestRequest) =>
+    testMoeGirlpedia(request)
   )
   handleLogged(
     'settings:saveProfiles',
@@ -48,5 +53,8 @@ export function registerSettingsIpc(): void {
   )
   handleLogged('settings:cancelProfileTest', (_event, requestId: string) =>
     cancelProfileTest(requestId)
+  )
+  handleLogged('settings:cancelMoeGirlpediaTest', (_event, requestId: string) =>
+    cancelMoeGirlpediaTest(requestId)
   )
 }

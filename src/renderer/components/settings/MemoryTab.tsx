@@ -31,7 +31,11 @@ export function MemoryTab(): ReactElement {
       <SectionCard title="长期记忆">
         <SettingItem
           title="读取同角色全部会话"
-          description="关闭后，Agent 只能读取当前会话派生的长期记忆。不会创建索引，也不会下载模型。"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              关闭后，Agent 只能读取当前会话派生的长期记忆。不会创建索引，也不会下载模型。
+            </p>
+          ]}
         >
           <Switch
             id="cross-session-character-memory"

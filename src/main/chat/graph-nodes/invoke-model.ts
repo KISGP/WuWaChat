@@ -8,11 +8,13 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
     const result = await context.agent({
       profile: state.profile,
       history: state.llmMessages,
+      systemPromptText: state.systemPromptText,
       context: {
         character: state.character,
         session: state.session,
         policy: await context.chatContext.getAgentPolicy(),
-        accessedResourceIds: new Set()
+        accessedResourceIds: new Set(),
+        abortSignal: state.abortSignal
       },
       abortSignal: state.abortSignal,
       onChunk: (text) => {

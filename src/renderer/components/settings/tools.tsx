@@ -80,7 +80,11 @@ export function ToolsTab(): ReactElement {
       <div className="space-y-3">
         <SettingItem
           title="抽卡链接"
-          description="自动扫描本机日志并提取鸣潮抽卡记录链接；如果自动获取失败，可以手动填写游戏安装目录重试。"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              自动扫描本机日志并提取鸣潮抽卡记录链接；如果自动获取失败，可以手动填写游戏安装目录重试。
+            </p>
+          ]}
         >
           <Button
             type="button"

@@ -9,13 +9,21 @@ import {
 } from '@shared/model-settings'
 import { createHash } from 'crypto'
 import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
-import { type AgentSettingsStore, normalizeAgentSettingsStore } from '@shared/agent-settings'
+import {
+  type AgentSettingsStore,
+  type MoeGirlpediaConnectionTestRequest,
+  type MoeGirlpediaConnectionTestResult,
+  normalizeAgentSettingsStore
+} from '@shared/agent-settings'
+import { MoeGirlpediaApiClient } from '@main/agent/tools/moegirlpedia/api'
 import { joinUrl } from '@main/utils'
 import { logger } from '@main/logging'
 import { getUnifiedSettingsStore } from './store'
 
 const PROFILE_TEST_TIMEOUT_MS = 10_000
+const MOEGIRLPEDIA_TEST_TIMEOUT_MS = 10_000
 const activeProfileTests = new Map<string, AbortController>()
+const activeMoeGirlpediaTests = new Map<string, AbortController>()
 
 /**
  * @description 获取配置文件中的模型配置
@@ -62,6 +70,66 @@ export async function saveAppearanceSettings(
  */
 export async function saveAgentSettings(settings: AgentSettingsStore): Promise<AgentSettingsStore> {
   return getUnifiedSettingsStore().update('agent', normalizeAgentSettingsStore(settings))
+}
+
+/**
+ * @description 测试萌娘百科 Bot Password 登录和 API 会话是否可用。
+ * @param request 包含测试请求标识和未持久化的萌娘百科配置。
+ * @returns 登录测试结果，不返回密码或 Cookie。
+ */
+export async function testMoeGirlpedia(
+  request: MoeGirlpediaConnectionTestRequest
+): Promise<MoeGirlpediaConnectionTestResult> {
+  const startedAt = Date.now()
+  const controller = new AbortController()
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, MOEGIRLPEDIA_TEST_TIMEOUT_MS)
+  activeMoeGirlpediaTests.set(request.requestId, controller)
+
+  try {
+    const settings = normalizeAgentSettingsStore({
+      enabledToolPackageIds: [],
+      moegirlpedia: request.settings
+    }).moegirlpedia
+    const username = await new MoeGirlpediaApiClient(settings).testConnection(controller.signal)
+    return {
+      ok: true,
+      message: '萌娘百科登录和搜索测试成功。',
+      latencyMs: Date.now() - startedAt,
+      username
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: controller.signal.aborted
+        ? timedOut
+          ? `萌娘百科连接测试超时（${MOEGIRLPEDIA_TEST_TIMEOUT_MS / 1000} 秒）。`
+          : '萌娘百科连接测试已取消。'
+        : error instanceof Error
+          ? error.message
+          : String(error),
+      latencyMs: Date.now() - startedAt
+    }
+  } finally {
+    clearTimeout(timeout)
+    activeMoeGirlpediaTests.delete(request.requestId)
+  }
+}
+
+/**
+ * @description 取消正在进行的萌娘百科连接测试。
+ * @param requestId 连接测试请求标识。
+ * @returns 是否找到并取消了活动测试。
+ */
+export function cancelMoeGirlpediaTest(requestId: string): boolean {
+  const controller = activeMoeGirlpediaTests.get(requestId)
+  if (!controller) return false
+  activeMoeGirlpediaTests.delete(requestId)
+  controller.abort()
+  return true
 }
 
 function requireBaseUrl(profile: ModelProfile): string {

@@ -33,7 +33,11 @@ export function GeneralTab(): ReactElement {
       <SectionCard title="动效">
         <SettingItem
           title="界面动画"
-          description="关闭后，界面会直接切换到目标状态。系统的减少动态效果偏好始终优先。"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              关闭后，界面会直接切换到目标状态。系统的减少动态效果偏好始终优先。
+            </p>
+          ]}
         >
           <div
             role="radiogroup"
@@ -59,7 +63,14 @@ export function GeneralTab(): ReactElement {
         </SettingItem>
       </SectionCard>
       <SectionCard title="消息显示">
-        <SettingItem title="自动折叠行数" description="消息超过设定行数时会折叠，并可按需展开。">
+        <SettingItem
+          title="自动折叠行数"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              消息超过设定行数时会折叠，并可按需展开。
+            </p>
+          ]}
+        >
           <input
             type="number"
             min={MIN_MESSAGE_COLLAPSE_LINE_COUNT}

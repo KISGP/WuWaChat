@@ -1,5 +1,4 @@
 import { registerChatIpc } from './chat'
-import { registerLoreIpc } from './lore'
 import { registerCharacterIpc } from './characters'
 import { registerLogIpc } from './logs'
 import { registerMemoryIpc } from './memory'
@@ -8,11 +7,11 @@ import { registerStorageIpc } from './storage'
 import { registerToolsIpc } from './tools'
 import { registerTtsIpc } from './tts'
 import { registerWindowIpc } from './window'
+import { registerWorldIpc } from './world'
 
 export function registerIpc(): void {
   registerWindowIpc()
   registerChatIpc()
-  registerLoreIpc()
   registerCharacterIpc()
   registerSettingsIpc()
   registerMemoryIpc()
@@ -20,4 +19,5 @@ export function registerIpc(): void {
   registerStorageIpc()
   registerToolsIpc()
   registerTtsIpc()
+  registerWorldIpc()
 }

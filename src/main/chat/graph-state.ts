@@ -18,6 +18,7 @@ export const GraphState = Annotation.Root({
   session: Annotation<ConversationSession>,
   character: Annotation<CharacterSummary>,
   prompt: Annotation<string>,
+  systemPromptText: Annotation<string>,
   history: Annotation<ConversationMessage[]>(),
   llmMessages: Annotation<BaseMessage[]>(),
   assistantDraft: Annotation<string>,

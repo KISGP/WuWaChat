@@ -17,9 +17,9 @@ import {
   UserRound,
   Volume2,
   RotateCcw,
-  BookOpenText,
   ClipboardList,
   Braces,
+  BookOpen,
   type LucideIcon
 } from 'lucide-react'
 import { AgentTab } from './AgentTab'
@@ -36,7 +36,6 @@ gsap.registerPlugin(useGSAP)
 const MemoryTab = lazy(() =>
   import('./MemoryTab').then((module) => ({ default: module.MemoryTab }))
 )
-const LoreTab = lazy(() => import('./LoreTab').then((module) => ({ default: module.LoreTab })))
 const CharacterTab = lazy(() =>
   import('./CharacterTab').then((module) => ({ default: module.CharacterTab }))
 )
@@ -44,12 +43,14 @@ const StorageTab = lazy(() =>
   import('./StorageTab').then((module) => ({ default: module.StorageTab }))
 )
 const PromptPreviewTab = lazy(() => import('./PromptPreviewTab'))
+const WorldTab = lazy(() =>
+  import('./WorldTab').then((module) => ({ default: module.WorldTab }))
+)
 
 type SettingsTabId =
   | 'general'
   | 'tts'
   | 'model'
-  | 'lore'
   | 'memory'
   | 'character'
   | 'storage'
@@ -57,6 +58,7 @@ type SettingsTabId =
   | 'tools'
   | 'agent'
   | 'prompt-preview'
+  | 'world'
 
 type SettingsTabDefinition = {
   id: SettingsTabId
@@ -65,12 +67,12 @@ type SettingsTabDefinition = {
 }
 
 const SETTINGS_TABS: readonly SettingsTabDefinition[] = [
+  { id: 'general', label: '通用', icon: SlidersHorizontal },
   { id: 'model', label: '模型', icon: Bot },
   { id: 'character', label: '角色', icon: UserRound },
-  { id: 'agent', label: '回答与工具', icon: Workflow },
-  { id: 'lore', label: 'Lore 资料', icon: BookOpenText },
-  { id: 'memory', label: '长期记忆', icon: Brain },
-  { id: 'general', label: '通用', icon: SlidersHorizontal },
+  { id: 'agent', label: '工具', icon: Workflow },
+  { id: 'memory', label: '记忆', icon: Brain },
+  { id: 'world', label: '资料', icon: BookOpen },
   { id: 'tts', label: '语音', icon: Volume2 },
   { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'log', label: '日志', icon: ClipboardList },
@@ -164,12 +166,6 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
             <MemoryTab />
           </Suspense>
         )
-      case 'lore':
-        return (
-          <Suspense fallback={<TabLoadingFallback />}>
-            <LoreTab />
-          </Suspense>
-        )
       case 'character':
         return (
           <Suspense fallback={<TabLoadingFallback />}>
@@ -192,6 +188,12 @@ export default function Settings({ onClose }: { onClose: () => void }): ReactEle
         )
       case 'tools':
         return <ToolsTab />
+      case 'world':
+        return (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <WorldTab />
+          </Suspense>
+        )
       case 'agent':
         return <AgentTab />
       default:

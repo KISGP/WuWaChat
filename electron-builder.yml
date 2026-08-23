@@ -24,6 +24,7 @@ files:
 asarUnpack:
   - resources/**
 win:
+  icon: resources/icon.ico
   executableName: wuwachat
   target:
     - target: nsis

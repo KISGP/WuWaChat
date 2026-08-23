@@ -6,19 +6,16 @@ import { toLoggableMessages } from '@main/chat/model-message-builder'
 
 export function createLogModelInputNode() {
   return async (state: GraphStateValue) => {
-    const chatMessages = toLoggableMessages(state.llmMessages)
-    const systemPromptText = state.llmMessages
-      .filter((message) => message instanceof SystemMessage)
-      .map((message) => contentToText(message.content))
-      .filter(Boolean)
-      .join('\n\n')
+    const modelMessages = [new SystemMessage(state.systemPromptText), ...state.llmMessages]
+    const chatMessages = toLoggableMessages(modelMessages)
+    const systemPromptText = contentToText(modelMessages[0].content)
 
     await logger.info('ai', 'run-model-input-built', 'Built chat model input', {
       requestId: state.requestId,
       sessionId: state.sessionId,
       characterId: state.characterId,
       profileId: state.profileId,
-      messageCount: state.llmMessages.length,
+      messageCount: modelMessages.length,
       historyMessageCount: state.history.length,
       systemPromptText,
       chatMessages,

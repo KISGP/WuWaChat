@@ -1,5 +1,5 @@
 const TTS_TEXT_COMPATIBILITY_REPLACEMENTS: Record<string, string> = {
-  // TEMP: 当前 ONNX Bundle 的预处理 DLL 无法为“啊”生成拼音；替换并验证完整 Bundle 后删除此映射。
+  // The bundled ONNX preprocessor has no pronunciation entry for “啊”.
   啊: '呀'
 }
 

@@ -7,13 +7,11 @@ import {
   getCharactersCachePath,
   getCharactersRoot,
   getLogsRoot,
-  getLoreMarkdownSourceMetadataPath,
-  getLoreMarkdownSourceRoot,
-  getLorePackagePath,
   getSettingsPath,
   getSessionsPath,
   pathExists
 } from '@main/utils'
+import { getWorldRoot } from '@main/world/paths'
 
 type StorageCategoryDefinition = Omit<StorageUsageItem, 'sizeBytes'> & {
   paths: string[]
@@ -37,12 +35,12 @@ const STORAGE_CATEGORIES: StorageCategoryDefinition[] = [
     color: '#77d6ff'
   },
   {
-    id: 'loreSource',
-    label: '原作资料',
-    path: getLoreMarkdownSourceRoot(),
-    paths: [getLoreMarkdownSourceRoot(), getLoreMarkdownSourceMetadataPath(), getLorePackagePath()],
-    description: '原作 Markdown 与资料包元数据',
-    color: '#ff9f7a'
+    id: 'world',
+    label: 'World 资料',
+    path: getWorldRoot(),
+    paths: [getWorldRoot()],
+    description: 'Story、Glossary 和其他 World 资料',
+    color: '#c69cff'
   },
   {
     id: 'logs',

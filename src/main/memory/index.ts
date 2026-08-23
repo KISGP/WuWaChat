@@ -8,7 +8,7 @@ import {
 import { getUnifiedSettingsStore } from '@main/settings/store'
 
 /**
- * @description 管理由会话快照派生的角色长期记忆，不创建向量、模型或本地索引。
+ * @description 管理由会话快照派生的角色长期记忆。
  */
 export class MemoryService {
   private settings = createDefaultMemorySettingsStore()

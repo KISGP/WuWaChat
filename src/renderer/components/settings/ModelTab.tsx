@@ -19,7 +19,6 @@ export function ModelTab(): ReactElement {
   const {
     store,
     isLoaded,
-    saveStatus,
     setActiveProfileId,
     updateProfile,
     updateProfileProvider,
@@ -29,7 +28,6 @@ export function ModelTab(): ReactElement {
     useShallow((state) => ({
       store: state.store,
       isLoaded: state.isLoaded,
-      saveStatus: state.saveStatus,
       setActiveProfileId: state.setActiveProfileId,
       updateProfile: state.updateProfile,
       updateProfileProvider: state.updateProfileProvider,

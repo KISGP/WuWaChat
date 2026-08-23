@@ -1,11 +1,16 @@
 import type { AgentPolicy } from '@shared/agent'
-
-const MAX_TOOL_ROUNDS = 3 as const
+import { DEFAULT_MAX_TOOL_ROUNDS } from '@shared/agent-settings'
 
 /**
  * @description 创建 Agent 循环共享的最大工具调用轮次策略。
- * @returns 当前产品固定的三轮工具调用限制。
+ * @param maxToolRounds 用户配置的最大工具调用轮次。
+ * @returns 经过数值规范化的工具调用轮次策略。
  */
-export function createAgentLoopPolicy(): Pick<AgentPolicy, 'maxToolRounds'> {
-  return { maxToolRounds: MAX_TOOL_ROUNDS }
+export function createAgentLoopPolicy(
+  maxToolRounds: number = DEFAULT_MAX_TOOL_ROUNDS
+): Pick<AgentPolicy, 'maxToolRounds'> {
+  const numericRounds = Number.isFinite(maxToolRounds)
+    ? Math.round(maxToolRounds)
+    : DEFAULT_MAX_TOOL_ROUNDS
+  return { maxToolRounds: numericRounds }
 }

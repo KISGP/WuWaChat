@@ -4,6 +4,7 @@ import { readFile } from 'fs/promises'
 import type { ModelProfile } from '@shared/chat'
 import type { AppSettings } from '@shared/app-settings'
 import type { ProfilesStore } from '@shared/model-settings'
+import type { AgentSettingsStore } from '@shared/agent-settings'
 import {
   type UnifiedSettings,
   createDefaultUnifiedSettings,
@@ -26,9 +27,18 @@ type StoredTtsSettings = Omit<AppSettings['tts'], 'fishApiKey'> & {
 
 type StoredAppSettings = Omit<AppSettings, 'tts'> & { tts: StoredTtsSettings }
 
-type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles' | 'app'> & {
+type StoredAgentSettings = Omit<AgentSettingsStore, 'moegirlpedia'> & {
+  moegirlpedia: Omit<AgentSettingsStore['moegirlpedia'], 'botPassword'> & {
+    botPassword?: string
+    encryptedBotPassword?: string
+    botPasswordStorage?: 'plain' | 'safeStorage'
+  }
+}
+
+type StoredUnifiedSettings = Omit<UnifiedSettings, 'profiles' | 'app' | 'agent'> & {
   app: StoredAppSettings
   profiles: Omit<ProfilesStore, 'profiles'> & { profiles: StoredProfile[] }
+  agent: StoredAgentSettings
 }
 
 /**
@@ -62,6 +72,13 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
           }
         }
       )
+    },
+    agent: {
+      ...settings.agent,
+      moegirlpedia: {
+        ...settings.agent?.moegirlpedia,
+        botPassword: decryptMoeGirlpediaPassword(settings.agent?.moegirlpedia)
+      }
     }
   })
 
@@ -92,6 +109,11 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
 function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
   const { fishApiKey, ...ttsWithoutApiKey } = settings.app.tts
   const storedTts: StoredTtsSettings = { ...ttsWithoutApiKey }
+  const { botPassword, ...moegirlpediaWithoutPassword } = settings.agent.moegirlpedia
+  const storedAgent: StoredAgentSettings = {
+    ...settings.agent,
+    moegirlpedia: moegirlpediaWithoutPassword
+  }
 
   if (fishApiKey) {
     if (safeStorage.isEncryptionAvailable()) {
@@ -103,9 +125,22 @@ function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
     }
   }
 
+  if (botPassword) {
+    if (safeStorage.isEncryptionAvailable()) {
+      storedAgent.moegirlpedia.encryptedBotPassword = safeStorage
+        .encryptString(botPassword)
+        .toString('base64')
+      storedAgent.moegirlpedia.botPasswordStorage = 'safeStorage'
+    } else {
+      storedAgent.moegirlpedia.botPassword = botPassword
+      storedAgent.moegirlpedia.botPasswordStorage = 'plain'
+    }
+  }
+
   return {
     ...settings,
     app: { ...settings.app, tts: storedTts },
+    agent: storedAgent,
     profiles: {
       ...settings.profiles,
       profiles: settings.profiles.profiles.map((profile) => {
@@ -125,6 +160,34 @@ function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
         return stored
       })
     }
+  }
+}
+
+/**
+ * @description 解密萌娘百科 Bot Password；解密失败时返回空值以阻止无效登录。
+ * @param settings 持久化格式的萌娘百科配置。
+ * @returns 可供运行时使用的 Bot Password。
+ */
+function decryptMoeGirlpediaPassword(
+  settings: StoredAgentSettings['moegirlpedia'] | undefined
+): string {
+  if (!settings?.encryptedBotPassword) {
+    return settings?.botPassword || ''
+  }
+
+  try {
+    return safeStorage.decryptString(Buffer.from(settings.encryptedBotPassword, 'base64'))
+  } catch (error) {
+    console.error('Failed to decrypt Moegirlpedia bot password', error)
+    void logger.error(
+      'settings',
+      'decrypt-moegirlpedia-password-failed',
+      'Failed to decrypt Moegirlpedia Bot Password',
+      {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    )
+    return ''
   }
 }
 

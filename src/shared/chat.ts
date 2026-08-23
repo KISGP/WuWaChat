@@ -1,5 +1,3 @@
-import type { AgentToolTrace } from './agent'
-
 export type ProviderKind = 'openai' | 'deepseek'
 
 export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high'
@@ -40,8 +38,15 @@ export type CharacterInfo = {
 
 export type CharacterSource = 'preset' | 'custom'
 
+export type CharacterSyncStatus = {
+  promptUpdateAvailable: boolean
+  remoteUnavailable: boolean
+  syncError?: string
+}
+
 export type LocalCharacterEntry = CharacterSummary & {
   source: CharacterSource
+  syncStatus?: CharacterSyncStatus
 }
 
 export type RemoteCharacterEntry = {
@@ -51,12 +56,16 @@ export type RemoteCharacterEntry = {
   avatar?: string
   cardBg?: string
   isDownloaded: boolean
+  syncState?: 'downloading' | 'failed'
+  syncError?: string
 }
 
 export type CharacterCatalog = {
   local: LocalCharacterEntry[]
   remote: RemoteCharacterEntry[]
   refreshedAt: string | null
+  isSyncing: boolean
+  syncError?: string
 }
 
 export type CharacterPromptDocument = {
@@ -116,28 +125,96 @@ export type ChatDeleteMessageRequest = {
   messageId: string
 }
 
-export type ChatPromptPreviewRequest = {
+export type ChatDiagnosticRunRequest = {
   sessionId?: string | null
   characterId: string
   userMessage: string
   profileId: string
+  requestId: string
+  toolsEnabled: boolean
 }
 
-export type ChatPromptPreviewMessage = {
-  role: 'system' | 'user' | 'assistant'
-  content: string
+export type ChatDiagnosticToolCall = {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  type?: string
 }
 
-export type ChatPromptPreviewResult = {
-  sessionId: string | null
-  characterId: string
-  profileId: string
-  userMessage: string
-  prompt: string
+export type ChatTokenUsage = {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
+
+export type ChatDiagnosticRunStartedEvent = {
+  type: 'started'
+  requestId: string
+  toolsEnabled: boolean
   agentTools: string[]
-  agentTrace: AgentToolTrace[]
-  systemPromptText: string
-  messages: ChatPromptPreviewMessage[]
+}
+
+export type ChatDiagnosticLlmRequestEvent = {
+  type: 'llm-request'
+  requestId: string
+  sequence: number
+  phase: 'tool-routing' | 'final-response'
+  body: Record<string, unknown>
+}
+
+export type ChatDiagnosticLlmResponseEvent = {
+  type: 'llm-response'
+  requestId: string
+  sequence: number
+  phase: 'tool-routing' | 'final-response'
+  content: string
+  tool_calls: ChatDiagnosticToolCall[]
+  usage?: ChatTokenUsage
+}
+
+export type ChatDiagnosticToolResultEvent = {
+  type: 'tool-result'
+  requestId: string
+  round: number
+  message: ChatDiagnosticMessage
+}
+
+export type ChatDiagnosticRunCompletedEvent = {
+  type: 'completed'
+  requestId: string
+  assistantDraft: string
+  toolRounds: number
+  incomplete: boolean
+  durationMs: number
+  tokenUsage?: ChatTokenUsage
+}
+
+export type ChatDiagnosticRunErrorEvent = {
+  type: 'error'
+  requestId: string
+  error: string
+}
+
+export type ChatDiagnosticRunAbortedEvent = {
+  type: 'aborted'
+  requestId: string
+}
+
+export type ChatDiagnosticRunEvent =
+  | ChatDiagnosticRunStartedEvent
+  | ChatDiagnosticLlmRequestEvent
+  | ChatDiagnosticLlmResponseEvent
+  | ChatDiagnosticToolResultEvent
+  | ChatDiagnosticRunCompletedEvent
+  | ChatDiagnosticRunErrorEvent
+  | ChatDiagnosticRunAbortedEvent
+
+export type ChatDiagnosticMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_calls?: ChatDiagnosticToolCall[]
+  tool_call_id?: string
+  name?: string
 }
 
 export type ChatRunAccepted = {

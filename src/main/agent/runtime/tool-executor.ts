@@ -38,13 +38,16 @@ export class AgentToolExecutor {
     const rejections = this.registry.validateCalls(calls, context)
     return Promise.all(
       calls.map(async (call) => {
+        context.abortSignal?.throwIfAborted()
         const rejection = rejections.get(call.id)
         if (rejection) {
           onTrace?.({
             round,
+            toolCallId: call.id,
             toolName: call.name,
             input: call.args,
             outputSummary: rejection.message,
+            output: { status: 'rejected', error: rejection.message },
             status: 'rejected'
           })
           return {
@@ -67,12 +70,15 @@ export class AgentToolExecutor {
           const result = await tool.execute(call.args, context)
           onTrace?.({
             round,
+            toolCallId: call.id,
             toolName: call.name,
             input: call.args,
             outputSummary: summarizeToolResult(result),
+            output: result,
             status: result.status,
             sourceIds: result.sourceIds
           })
+          context.abortSignal?.throwIfAborted()
           return { id: call.id, name: call.name, result }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
@@ -82,11 +88,14 @@ export class AgentToolExecutor {
           })
           onTrace?.({
             round,
+            toolCallId: call.id,
             toolName: call.name,
             input: call.args,
             outputSummary: message,
+            output: { status: 'failed', error: message },
             status: 'failed'
           })
+          context.abortSignal?.throwIfAborted()
           return {
             id: call.id,
             name: call.name,

@@ -116,7 +116,14 @@ export function TtsTab(): ReactElement {
   return (
     <div className="h-full overflow-y-auto px-4">
       <SectionCard title="语音播放">
-        <SettingItem title="启用语音" description="启用后，已完成的角色消息会显示语音播放按钮。">
+        <SettingItem
+          title="启用语音"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              启用后，已完成的角色消息会显示语音播放按钮。
+            </p>
+          ]}
+        >
           <button
             type="button"
             role="switch"
@@ -150,7 +157,6 @@ export function TtsTab(): ReactElement {
                 position="popper"
                 className="min-w-(--radix-select-trigger-width) rounded border-0"
               >
-                <SelectItem value="local">本地推理</SelectItem>
                 <SelectItem value="fish">Fish Audio</SelectItem>
               </SelectContent>
             </Select>
