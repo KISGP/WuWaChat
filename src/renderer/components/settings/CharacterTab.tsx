@@ -184,7 +184,7 @@ export function CharacterTab(): ReactElement {
                   setError('')
                 }}
                 className={cn(
-                  'relative overflow-hidden rounded border px-3 py-3 text-left',
+                  'relative flex items-center overflow-hidden rounded border px-3 py-6 text-left',
                   selected?.id === item.id
                     ? 'border-[#e8c690]/50 bg-white/10'
                     : 'border-white/10 hover:bg-white/5'
@@ -193,8 +193,10 @@ export function CharacterTab(): ReactElement {
                 {item.cardBg && (
                   <img
                     src={item.cardBg}
-                    alt=""
-                    className="pointer-events-none absolute inset-0 size-full object-cover opacity-20"
+                    className={cn(
+                      'pointer-events-none absolute right-0 h-full object-cover',
+                      selected?.id === item.id ? 'opacity-100' : 'opacity-30'
+                    )}
                   />
                 )}
                 <div className="relative text-sm font-medium text-white/90">{item.name}</div>
