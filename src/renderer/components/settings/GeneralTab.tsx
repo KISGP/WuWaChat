@@ -1,9 +1,11 @@
 import type { ReactElement } from 'react'
 import {
+  GITHUB_PROXY_OPTIONS,
   MAX_MESSAGE_COLLAPSE_LINE_COUNT,
   MIN_MESSAGE_COLLAPSE_LINE_COUNT,
   type AnimationPreference
 } from '@shared/app-settings'
+import { Switch } from '@renderer/components/ui/switch'
 import { SectionCard } from '@renderer/components/settings/section'
 import { SettingItem } from '@renderer/components/settings/setting-item'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
@@ -15,7 +17,7 @@ const ANIMATION_OPTIONS: { value: AnimationPreference; label: string }[] = [
 ]
 
 /**
- * @description 渲染应用通用设置，包括全局动画播放策略。
+ * @description 渲染应用通用设置，包括界面动画、消息显示和 GitHub 资源代理策略。
  * @returns 通用设置页内容。
  */
 export function GeneralTab(): ReactElement {
@@ -27,6 +29,8 @@ export function GeneralTab(): ReactElement {
   const setMessageCollapseLineCount = useAppSettingsStore(
     (state) => state.setMessageCollapseLineCount
   )
+  const githubProxy = useAppSettingsStore((state) => state.settings.githubProxy)
+  const updateGithubProxySettings = useAppSettingsStore((state) => state.updateGithubProxySettings)
 
   return (
     <div className="h-full overflow-y-auto px-4">
@@ -60,6 +64,39 @@ export function GeneralTab(): ReactElement {
               )
             })}
           </div>
+        </SettingItem>
+      </SectionCard>
+      <SectionCard title="网络">
+        <SettingItem
+          title="使用 GitHub 代理设置"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              仅用于角色和背景资料的 GitHub
+              资源请求。关闭代理时会保留当前选择，代理请求失败后不会自动切换来源。
+            </p>,
+            ...GITHUB_PROXY_OPTIONS.map((option) => (
+              <label key={option.id} className="flex items-center justify-between">
+                <span className="text-md text-white/55">{option.label}</span>
+                <Switch
+                  id={`github-proxy-${option.id}`}
+                  checked={githubProxy.selectedOptionId === option.id}
+                  disabled={!githubProxy.enabled || githubProxy.selectedOptionId === option.id}
+                  onCheckedChange={(checked) => {
+                    if (checked) void updateGithubProxySettings({ selectedOptionId: option.id })
+                  }}
+                  className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+                />
+              </label>
+            ))
+          ]}
+        >
+          <Switch
+            id="github-proxy-enabled"
+            checked={githubProxy.enabled}
+            onCheckedChange={(enabled) => void updateGithubProxySettings({ enabled })}
+            aria-label="使用 GitHub 代理设置"
+            className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+          />
         </SettingItem>
       </SectionCard>
       <SectionCard title="消息显示">

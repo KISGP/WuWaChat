@@ -6,6 +6,24 @@ export const DEFAULT_FISH_TTS_MODEL = 's2.1-pro-free'
 
 export type AnimationPreference = 'system' | 'enabled' | 'disabled'
 export type TtsProvider = 'local' | 'fish'
+export type GithubProxyOption = {
+  id: string
+  label: string
+  baseUrl: string
+}
+
+export type GithubProxySettings = {
+  enabled: boolean
+  selectedOptionId: string
+}
+
+export const GITHUB_PROXY_OPTIONS: readonly GithubProxyOption[] = [
+  { id: 'source-1', label: 'gh-proxy.org', baseUrl: 'https://gh-proxy.org' },
+  { id: 'source-2', label: 'v4.gh-proxy.org', baseUrl: 'https://v4.gh-proxy.org' },
+  { id: 'source-3', label: 'v6.gh-proxy.org', baseUrl: 'https://v6.gh-proxy.org' }
+]
+
+export const DEFAULT_GITHUB_PROXY_OPTION_ID = GITHUB_PROXY_OPTIONS[0].id
 
 export type TtsSettings = {
   enabled: boolean
@@ -19,6 +37,7 @@ export type TtsSettings = {
 export type AppSettings = {
   animationPreference: AnimationPreference
   messageCollapseLineCount: number
+  githubProxy: GithubProxySettings
   tts: TtsSettings
 }
 
@@ -30,13 +49,17 @@ export function createDefaultAppSettings(): AppSettings {
   return {
     animationPreference: 'system',
     messageCollapseLineCount: DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT,
+    githubProxy: {
+      enabled: true,
+      selectedOptionId: DEFAULT_GITHUB_PROXY_OPTION_ID
+    },
     tts: {
       enabled: false,
       provider: 'local',
       modelId: DEFAULT_TTS_MODEL_ID,
       fishApiKey: '',
       fishReferenceId: '',
-      fishModel: DEFAULT_FISH_TTS_MODEL
+      fishModel: DEFAULT_FISH_TTS_MODEL,
     }
   }
 }
@@ -67,18 +90,31 @@ export function normalizeAppSettings(value: unknown): AppSettings {
         )
       : DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT
   const rawTts = raw.tts as Partial<TtsSettings> | undefined
+  const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
+  const selectedOptionId =
+    typeof rawGithubProxy?.selectedOptionId === 'string' &&
+    GITHUB_PROXY_OPTIONS.some((option) => option.id === rawGithubProxy.selectedOptionId)
+      ? rawGithubProxy.selectedOptionId
+      : DEFAULT_GITHUB_PROXY_OPTION_ID
+
+  const globalTts = {
+    enabled: rawTts?.enabled === true,
+    provider: rawTts?.provider === 'fish' ? 'fish' : 'local' as TtsProvider,
+    modelId: rawTts?.modelId?.trim() || DEFAULT_TTS_MODEL_ID,
+    fishApiKey: typeof rawTts?.fishApiKey === 'string' ? rawTts.fishApiKey.trim() : '',
+    fishReferenceId:
+      typeof rawTts?.fishReferenceId === 'string' ? rawTts.fishReferenceId.trim() : '',
+    fishModel: rawTts?.fishModel?.trim() || DEFAULT_FISH_TTS_MODEL
+  }
+
 
   return {
     animationPreference,
     messageCollapseLineCount,
-    tts: {
-      enabled: rawTts?.enabled === true,
-      provider: rawTts?.provider === 'fish' ? 'fish' : 'local',
-      modelId: rawTts?.modelId?.trim() || DEFAULT_TTS_MODEL_ID,
-      fishApiKey: typeof rawTts?.fishApiKey === 'string' ? rawTts.fishApiKey.trim() : '',
-      fishReferenceId:
-        typeof rawTts?.fishReferenceId === 'string' ? rawTts.fishReferenceId.trim() : '',
-      fishModel: rawTts?.fishModel?.trim() || DEFAULT_FISH_TTS_MODEL
-    }
+    githubProxy: {
+      enabled: rawGithubProxy?.enabled !== false,
+      selectedOptionId
+    },
+    tts: { ...globalTts }
   }
 }

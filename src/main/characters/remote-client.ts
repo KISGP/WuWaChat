@@ -1,6 +1,10 @@
 import type { CharacterInfo } from '@shared/chat'
 import { request, requestJson } from '@main/download'
-import { getGithubRawFileUrl } from '@main/download/github'
+import {
+  getGithubRawFileUrl,
+  resolveGithubUrl,
+  type GithubRequestContext
+} from '@main/download/github'
 import { CHARACTER_REPO_API_URL, CHARACTER_REPOSITORY, PROMPT_FILE_NAME } from './constants'
 import { normalizeCharacterVersion } from './mappers'
 import type { CharacterRemoteFileName, RemoteCharacterRecord } from './types'
@@ -9,18 +13,23 @@ import type { CharacterRemoteFileName, RemoteCharacterRecord } from './types'
  * @description 构造远端角色文件的 raw 下载地址。
  * @param characterId 角色标识。
  * @param fileName 角色目录内的文件名。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 远端文件地址。
  */
-export function getRemoteCharacterFileUrl(characterId: string, fileName: string): string {
-  return getGithubRawFileUrl(CHARACTER_REPOSITORY, characterId + '/' + fileName)
+export function getRemoteCharacterFileUrl(
+  characterId: string,
+  fileName: string,
+  context?: GithubRequestContext
+): string {
+  return getGithubRawFileUrl(CHARACTER_REPOSITORY, characterId + '/' + fileName, context)
 }
 
 /**
  * @description 返回远端角色目录清单地址。
  * @returns 角色目录清单的远端地址。
  */
-function getRemoteCharacterListUrl(): string {
-  return getGithubRawFileUrl(CHARACTER_REPOSITORY, 'chars.json')
+function getRemoteCharacterListUrl(context?: GithubRequestContext): string {
+  return getGithubRawFileUrl(CHARACTER_REPOSITORY, 'chars.json', context)
 }
 
 /**
@@ -48,14 +57,16 @@ export async function fetchBuffer(url: string): Promise<Buffer> {
  * @param characterId 角色标识。
  * @param fileName 角色文件名。
  * @param etag 上次保存的 ETag。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 是否变更、最新 ETag 与变更后的文件内容。
  */
 export async function fetchRemoteCharacterFile(
   characterId: string,
   fileName: CharacterRemoteFileName,
-  etag?: string
+  etag?: string,
+  context?: GithubRequestContext
 ): Promise<{ notModified: boolean; etag?: string; content?: Buffer }> {
-  const response = await request(getRemoteCharacterFileUrl(characterId, fileName), {
+  const response = await request(getRemoteCharacterFileUrl(characterId, fileName, context), {
     allowNotModified: true,
     headers: {
       'User-Agent': 'WuWaChat',
@@ -77,22 +88,32 @@ export async function fetchRemoteCharacterFile(
 /**
  * @description 拉取远端角色信息。
  * @param characterId 角色标识。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 角色的展示信息。
  */
-export async function fetchRemoteCharacterInfo(characterId: string): Promise<CharacterInfo> {
-  return requestJson<CharacterInfo>(getRemoteCharacterFileUrl(characterId, 'info.json'), {
+export async function fetchRemoteCharacterInfo(
+  characterId: string,
+  context?: GithubRequestContext
+): Promise<CharacterInfo> {
+  return requestJson<CharacterInfo>(getRemoteCharacterFileUrl(characterId, 'info.json', context), {
     headers: { 'User-Agent': 'WuWaChat' }
   })
 }
 
 /**
  * @description 读取远端仓库最后推送时间。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 标准化后的远端更新时间。
  */
-export async function fetchRemoteCharacterUpdatedAt(): Promise<string> {
-  const payload = await requestJson<{ pushed_at?: unknown }>(CHARACTER_REPO_API_URL, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'WuWaChat' }
-  })
+export async function fetchRemoteCharacterUpdatedAt(
+  context?: GithubRequestContext
+): Promise<string> {
+  const payload = await requestJson<{ pushed_at?: unknown }>(
+    resolveGithubUrl(CHARACTER_REPO_API_URL, context),
+    {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'WuWaChat' }
+    }
+  )
   const updatedAt =
     typeof payload?.pushed_at === 'string' ? normalizeCharacterVersion(payload.pushed_at) : null
   if (!updatedAt) {
@@ -104,10 +125,11 @@ export async function fetchRemoteCharacterUpdatedAt(): Promise<string> {
 
 /**
  * @description 拉取、清洗并排序远端角色标识列表。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 远端角色标识列表。
  */
-export async function fetchRemoteCharacterIds(): Promise<string[]> {
-  const ids = await requestJson<string[]>(getRemoteCharacterListUrl(), {
+export async function fetchRemoteCharacterIds(context?: GithubRequestContext): Promise<string[]> {
+  const ids = await requestJson<string[]>(getRemoteCharacterListUrl(context), {
     headers: { 'User-Agent': 'WuWaChat' }
   })
 
@@ -118,15 +140,18 @@ export async function fetchRemoteCharacterIds(): Promise<string[]> {
 
 /**
  * @description 拉取远端角色清单及展示信息。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns 按角色标识排序的远端角色记录。
  */
-export async function fetchRemoteCharacterList(): Promise<RemoteCharacterRecord[]> {
-  const ids = await fetchRemoteCharacterIds()
+export async function fetchRemoteCharacterList(
+  context?: GithubRequestContext
+): Promise<RemoteCharacterRecord[]> {
+  const ids = await fetchRemoteCharacterIds(context)
 
   const records = await Promise.all(
     ids.map(async (id) => ({
       id,
-      info: await fetchRemoteCharacterInfo(id)
+      info: await fetchRemoteCharacterInfo(id, context)
     }))
   )
 
@@ -136,8 +161,12 @@ export async function fetchRemoteCharacterList(): Promise<RemoteCharacterRecord[
 /**
  * @description 返回远端角色 Prompt 的下载地址。
  * @param characterId 角色标识。
+ * @param context 本次操作固定使用的 GitHub 来源。
  * @returns Prompt 的远端地址。
  */
-export function getRemoteCharacterPromptUrl(characterId: string): string {
-  return getRemoteCharacterFileUrl(characterId, PROMPT_FILE_NAME)
+export function getRemoteCharacterPromptUrl(
+  characterId: string,
+  context?: GithubRequestContext
+): string {
+  return getRemoteCharacterFileUrl(characterId, PROMPT_FILE_NAME, context)
 }

@@ -1,7 +1,7 @@
 import { mkdir, rename, rm } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'path'
 import { downloadFiles } from '@main/download'
-import { fetchGithubSnapshot } from '@main/download/github'
+import { createGithubRequestContext, fetchGithubSnapshot } from '@main/download/github'
 import { logger } from '@main/logging'
 import { getWorldRoot } from '@main/world/paths'
 import type {
@@ -34,9 +34,10 @@ export async function getWorldSyncStatus(): Promise<WorldSyncStatus> {
  * @returns 包含远端版本的资料状态。
  */
 export async function checkWorldSync(): Promise<WorldSyncStatus> {
+  const context = await createGithubRequestContext()
   const [localManifest, remote] = await Promise.all([
     readWorldManifest(),
-    fetchGithubSnapshot(WORLD_REPOSITORY, WORLD_REPOSITORY_PREFIX, WORLD_FILE_EXTENSION)
+    fetchGithubSnapshot(WORLD_REPOSITORY, WORLD_REPOSITORY_PREFIX, WORLD_FILE_EXTENSION, context)
   ])
   return {
     rootPath: getWorldRoot(),
@@ -56,8 +57,9 @@ export async function checkWorldSync(): Promise<WorldSyncStatus> {
 export async function syncWorld(
   onProgress?: (progress: WorldSyncProgress) => void
 ): Promise<WorldSyncResult> {
+  const context = await createGithubRequestContext()
   const [remote, localManifest] = await Promise.all([
-    fetchGithubSnapshot(WORLD_REPOSITORY, WORLD_REPOSITORY_PREFIX, WORLD_FILE_EXTENSION),
+    fetchGithubSnapshot(WORLD_REPOSITORY, WORLD_REPOSITORY_PREFIX, WORLD_FILE_EXTENSION, context),
     readWorldManifest()
   ])
   if (localManifest?.version === remote.version) {

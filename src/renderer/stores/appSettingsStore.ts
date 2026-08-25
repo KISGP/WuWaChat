@@ -2,6 +2,7 @@ import {
   type AnimationPreference,
   type AppSettings,
   type TtsSettings,
+  type GithubProxySettings,
   createDefaultAppSettings,
   normalizeAppSettings
 } from '@shared/app-settings'
@@ -15,6 +16,7 @@ type AppSettingsStore = {
   hydrate: (settings: AppSettings) => void
   setAnimationPreference: (preference: AnimationPreference) => Promise<void>
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
+  updateGithubProxySettings: (patch: Partial<GithubProxySettings>) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
   retrySave: () => Promise<void>
@@ -64,6 +66,16 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
         messageCollapseLineCount
       }
     )
+    await saveSettings(settings, set)
+  },
+  updateGithubProxySettings: async (patch) => {
+    const current = get().settings
+    const settings = { ...current, githubProxy: { ...current.githubProxy, ...patch } }
+    set({ settings })
+    trackUiEvent('github-proxy-settings-changed', 'User changed GitHub proxy settings', {
+      enabled: settings.githubProxy.enabled,
+      selectedOptionId: settings.githubProxy.selectedOptionId
+    })
     await saveSettings(settings, set)
   },
   setTtsEnabled: async (enabled) => {

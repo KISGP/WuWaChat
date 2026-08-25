@@ -25,6 +25,7 @@ import {
 } from '@main/utils'
 import { logger } from '@main/logging'
 import { PROMPT_FILE_NAME } from './constants'
+import { createGithubRequestContext, type GithubRequestContext } from '@main/download/github'
 import { normalizeCharacterVersion, pickDisplayText } from './mappers'
 import {
   fetchRemoteCharacterFile,
@@ -225,9 +226,10 @@ async function getFile(
   id: string,
   name: CharacterRemoteFileName,
   etag?: string,
-  local = false
+  local = false,
+  context?: GithubRequestContext
 ): Promise<RemoteFile> {
-  let result = await fetchRemoteCharacterFile(id, name, etag)
+  let result = await fetchRemoteCharacterFile(id, name, etag, context)
   if (!result.notModified && result.content)
     return { content: result.content, etag: result.etag, notModified: false }
   try {
@@ -239,7 +241,7 @@ async function getFile(
       fileName: name,
       error: error instanceof Error ? error.message : String(error)
     })
-    result = await fetchRemoteCharacterFile(id, name)
+    result = await fetchRemoteCharacterFile(id, name, undefined, context)
     if (!result.content) throw new Error('Remote character file is missing content: ' + name)
     return { content: result.content, etag: result.etag, notModified: false }
   }
@@ -249,11 +251,12 @@ async function getFile(
 async function getBundle(
   id: string,
   etags: Partial<Record<CharacterRemoteFileName, string>> = {},
-  local = false
+  local = false,
+  context?: GithubRequestContext
 ): Promise<Bundle> {
   const files = {} as Record<CharacterRemoteFileName, RemoteFile>
   for (const name of CHARACTER_REMOTE_FILE_NAMES)
-    files[name] = await getFile(id, name, etags[name], local)
+    files[name] = await getFile(id, name, etags[name], local, context)
   const nextEtags: Partial<Record<CharacterRemoteFileName, string>> = {}
   for (const name of CHARACTER_REMOTE_FILE_NAMES)
     if (files[name].etag) nextEtags[name] = files[name].etag
@@ -354,18 +357,22 @@ async function install(
 }
 
 /** @description 自动同步单个远端角色，并保护自定义角色和本地 Prompt。 */
-async function syncCharacter(id: string, remote: RemoteCharacterRecord): Promise<void> {
+async function syncCharacter(
+  id: string,
+  remote: RemoteCharacterRecord,
+  context?: GithubRequestContext
+): Promise<void> {
   const local = await loadLocal(id)
   if (local?.source === 'custom') return
   syncingIds.add(id)
   try {
     if (!local) {
-      const bundle = await getBundle(id)
+      const bundle = await getBundle(id, {}, false, context)
       await install(id, bundle, bundle.prompt, { source: 'preset', remoteEtags: bundle.etags })
       remote.info = bundle.info
     } else {
       const manifest = (await readManifest(id)) || { source: 'preset' as const }
-      const bundle = await getBundle(id, manifest.remoteEtags, true)
+      const bundle = await getBundle(id, manifest.remoteEtags, true, context)
       const pendingRemotePrompt = bundle.notModified['prompt.md']
         ? manifest.pendingRemotePrompt
         : bundle.prompt === local.prompt
@@ -411,16 +418,17 @@ async function markUnavailable(ids: Set<string>): Promise<void> {
 
 /** @description 执行一次完整的后台角色同步。 */
 async function runSync(): Promise<CharacterCatalog> {
+  const context = await createGithubRequestContext()
   await ensureCache()
   lastCharacterSyncError = ''
-  const updatedAt = await fetchRemoteCharacterUpdatedAt()
+  const updatedAt = await fetchRemoteCharacterUpdatedAt(context)
   if (remoteCatalogRefreshedAt === updatedAt && !remoteCatalogCache.some((item) => item.syncError))
     return buildCatalog()
-  const ids = await fetchRemoteCharacterIds()
+  const ids = await fetchRemoteCharacterIds(context)
   const prior = new Map(remoteCatalogCache.map((item) => [item.id, item]))
   const records = ids.map((id) => prior.get(id) || { id, info: fallbackInfo(id) })
   setCache(records, updatedAt)
-  for (const record of records) await syncCharacter(record.id, record)
+  for (const record of records) await syncCharacter(record.id, record, context)
   await markUnavailable(new Set(ids))
   await writeCache()
   return buildCatalog()
@@ -497,18 +505,20 @@ export async function getCharacterCatalog(): Promise<CharacterCatalog> {
 
 /** @description 仅重试一个下载失败的远端角色。 */
 export async function retryCharacterSync(id: string): Promise<CharacterCatalog> {
+  const context = await createGithubRequestContext()
   await ensureCache()
   const record = remoteCatalogCache.find((item) => item.id === id)
   if (!record) throw new Error('Remote character not found: ' + id)
-  await syncCharacter(id, record)
+  await syncCharacter(id, record, context)
   await writeCache()
   return buildCatalog()
 }
 
 /** @description 读取等待用户确认覆盖的远端 Prompt。 */
 export async function getPendingRemoteCharacterPrompt(id: string): Promise<string> {
+  const context = await createGithubRequestContext()
   const manifest = await readManifest(id)
-  return manifest?.pendingRemotePrompt ?? fetchText(getRemoteCharacterPromptUrl(id))
+  return manifest?.pendingRemotePrompt ?? fetchText(getRemoteCharacterPromptUrl(id, context))
 }
 
 /** @description 使用待确认的远端 Prompt 覆盖本地 Prompt。 */
