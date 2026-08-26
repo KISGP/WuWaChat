@@ -29,7 +29,12 @@ import type { AppearanceSettings, UnifiedSettings } from '@shared/settings'
 import type { StorageUsageSnapshot } from '@shared/storage'
 import type { WorldSyncProgress, WorldSyncResult, WorldSyncStatus } from '@shared/world'
 import type { GachaUrlRequest, GachaUrlResult } from '@shared/tools'
-import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
+import type {
+  TtsCharacterVoiceStatus,
+  TtsConnectionTestResult,
+  TtsSynthesisRequest,
+  TtsSynthesisResult
+} from '@shared/tts'
 
 declare global {
   interface Window {
@@ -102,6 +107,9 @@ declare global {
     tts: {
       synthesize: (request: TtsSynthesisRequest) => Promise<TtsSynthesisResult>
       cancel: (requestId: string) => Promise<boolean>
+      getCharacterVoiceStatus: (characterId: string) => Promise<TtsCharacterVoiceStatus>
+      downloadCharacterVoice: (characterId: string) => Promise<TtsCharacterVoiceStatus>
+      testLocalEngineConnection: () => Promise<TtsConnectionTestResult>
     }
   }
 }

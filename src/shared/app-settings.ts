@@ -1,11 +1,12 @@
 export const MIN_MESSAGE_COLLAPSE_LINE_COUNT = 1
 export const MAX_MESSAGE_COLLAPSE_LINE_COUNT = 20
 export const DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT = 5
-export const DEFAULT_TTS_MODEL_ID = 'gpt-sovits-v2proplus'
 export const DEFAULT_FISH_TTS_MODEL = 's2.1-pro-free'
+export const DEFAULT_INDEX_TTS_BASE_URL = 'http://127.0.0.1:7860'
 
 export type AnimationPreference = 'system' | 'enabled' | 'disabled'
 export type TtsProvider = 'local' | 'fish'
+export type LocalTtsEngine = 'index-tts'
 export type GithubProxyOption = {
   id: string
   label: string
@@ -18,7 +19,12 @@ export type GithubProxySettings = {
 }
 
 export type LocalTtsProviderSettings = {
-  modelId: string
+  engine: LocalTtsEngine
+  engineConfigs: {
+    indexTts: {
+      baseUrl: string
+    }
+  }
 }
 
 export type FishTtsProviderSettings = {
@@ -63,8 +69,7 @@ export const GITHUB_PROXY_OPTIONS: readonly GithubProxyOption[] = [
 
 export const DEFAULT_GITHUB_PROXY_OPTION_ID = GITHUB_PROXY_OPTIONS[0].id
 
-type LegacyTtsSettings = {
-  modelId?: unknown
+type LegacyFishTtsSettings = {
   fishApiKey?: unknown
   fishModel?: unknown
 }
@@ -77,6 +82,24 @@ type LegacyTtsSettings = {
  */
 function normalizeString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+/**
+ * @description 规范化 index-tts 服务地址，只接受 HTTP(S) 绝对地址。
+ * @param value 待规范化的服务地址。
+ * @returns 可供本地引擎使用的服务地址。
+ */
+function normalizeIndexTtsBaseUrl(value: unknown): string {
+  const candidate = normalizeString(value, DEFAULT_INDEX_TTS_BASE_URL)
+  try {
+    const parsed = new URL(candidate)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return DEFAULT_INDEX_TTS_BASE_URL
+    }
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return DEFAULT_INDEX_TTS_BASE_URL
+  }
 }
 
 /**
@@ -121,7 +144,12 @@ export function createDefaultAppSettings(): AppSettings {
       enabled: false,
       provider: 'local',
       providers: {
-        local: { modelId: DEFAULT_TTS_MODEL_ID },
+        local: {
+          engine: 'index-tts',
+          engineConfigs: {
+            indexTts: { baseUrl: DEFAULT_INDEX_TTS_BASE_URL }
+          }
+        },
         fish: { apiKey: '', model: DEFAULT_FISH_TTS_MODEL }
       },
       characterVoices: {}
@@ -154,7 +182,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
           Math.max(MIN_MESSAGE_COLLAPSE_LINE_COUNT, raw.messageCollapseLineCount)
         )
       : DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT
-  const rawTts = raw.tts as (Partial<TtsSettings> & LegacyTtsSettings) | undefined
+  const rawTts = raw.tts as (Partial<TtsSettings> & LegacyFishTtsSettings) | undefined
   const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
   const selectedOptionId =
     typeof rawGithubProxy?.selectedOptionId === 'string' &&
@@ -177,7 +205,12 @@ export function normalizeAppSettings(value: unknown): AppSettings {
       provider: rawTts?.provider === 'fish' ? 'fish' : 'local',
       providers: {
         local: {
-          modelId: normalizeString(rawLocal?.modelId ?? rawTts?.modelId, DEFAULT_TTS_MODEL_ID)
+          engine: 'index-tts',
+          engineConfigs: {
+            indexTts: {
+              baseUrl: normalizeIndexTtsBaseUrl(rawLocal?.engineConfigs?.indexTts?.baseUrl)
+            }
+          }
         },
         fish: {
           apiKey:

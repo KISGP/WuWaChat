@@ -10,6 +10,15 @@ export type TtsSynthesisResult = {
   cacheHit: boolean
 }
 
+export type TtsCharacterVoiceStatus = {
+  characterId: string
+  isDownloaded: boolean
+}
+
+export type TtsConnectionTestResult = {
+  message: string
+}
+
 /**
  * @description 判断 TTS 合成请求是否含有可用的关联标识和文本。
  * @param value 来自跨进程调用的未知值。

@@ -1,5 +1,5 @@
 import { AppError } from '@main/errors/AppError'
-import { ttsService } from '@main/tts'
+import { downloadCharacterTtsVoice, getCharacterTtsVoiceStatus, ttsService } from '@main/tts'
 import { isTtsSynthesisRequest, type TtsSynthesisRequest } from '@shared/tts'
 import { handleLogged } from './logged-handler'
 
@@ -33,4 +33,13 @@ export function registerTtsIpc(): void {
     (_event, requestId: string) => ttsService.cancel(requestId),
     (requestId) => ({ requestId })
   )
+  handleLogged('tts:getCharacterVoiceStatus', (_event, characterId: string) =>
+    getCharacterTtsVoiceStatus(characterId)
+  )
+  handleLogged(
+    'tts:downloadCharacterVoice',
+    (_event, characterId: string) => downloadCharacterTtsVoice(characterId),
+    (characterId) => ({ characterId })
+  )
+  handleLogged('tts:testLocalEngineConnection', () => ttsService.testLocalEngineConnection())
 }

@@ -3,17 +3,17 @@ import { createHash } from 'crypto'
 import { net } from 'electron'
 import { mkdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
-import type { TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
+import type { TtsConnectionTestResult, TtsSynthesisRequest, TtsSynthesisResult } from '@shared/tts'
 import { AppError } from '@main/errors/AppError'
 import { logger } from '@main/logging'
-import { getTtsAudioRoot } from '@main/utils'
+import { getCharacterTtsVoicePath, getTtsAudioRoot } from '@main/utils'
 import { getAppSettings } from '@main/settings/app-settings'
 import { resolveFishCharacterReferenceId } from '@shared/tts/fish-audio'
 import { getTtsAudioUrl } from './protocol'
 import { normalizeTextForTts } from './text-normalizer'
-import { resolveTtsRuntimePaths, runTtsSidecar, validateTtsRuntime } from './runtime'
+import { createLocalTtsEngine } from './local'
 
-const TTS_PROFILE_VERSION = 'v2proplus-baseline-v2'
+const TTS_PROFILE_VERSION = 'index-tts-v1'
 const FISH_TTS_ENDPOINT = 'https://api.fish.audio/v1/tts'
 const MAX_TTS_TEXT_LENGTH = 500
 
@@ -21,7 +21,7 @@ type AudioExtension = 'mp3' | 'wav'
 type ActiveSynthesis = {
   requestId: string
   child: ChildProcess | null
-  controller: AbortController | null
+  controller: AbortController
   cancelled: boolean
 }
 
@@ -166,7 +166,7 @@ async function runFishAudio(
 }
 
 /**
- * @description 管理本地 sidecar 和 Fish Audio 合成、缓存与取消操作。
+ * @description 管理本地引擎和 Fish Audio 合成、缓存与取消操作。
  * @remarks 服务进程范围内只允许一个合成任务。
  */
 class TtsService {
@@ -193,10 +193,12 @@ class TtsService {
     const isFishProvider = appSettings.tts.provider === 'fish'
     const fishSettings = appSettings.tts.providers.fish
     const localSettings = appSettings.tts.providers.local
-    const model = isFishProvider ? fishSettings.model : localSettings.modelId
+    const model = isFishProvider
+      ? fishSettings.model
+      : localSettings.engine + ':' + localSettings.engineConfigs.indexTts.baseUrl
     const referenceId = isFishProvider
       ? resolveFishCharacterReferenceId(request.characterId, appSettings.tts.characterVoices)
-      : ''
+      : request.characterId
     if (isFishProvider && (!fishSettings.apiKey || !referenceId)) {
       throw new AppError('TTS_RUNTIME_ERROR', 'Fish Audio credentials are incomplete', {
         safeMessage: referenceId
@@ -204,8 +206,12 @@ class TtsService {
           : '请先为当前角色配置 Fish Audio 音色 ID。'
       })
     }
-    const paths = isFishProvider ? null : resolveTtsRuntimePaths(localSettings.modelId)
-    if (paths) await validateTtsRuntime(paths)
+    const voicePath = isFishProvider ? '' : getCharacterTtsVoicePath(request.characterId)
+    if (!isFishProvider && !(await isUsableAudio(voicePath, 44))) {
+      throw new AppError('TTS_RUNTIME_ERROR', 'Index-TTS character voice is unavailable', {
+        safeMessage: '请先下载当前角色的 index-tts 音色。'
+      })
+    }
     await mkdir(getTtsAudioRoot(), { recursive: true })
     const extension: AudioExtension = isFishProvider ? 'mp3' : 'wav'
     const cacheFileName = createCacheFileName(
@@ -223,7 +229,7 @@ class TtsService {
     const active: ActiveSynthesis = {
       requestId: request.requestId,
       child: null,
-      controller: isFishProvider ? new AbortController() : null,
+      controller: new AbortController(),
       cancelled: false
     }
     this.active = active
@@ -240,7 +246,6 @@ class TtsService {
           provider: appSettings.tts.provider
         }
       )
-      let sidecarOutput = ''
       if (isFishProvider) {
         await runFishAudio(
           fishSettings.apiKey,
@@ -248,24 +253,18 @@ class TtsService {
           referenceId,
           text,
           temporaryPath,
-          active.controller as AbortController
+          active.controller
         )
       } else {
-        sidecarOutput = await runTtsSidecar(
-          paths as NonNullable<typeof paths>,
+        await createLocalTtsEngine(localSettings).synthesize({
           text,
-          temporaryPath,
-          {
-            isCancelled: () => active.cancelled,
-            onStarted: (child) => {
-              active.child = child
-            }
-          }
-        )
+          voicePath,
+          outputPath: temporaryPath,
+          signal: active.controller.signal
+        })
       }
       if (!(await isUsableAudio(temporaryPath, isFishProvider ? 128 : 44))) {
         throw new AppError('TTS_RUNTIME_ERROR', 'TTS provider returned no usable audio', {
-          details: { output: sidecarOutput },
           safeMessage: '语音合成未生成有效音频。'
         })
       }
@@ -327,15 +326,24 @@ class TtsService {
   cancel(requestId: string): boolean {
     if (!requestId.trim() || this.active?.requestId !== requestId) return false
     this.active.cancelled = true
-    this.active.controller?.abort()
+    this.active.controller.abort()
     return this.active.child ? this.active.child.kill() : true
+  }
+
+  /**
+   * @description 测试当前本地 TTS 引擎的 HTTP 服务是否可访问。
+   * @returns 可展示给用户的连接成功说明。
+   */
+  async testLocalEngineConnection(): Promise<TtsConnectionTestResult> {
+    const settings = await getAppSettings()
+    return { message: await createLocalTtsEngine(settings.tts.providers.local).testConnection() }
   }
 
   /** @description 停止应用退出时仍在运行的 TTS 任务。 */
   shutdown(): void {
     if (!this.active) return
     this.active.cancelled = true
-    this.active.controller?.abort()
+    this.active.controller.abort()
     this.active.child?.kill()
   }
 }

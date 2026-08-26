@@ -2,11 +2,12 @@ import { useState, type ReactElement } from 'react'
 import { SectionCard } from '@renderer/components/settings/section'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
 import { useCharacterStore } from '@renderer/stores/characterStore'
-import { Input } from '@renderer/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/components/ui/select'
+import type { TtsSettings } from '@shared/app-settings'
 import { cn } from '@renderer/utils'
 import FishGlobalSettings from './FishAudio/GlobalSettings'
 import FishCharacterSettings from './FishAudio/CharacterVoiceSettings'
+import { IndexTtsCharacterVoiceSettings, IndexTtsGlobalSettings } from './local/index-tts'
 
 /**
  * @description 渲染语音开关、独立的全局 TTS 服务配置和角色声音配置。
@@ -98,9 +99,7 @@ export function TtsTab(): ReactElement {
                     onReset={resetTtsCharacterVoice}
                   />
                 ) : (
-                  <p className="text-sm leading-6 text-white/50">
-                    当前本地 provider 没有可配置的角色声音选项。
-                  </p>
+                  <IndexTtsCharacterVoiceSettings characterId={character.id} />
                 )}
               </div>
             </div>
@@ -121,11 +120,11 @@ function GlobalTtsSettings({
   onProviderSettingsChange
 }: {
   provider: 'local' | 'fish'
-  providers: { local: { modelId: string }; fish: { apiKey: string; model: string } }
+  providers: TtsSettings['providers']
   onProviderChange: (provider: 'local' | 'fish') => void
-  onProviderSettingsChange: <P extends 'local' | 'fish'>(
+  onProviderSettingsChange: <P extends keyof TtsSettings['providers']>(
     provider: P,
-    patch: Partial<{ local: { modelId: string }; fish: { apiKey: string; model: string } }[P]>
+    patch: Partial<TtsSettings['providers'][P]>
   ) => Promise<void>
 }): ReactElement {
   return (
@@ -146,7 +145,7 @@ function GlobalTtsSettings({
               position="popper"
               className="min-w-(--radix-select-trigger-width) rounded border-0"
             >
-              {/* <SelectItem value="local">本地推理</SelectItem> */}
+              <SelectItem value="local">本地推理</SelectItem>
               <SelectItem value="fish">Fish Audio</SelectItem>
             </SelectContent>
           </Select>
@@ -157,31 +156,23 @@ function GlobalTtsSettings({
             onChange={(patch) => onProviderSettingsChange('fish', patch)}
           />
         ) : (
-          <LocalSettings
-            settings={providers.local}
-            onChange={(patch) => onProviderSettingsChange('local', patch)}
+          <IndexTtsGlobalSettings
+            settings={{
+              engine: providers.local.engine,
+              baseUrl: providers.local.engineConfigs.indexTts.baseUrl
+            }}
+            onEngineChange={(engine) => onProviderSettingsChange('local', { engine })}
+            onChange={(patch) =>
+              onProviderSettingsChange('local', {
+                engineConfigs: {
+                  ...providers.local.engineConfigs,
+                  indexTts: { ...providers.local.engineConfigs.indexTts, ...patch }
+                }
+              })
+            }
           />
         )}
       </div>
     </SectionCard>
-  )
-}
-
-function LocalSettings({
-  settings,
-  onChange
-}: {
-  settings: { modelId: string }
-  onChange: (patch: { modelId: string }) => Promise<void>
-}): ReactElement {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-xs text-white/55">本地模型</span>
-      <Input
-        value={settings.modelId}
-        onChange={(event) => void onChange({ modelId: event.currentTarget.value })}
-      />
-      <span className="text-xs text-white/45">使用当前已安装的本地 TTS 运行时。</span>
-    </label>
   )
 }

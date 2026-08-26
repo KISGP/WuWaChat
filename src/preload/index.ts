@@ -130,7 +130,15 @@ const tts = {
   /** @description 请求主进程根据当前 provider 与角色声音设置生成消息语音。 */
   synthesize: (request: TtsSynthesisRequest) => ipcRenderer.invoke('tts:synthesize', request),
   /** @description 请求主进程停止指定的正在生成语音。 */
-  cancel: (requestId: string) => ipcRenderer.invoke('tts:cancel', requestId)
+  cancel: (requestId: string) => ipcRenderer.invoke('tts:cancel', requestId),
+  /** @description 查询已安装角色的 index-tts 参考音色下载状态。 */
+  getCharacterVoiceStatus: (characterId: string) =>
+    ipcRenderer.invoke('tts:getCharacterVoiceStatus', characterId),
+  /** @description 下载或重新下载角色的 index-tts 参考音色。 */
+  downloadCharacterVoice: (characterId: string) =>
+    ipcRenderer.invoke('tts:downloadCharacterVoice', characterId),
+  /** @description 测试当前本地 TTS 引擎服务是否可访问。 */
+  testLocalEngineConnection: () => ipcRenderer.invoke('tts:testLocalEngineConnection')
 }
 
 const exposedApis = {

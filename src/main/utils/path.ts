@@ -34,14 +34,6 @@ export function getTtsAudioRoot(): string {
   return join(getAppDataRoot(), 'tts', 'audio')
 }
 
-/**
- * @description 返回指定本地 TTS 模型的应用托管运行时目录。
- * @param modelId 应用设置中的模型标识。
- * @returns 模型运行时的固定托管目录。
- */
-export function getTtsModelRoot(modelId: string): string {
-  return join(getAppDataRoot(), 'models', 'tts', modelId)
-}
 export function getLogsRoot(): string {
   return join(getAppDataRoot(), 'logs')
 }
@@ -80,6 +72,15 @@ export function getCharacterAvatarPath(characterId: string): string {
 
 export function getCharacterCardBgPath(characterId: string): string {
   return join(getCharacterDirectoryPath(characterId), 'cardBg.png')
+}
+
+/**
+ * @description 返回指定角色的本地 index-tts 参考音色文件路径。
+ * @param characterId 已安装角色的标识。
+ * @returns 保存在角色目录中的固定参考音色路径。
+ */
+export function getCharacterTtsVoicePath(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'TTS.wav')
 }
 
 export function getCharacterManifestPath(characterId: string): string {

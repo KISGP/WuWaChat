@@ -3,7 +3,6 @@ import { Eye, EyeOff } from 'lucide-react'
 import { Input } from '@renderer/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/components/ui/select'
 
-
 export default function FishGlobalSettings({
   settings,
   onChange
@@ -52,9 +51,6 @@ export default function FishGlobalSettings({
           </SelectContent>
         </Select>
       </label>
-      <p className="text-xs leading-5 text-white/45 md:col-span-2">
-        全局 Fish Audio 配置不包含音色 ID；音色由每个角色单独设置。
-      </p>
     </div>
   )
 }
