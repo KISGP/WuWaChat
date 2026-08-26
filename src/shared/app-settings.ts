@@ -17,6 +17,44 @@ export type GithubProxySettings = {
   selectedOptionId: string
 }
 
+export type LocalTtsProviderSettings = {
+  modelId: string
+}
+
+export type FishTtsProviderSettings = {
+  apiKey: string
+  model: string
+}
+
+export type TtsProviderSettings = {
+  local: LocalTtsProviderSettings
+  fish: FishTtsProviderSettings
+}
+
+export type FishTtsCharacterVoiceSettings = {
+  referenceId: string
+}
+
+export type TtsCharacterVoiceSettings = {
+  fish?: FishTtsCharacterVoiceSettings
+}
+
+export type TtsCharacterVoiceOverrides = Record<string, TtsCharacterVoiceSettings>
+
+export type TtsSettings = {
+  enabled: boolean
+  provider: TtsProvider
+  providers: TtsProviderSettings
+  characterVoices: TtsCharacterVoiceOverrides
+}
+
+export type AppSettings = {
+  animationPreference: AnimationPreference
+  messageCollapseLineCount: number
+  githubProxy: GithubProxySettings
+  tts: TtsSettings
+}
+
 export const GITHUB_PROXY_OPTIONS: readonly GithubProxyOption[] = [
   { id: 'source-1', label: 'gh-proxy.org', baseUrl: 'https://gh-proxy.org' },
   { id: 'source-2', label: 'v4.gh-proxy.org', baseUrl: 'https://v4.gh-proxy.org' },
@@ -25,20 +63,46 @@ export const GITHUB_PROXY_OPTIONS: readonly GithubProxyOption[] = [
 
 export const DEFAULT_GITHUB_PROXY_OPTION_ID = GITHUB_PROXY_OPTIONS[0].id
 
-export type TtsSettings = {
-  enabled: boolean
-  provider: TtsProvider
-  modelId: string
-  fishApiKey: string
-  fishReferenceId: string
-  fishModel: string
+type LegacyTtsSettings = {
+  modelId?: unknown
+  fishApiKey?: unknown
+  fishModel?: unknown
 }
 
-export type AppSettings = {
-  animationPreference: AnimationPreference
-  messageCollapseLineCount: number
-  githubProxy: GithubProxySettings
-  tts: TtsSettings
+/**
+ * @description 将未知值规范化为去除首尾空白的字符串，并在无效时使用默认值。
+ * @param value 待规范化的值。
+ * @param fallback 值无效时使用的默认字符串。
+ * @returns 可安全写入设置的字符串。
+ */
+function normalizeString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+/**
+ * @description 规范化每个角色在各 provider 下保存的声音覆盖。
+ * @param value 从持久化设置读取的未知声音覆盖。
+ * @returns 仅包含有效 Fish Audio 音色 ID 的角色声音覆盖。
+ */
+function normalizeCharacterVoiceOverrides(value: unknown): TtsCharacterVoiceOverrides {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  const overrides: TtsCharacterVoiceOverrides = {}
+  for (const [characterId, rawVoiceSettings] of Object.entries(value)) {
+    if (!characterId.trim() || !rawVoiceSettings || typeof rawVoiceSettings !== 'object') {
+      continue
+    }
+
+    const rawFish = (rawVoiceSettings as Partial<TtsCharacterVoiceSettings>).fish
+    const referenceId = normalizeString(rawFish?.referenceId, '')
+    if (referenceId) {
+      overrides[characterId] = { fish: { referenceId } }
+    }
+  }
+
+  return overrides
 }
 
 /**
@@ -56,10 +120,11 @@ export function createDefaultAppSettings(): AppSettings {
     tts: {
       enabled: false,
       provider: 'local',
-      modelId: DEFAULT_TTS_MODEL_ID,
-      fishApiKey: '',
-      fishReferenceId: '',
-      fishModel: DEFAULT_FISH_TTS_MODEL,
+      providers: {
+        local: { modelId: DEFAULT_TTS_MODEL_ID },
+        fish: { apiKey: '', model: DEFAULT_FISH_TTS_MODEL }
+      },
+      characterVoices: {}
     }
   }
 }
@@ -89,24 +154,16 @@ export function normalizeAppSettings(value: unknown): AppSettings {
           Math.max(MIN_MESSAGE_COLLAPSE_LINE_COUNT, raw.messageCollapseLineCount)
         )
       : DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT
-  const rawTts = raw.tts as Partial<TtsSettings> | undefined
+  const rawTts = raw.tts as (Partial<TtsSettings> & LegacyTtsSettings) | undefined
   const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
   const selectedOptionId =
     typeof rawGithubProxy?.selectedOptionId === 'string' &&
     GITHUB_PROXY_OPTIONS.some((option) => option.id === rawGithubProxy.selectedOptionId)
       ? rawGithubProxy.selectedOptionId
       : DEFAULT_GITHUB_PROXY_OPTION_ID
-
-  const globalTts = {
-    enabled: rawTts?.enabled === true,
-    provider: rawTts?.provider === 'fish' ? 'fish' : 'local' as TtsProvider,
-    modelId: rawTts?.modelId?.trim() || DEFAULT_TTS_MODEL_ID,
-    fishApiKey: typeof rawTts?.fishApiKey === 'string' ? rawTts.fishApiKey.trim() : '',
-    fishReferenceId:
-      typeof rawTts?.fishReferenceId === 'string' ? rawTts.fishReferenceId.trim() : '',
-    fishModel: rawTts?.fishModel?.trim() || DEFAULT_FISH_TTS_MODEL
-  }
-
+  const rawProviders = rawTts?.providers
+  const rawLocal = rawProviders?.local
+  const rawFish = rawProviders?.fish
 
   return {
     animationPreference,
@@ -115,6 +172,24 @@ export function normalizeAppSettings(value: unknown): AppSettings {
       enabled: rawGithubProxy?.enabled !== false,
       selectedOptionId
     },
-    tts: { ...globalTts }
+    tts: {
+      enabled: rawTts?.enabled === true,
+      provider: rawTts?.provider === 'fish' ? 'fish' : 'local',
+      providers: {
+        local: {
+          modelId: normalizeString(rawLocal?.modelId ?? rawTts?.modelId, DEFAULT_TTS_MODEL_ID)
+        },
+        fish: {
+          apiKey:
+            typeof rawFish?.apiKey === 'string'
+              ? rawFish.apiKey.trim()
+              : typeof rawTts?.fishApiKey === 'string'
+                ? rawTts.fishApiKey.trim()
+                : '',
+          model: normalizeString(rawFish?.model ?? rawTts?.fishModel, DEFAULT_FISH_TTS_MODEL)
+        }
+      },
+      characterVoices: normalizeCharacterVoiceOverrides(rawTts?.characterVoices)
+    }
   }
 }

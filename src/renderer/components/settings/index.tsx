@@ -26,7 +26,7 @@ import { AgentTab } from './AgentTab'
 import { cn } from '@renderer/utils'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { GeneralTab } from './GeneralTab'
-import { TtsTab } from './TtsTab'
+import { TtsTab } from './TTS'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
 import { useMotionPreference } from '@renderer/hooks/useMotionPreference'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
@@ -43,9 +43,7 @@ const StorageTab = lazy(() =>
   import('./StorageTab').then((module) => ({ default: module.StorageTab }))
 )
 const PromptPreviewTab = lazy(() => import('./PromptPreviewTab'))
-const WorldTab = lazy(() =>
-  import('./WorldTab').then((module) => ({ default: module.WorldTab }))
-)
+const WorldTab = lazy(() => import('./WorldTab').then((module) => ({ default: module.WorldTab })))
 
 type SettingsTabId =
   | 'general'

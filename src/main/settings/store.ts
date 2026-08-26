@@ -19,10 +19,14 @@ type StoredProfile = Omit<ModelProfile, 'apiKey'> & {
   apiKeyStorage?: 'plain' | 'safeStorage'
 }
 
-type StoredTtsSettings = Omit<AppSettings['tts'], 'fishApiKey'> & {
-  fishApiKey?: string
-  encryptedFishApiKey?: string
-  fishApiKeyStorage?: 'plain' | 'safeStorage'
+type StoredTtsSettings = Omit<AppSettings['tts'], 'providers'> & {
+  providers: Omit<AppSettings['tts']['providers'], 'fish'> & {
+    fish: Omit<AppSettings['tts']['providers']['fish'], 'apiKey'> & {
+      apiKey?: string
+      encryptedApiKey?: string
+      apiKeyStorage?: 'plain' | 'safeStorage'
+    }
+  }
 }
 
 type StoredAppSettings = Omit<AppSettings, 'tts'> & { tts: StoredTtsSettings }
@@ -55,7 +59,13 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
       ...settings.app,
       tts: {
         ...settings.app?.tts,
-        fishApiKey: decryptFishApiKey(settings.app?.tts)
+        providers: {
+          ...settings.app?.tts?.providers,
+          fish: {
+            ...settings.app?.tts?.providers?.fish,
+            apiKey: decryptFishApiKey(settings.app?.tts)
+          }
+        }
       }
     },
     profiles: {
@@ -107,8 +117,14 @@ function toRuntimeSettings(settings: StoredUnifiedSettings): UnifiedSettings {
  * @returns 可安全写入 JSON 文件的统一设置。
  */
 function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
-  const { fishApiKey, ...ttsWithoutApiKey } = settings.app.tts
-  const storedTts: StoredTtsSettings = { ...ttsWithoutApiKey }
+  const { apiKey: fishApiKey, ...fishWithoutApiKey } = settings.app.tts.providers.fish
+  const storedTts: StoredTtsSettings = {
+    ...settings.app.tts,
+    providers: {
+      ...settings.app.tts.providers,
+      fish: fishWithoutApiKey
+    }
+  }
   const { botPassword, ...moegirlpediaWithoutPassword } = settings.agent.moegirlpedia
   const storedAgent: StoredAgentSettings = {
     ...settings.agent,
@@ -117,11 +133,13 @@ function toStoredSettings(settings: UnifiedSettings): StoredUnifiedSettings {
 
   if (fishApiKey) {
     if (safeStorage.isEncryptionAvailable()) {
-      storedTts.encryptedFishApiKey = safeStorage.encryptString(fishApiKey).toString('base64')
-      storedTts.fishApiKeyStorage = 'safeStorage'
+      storedTts.providers.fish.encryptedApiKey = safeStorage
+        .encryptString(fishApiKey)
+        .toString('base64')
+      storedTts.providers.fish.apiKeyStorage = 'safeStorage'
     } else {
-      storedTts.fishApiKey = fishApiKey
-      storedTts.fishApiKeyStorage = 'plain'
+      storedTts.providers.fish.apiKey = fishApiKey
+      storedTts.providers.fish.apiKeyStorage = 'plain'
     }
   }
 
@@ -197,12 +215,13 @@ function decryptMoeGirlpediaPassword(
  * @returns 可供运行时使用的 Fish Audio API Key。
  */
 function decryptFishApiKey(settings: StoredTtsSettings | undefined): string {
-  if (!settings?.encryptedFishApiKey) {
-    return settings?.fishApiKey || ''
+  const fish = settings?.providers?.fish
+  if (!fish?.encryptedApiKey) {
+    return fish?.apiKey || ''
   }
 
   try {
-    return safeStorage.decryptString(Buffer.from(settings.encryptedFishApiKey, 'base64'))
+    return safeStorage.decryptString(Buffer.from(fish.encryptedApiKey, 'base64'))
   } catch (error) {
     console.error('Failed to decrypt Fish Audio API key', error)
     void logger.error(

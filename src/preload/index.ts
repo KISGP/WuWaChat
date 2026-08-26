@@ -127,7 +127,7 @@ const tools = {
 }
 
 const tts = {
-  /** @description 请求主进程使用固定本地音色生成消息语音。 */
+  /** @description 请求主进程根据当前 provider 与角色声音设置生成消息语音。 */
   synthesize: (request: TtsSynthesisRequest) => ipcRenderer.invoke('tts:synthesize', request),
   /** @description 请求主进程停止指定的正在生成语音。 */
   cancel: (requestId: string) => ipcRenderer.invoke('tts:cancel', requestId)

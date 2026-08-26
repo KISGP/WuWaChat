@@ -8,6 +8,7 @@ import { AppError } from '@main/errors/AppError'
 import { logger } from '@main/logging'
 import { getTtsAudioRoot } from '@main/utils'
 import { getAppSettings } from '@main/settings/app-settings'
+import { resolveFishCharacterReferenceId } from '@shared/tts/fish-audio'
 import { getTtsAudioUrl } from './protocol'
 import { normalizeTextForTts } from './text-normalizer'
 import { resolveTtsRuntimePaths, runTtsSidecar, validateTtsRuntime } from './runtime'
@@ -27,7 +28,7 @@ type ActiveSynthesis = {
 /** @description 校验来自渲染进程的 TTS 合成请求。 */
 function validateSynthesisRequest(request: TtsSynthesisRequest): string {
   const text = request.text.trim()
-  if (!request.requestId.trim() || !request.messageId.trim()) {
+  if (!request.requestId.trim() || !request.messageId.trim() || !request.characterId.trim()) {
     throw new AppError('TTS_RUNTIME_ERROR', 'TTS synthesis request is missing identifiers', {
       safeMessage: '语音请求无效，请重试。'
     })
@@ -190,14 +191,20 @@ class TtsService {
       throw new AppError('TTS_RUNTIME_ERROR', 'TTS is disabled', { safeMessage: '语音尚未启用。' })
     }
     const isFishProvider = appSettings.tts.provider === 'fish'
-    const model = isFishProvider ? appSettings.tts.fishModel : appSettings.tts.modelId
-    const referenceId = isFishProvider ? appSettings.tts.fishReferenceId : ''
-    if (isFishProvider && (!appSettings.tts.fishApiKey || !referenceId)) {
+    const fishSettings = appSettings.tts.providers.fish
+    const localSettings = appSettings.tts.providers.local
+    const model = isFishProvider ? fishSettings.model : localSettings.modelId
+    const referenceId = isFishProvider
+      ? resolveFishCharacterReferenceId(request.characterId, appSettings.tts.characterVoices)
+      : ''
+    if (isFishProvider && (!fishSettings.apiKey || !referenceId)) {
       throw new AppError('TTS_RUNTIME_ERROR', 'Fish Audio credentials are incomplete', {
-        safeMessage: '请先配置 Fish Audio API Key 和音色 ID。'
+        safeMessage: referenceId
+          ? '请先配置 Fish Audio API Key。'
+          : '请先为当前角色配置 Fish Audio 音色 ID。'
       })
     }
-    const paths = isFishProvider ? null : resolveTtsRuntimePaths(appSettings.tts.modelId)
+    const paths = isFishProvider ? null : resolveTtsRuntimePaths(localSettings.modelId)
     if (paths) await validateTtsRuntime(paths)
     await mkdir(getTtsAudioRoot(), { recursive: true })
     const extension: AudioExtension = isFishProvider ? 'mp3' : 'wav'
@@ -236,7 +243,7 @@ class TtsService {
       let sidecarOutput = ''
       if (isFishProvider) {
         await runFishAudio(
-          appSettings.tts.fishApiKey,
+          fishSettings.apiKey,
           model,
           referenceId,
           text,

@@ -23,6 +23,7 @@ export function registerTtsIpc(): void {
       return {
         requestId: typedRequest.requestId,
         messageId: typedRequest.messageId,
+        characterId: typedRequest.characterId,
         textLength: typedRequest.text?.length
       }
     }

@@ -1,6 +1,7 @@
 export type TtsSynthesisRequest = {
   requestId: string
   messageId: string
+  characterId: string
   text: string
 }
 
@@ -23,6 +24,7 @@ export function isTtsSynthesisRequest(value: unknown): value is TtsSynthesisRequ
   return (
     typeof request.requestId === 'string' &&
     typeof request.messageId === 'string' &&
+    typeof request.characterId === 'string' &&
     typeof request.text === 'string'
   )
 }

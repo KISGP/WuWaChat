@@ -19,6 +19,12 @@ type AppSettingsStore = {
   updateGithubProxySettings: (patch: Partial<GithubProxySettings>) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
+  updateTtsProviderSettings: <P extends keyof TtsSettings['providers']>(
+    provider: P,
+    patch: Partial<TtsSettings['providers'][P]>
+  ) => Promise<void>
+  updateTtsCharacterVoice: (characterId: string, referenceId: string) => Promise<void>
+  resetTtsCharacterVoice: (characterId: string) => Promise<void>
   retrySave: () => Promise<void>
 }
 
@@ -92,6 +98,49 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
     trackUiEvent('tts-settings-changed', 'User changed TTS provider settings', {
       provider: settings.tts.provider
     })
+    await saveSettings(settings, set)
+  },
+  updateTtsProviderSettings: async (provider, patch) => {
+    const current = get().settings
+    const settings = {
+      ...current,
+      tts: {
+        ...current.tts,
+        providers: {
+          ...current.tts.providers,
+          [provider]: { ...current.tts.providers[provider], ...patch }
+        }
+      }
+    }
+    set({ settings })
+    trackUiEvent('tts-provider-settings-changed', 'User changed TTS provider settings', {
+      provider
+    })
+    await saveSettings(settings, set)
+  },
+  updateTtsCharacterVoice: async (characterId, referenceId) => {
+    const current = get().settings
+    const characterVoices = { ...current.tts.characterVoices }
+    if (referenceId.trim()) {
+      characterVoices[characterId] = { fish: { referenceId: referenceId.trim() } }
+    } else {
+      delete characterVoices[characterId]
+    }
+    const settings = { ...current, tts: { ...current.tts, characterVoices } }
+    set({ settings })
+    trackUiEvent('tts-character-voice-changed', 'User changed a character TTS voice', {
+      characterId
+    })
+    await saveSettings(settings, set)
+  },
+  resetTtsCharacterVoice: async (characterId) => {
+    const current = get().settings
+    if (!current.tts.characterVoices[characterId]) return
+    const characterVoices = { ...current.tts.characterVoices }
+    delete characterVoices[characterId]
+    const settings = { ...current, tts: { ...current.tts, characterVoices } }
+    set({ settings })
+    trackUiEvent('tts-character-voice-reset', 'User reset a character TTS voice', { characterId })
     await saveSettings(settings, set)
   },
   retrySave: async () => saveSettings(get().settings, set)

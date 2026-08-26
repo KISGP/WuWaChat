@@ -271,21 +271,15 @@ type MessageActionAreaProps = {
 type CollapsibleMessageContentProps = {
   content: string
   maxLineCount: number
-  messageId: string
 }
 
 function CollapsibleMessageContent({
   content,
-  maxLineCount,
-  messageId
+  maxLineCount
 }: CollapsibleMessageContentProps): ReactElement {
   const contentRef = useRef<HTMLParagraphElement>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
-
-  useEffect(() => {
-    setIsExpanded(false)
-  }, [messageId])
 
   useLayoutEffect(() => {
     const contentElement = contentRef.current
@@ -595,9 +589,9 @@ function MessageItem({
                 </div>
               ) : (
                 <CollapsibleMessageContent
+                  key={message.id}
                   content={message.content}
                   maxLineCount={messageCollapseLineCount}
-                  messageId={message.id}
                 />
               )}
             </BubbleContent>
@@ -622,6 +616,7 @@ export default function ChatMessagesList({
     (state) => state.settings.messageCollapseLineCount
   )
   const ttsEnabled = useAppSettingsStore((state) => state.settings.tts.enabled)
+  const characterId = activateChar?.id || ''
   const [listApi, setListApi] = useListCallbackRef(null)
   const [speechState, setSpeechState] = useState<SpeechState>(null)
   const [speechError, setSpeechError] = useState<SpeechError | null>(null)
@@ -673,6 +668,7 @@ export default function ChatMessagesList({
   const handleToggleSpeech = useCallback(
     (message: Message): void => {
       if (
+        !characterId ||
         message.role !== 'assistant' ||
         message.status !== 'complete' ||
         !message.content.trim()
@@ -692,7 +688,12 @@ export default function ChatMessagesList({
       setSpeechState({ messageId: message.id, phase: 'synthesizing' })
 
       void window.tts
-        .synthesize({ requestId, messageId: message.id, text: message.content })
+        .synthesize({
+          requestId,
+          messageId: message.id,
+          characterId,
+          text: message.content
+        })
         .then((result) => {
           if (activeSynthesisRequestIdRef.current !== requestId) {
             return
@@ -745,7 +746,7 @@ export default function ChatMessagesList({
           console.error('Failed to synthesize TTS audio', error)
         })
     },
-    [speechState, stopSpeech]
+    [characterId, speechState, stopSpeech]
   )
 
   useEffect(() => {
