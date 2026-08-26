@@ -5,7 +5,7 @@ import type {
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
   ChatRunAccepted,
-  CharacterCatalog,
+  CharacterRegistry,
   ChatRunEvent,
   ChatRunRequest,
   CharacterPromptDocument,
@@ -43,7 +43,6 @@ declare global {
       minimize: () => void
     }
     ai: {
-      getCharacters: () => Promise<CharacterSummary[]>
       getCharacterPrompt: (characterId: string) => Promise<CharacterPromptDocument>
       saveCharacterPrompt: (
         characterId: string,
@@ -59,9 +58,10 @@ declare global {
       onDiagnosticRunEvent: (listener: (event: ChatDiagnosticRunEvent) => void) => () => void
     }
     characters: {
-      getCharacterCatalog: () => Promise<CharacterCatalog>
+      getCharacterRegistry: () => Promise<CharacterRegistry>
+      onRegistryChanged: (listener: (registry: CharacterRegistry) => void) => () => void
       getPendingRemoteCharacterPrompt: (characterId: string) => Promise<string>
-      retryCharacterSync: (characterId: string) => Promise<CharacterCatalog>
+      retryCharacterSync: (characterId: string) => Promise<CharacterRegistry>
       applyPendingRemoteCharacterPrompt: (characterId: string) => Promise<CharacterSummary>
     }
     settings: {

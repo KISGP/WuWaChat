@@ -8,7 +8,6 @@ import {
   abortRun,
   deleteMessage,
   getCharacterPrompt,
-  getCharacters,
   getSessions,
   saveCharacterPrompt,
   startDiagnosticRun,
@@ -17,7 +16,6 @@ import {
 import { handleLogged } from './logged-handler'
 
 export function registerChatIpc(): void {
-  handleLogged('chat:getCharacters', () => getCharacters())
   handleLogged(
     'chat:getCharacterPrompt',
     (_event, characterId: string) => getCharacterPrompt(characterId),

@@ -1,13 +1,15 @@
+import { BrowserWindow } from 'electron'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type {
-  CharacterCatalog,
+  CharacterRegistry,
   CharacterInfo,
   CharacterPromptDocument,
   CharacterSummary,
   LocalCharacterEntry,
   RemoteCharacterEntry
 } from '@shared/chat'
+import { CHARACTER_REGISTRY_CHANGED_CHANNEL } from '@shared/character-events'
 import {
   getCharacterAvatarPath,
   getCharactersCachePath,
@@ -53,9 +55,9 @@ type Bundle = {
   notModified: Record<CharacterRemoteFileName, boolean>
 }
 
-let remoteCatalogCache: RemoteCharacterRecord[] = []
-let remoteCatalogRefreshedAt: string | null = null
-let characterSyncPromise: Promise<CharacterCatalog> | null = null
+let remoteRegistryCache: RemoteCharacterRecord[] = []
+let remoteRegistryRefreshedAt: string | null = null
+let characterSyncPromise: Promise<CharacterRegistry> | null = null
 let lastCharacterSyncError = ''
 const syncingIds = new Set<string>()
 
@@ -64,13 +66,13 @@ function fallbackInfo(id: string): CharacterInfo {
   return { name: { cn: id }, description: {} }
 }
 
-/** @description 更新内存中的远端角色目录缓存。 */
+/** @description 更新内存中的远端角色注册表缓存。 */
 function setCache(records: RemoteCharacterRecord[], updatedAt: string | null): void {
-  remoteCatalogCache = records
-  remoteCatalogRefreshedAt = updatedAt
+  remoteRegistryCache = records
+  remoteRegistryRefreshedAt = updatedAt
 }
 
-/** @description 读取持久化的远端角色目录缓存。 */
+/** @description 读取持久化的远端角色注册表缓存。 */
 async function readCache(): Promise<RemoteCharacterCacheDocument | null> {
   const content = await readOptionalFile(getCharactersCachePath())
   if (!content) return null
@@ -96,17 +98,17 @@ async function readCache(): Promise<RemoteCharacterCacheDocument | null> {
   }
 }
 
-/** @description 持久化远端角色目录缓存。 */
+/** @description 持久化远端角色注册表缓存。 */
 async function writeCache(): Promise<void> {
   await writeJsonFileAtomic(getCharactersCachePath(), {
-    updatedAt: remoteCatalogRefreshedAt,
-    characters: remoteCatalogCache
+    updatedAt: remoteRegistryRefreshedAt,
+    characters: remoteRegistryCache
   } satisfies RemoteCharacterCacheDocument)
 }
 
-/** @description 确保内存中已加载角色目录缓存。 */
+/** @description 确保内存中已加载角色注册表缓存。 */
 async function ensureCache(): Promise<void> {
-  if (remoteCatalogCache.length || remoteCatalogRefreshedAt) return
+  if (remoteRegistryCache.length || remoteRegistryRefreshedAt) return
   const cache = await readCache()
   if (cache) setCache(cache.characters, cache.updatedAt)
 }
@@ -176,8 +178,8 @@ async function getLocalRecords(): Promise<LocalCharacterRecord[]> {
   return records.filter((item): item is LocalCharacterRecord => Boolean(item))
 }
 
-/** @description 根据当前缓存构建角色目录。 */
-async function buildCatalog(): Promise<CharacterCatalog> {
+/** @description 根据当前缓存构建角色注册表。 */
+async function buildRegistry(): Promise<CharacterRegistry> {
   const records = await getLocalRecords()
   const localIds = new Set(records.map((item) => item.id))
   const local: LocalCharacterEntry[] = records.map(
@@ -191,7 +193,7 @@ async function buildCatalog(): Promise<CharacterCatalog> {
       syncStatus
     })
   )
-  const remote = remoteCatalogCache
+  const remote = remoteRegistryCache
     .filter((item) => !localIds.has(item.id) && (syncingIds.has(item.id) || item.syncError))
     .map<RemoteCharacterEntry>((item) => ({
       id: item.id,
@@ -204,9 +206,21 @@ async function buildCatalog(): Promise<CharacterCatalog> {
   return {
     local,
     remote,
-    refreshedAt: remoteCatalogRefreshedAt,
+    refreshedAt: remoteRegistryRefreshedAt,
     isSyncing: Boolean(characterSyncPromise),
     syncError: lastCharacterSyncError || undefined
+  }
+}
+
+/**
+ * @description 向所有已打开窗口发布最新的角色注册表快照。
+ * @param registry 要发送给渲染进程的完整角色注册表。
+ */
+function publishRegistry(registry: CharacterRegistry): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(CHARACTER_REGISTRY_CHANGED_CHANNEL, registry)
+    }
   }
 }
 
@@ -417,39 +431,56 @@ async function markUnavailable(ids: Set<string>): Promise<void> {
 }
 
 /** @description 执行一次完整的后台角色同步。 */
-async function runSync(): Promise<CharacterCatalog> {
+async function runSync(): Promise<CharacterRegistry> {
   const context = await createGithubRequestContext()
   await ensureCache()
   lastCharacterSyncError = ''
   const updatedAt = await fetchRemoteCharacterUpdatedAt(context)
-  if (remoteCatalogRefreshedAt === updatedAt && !remoteCatalogCache.some((item) => item.syncError))
-    return buildCatalog()
+  if (remoteRegistryRefreshedAt === updatedAt && !remoteRegistryCache.some((item) => item.syncError))
+    return buildRegistry()
   const ids = await fetchRemoteCharacterIds(context)
-  const prior = new Map(remoteCatalogCache.map((item) => [item.id, item]))
+  const prior = new Map(remoteRegistryCache.map((item) => [item.id, item]))
   const records = ids.map((id) => prior.get(id) || { id, info: fallbackInfo(id) })
   setCache(records, updatedAt)
-  for (const record of records) await syncCharacter(record.id, record, context)
+  publishRegistry(await buildRegistry())
+  for (const record of records) {
+    const local = await loadLocal(record.id)
+    if (local?.source !== 'custom') {
+      syncingIds.add(record.id)
+      publishRegistry(await buildRegistry())
+    }
+    await syncCharacter(record.id, record, context)
+    publishRegistry(await buildRegistry())
+  }
   await markUnavailable(new Set(ids))
   await writeCache()
-  return buildCatalog()
+  const registry = await buildRegistry()
+  publishRegistry(registry)
+  return registry
 }
 
 /** @description 启动或复用应用启动时的后台角色同步任务。 */
-export function synchronizeCharacters(): Promise<CharacterCatalog> {
+export function synchronizeCharacters(): Promise<CharacterRegistry> {
   if (characterSyncPromise) return characterSyncPromise
   characterSyncPromise = runSync()
+    .then((registry) => {
+      characterSyncPromise = null
+      const finalRegistry = { ...registry, isSyncing: false }
+      publishRegistry(finalRegistry)
+      return finalRegistry
+    })
     .catch(async (error) => {
+      characterSyncPromise = null
       lastCharacterSyncError = error instanceof Error ? error.message : String(error)
       await logger.warn(
         'main',
         'character-sync-run-failed',
-        'Failed to synchronize character catalog',
+        'Failed to synchronize character registry',
         { error: lastCharacterSyncError }
       )
-      return buildCatalog()
-    })
-    .finally(() => {
-      characterSyncPromise = null
+      const registry = await buildRegistry()
+      publishRegistry(registry)
+      return registry
     })
   return characterSyncPromise
 }
@@ -465,18 +496,6 @@ export async function getCharacterSummaryById(id: string): Promise<CharacterSumm
     avatar: record.avatar,
     cardBg: record.cardBg
   }
-}
-
-/** @description 返回所有可用于聊天的本地角色。 */
-export async function getCharacters(): Promise<CharacterSummary[]> {
-  const records = await getLocalRecords()
-  return records.map((record) => ({
-    id: record.id,
-    name: record.name,
-    description: record.description,
-    avatar: record.avatar,
-    cardBg: record.cardBg
-  }))
 }
 
 /** @description 读取指定本地角色的 Prompt 文档。 */
@@ -497,21 +516,31 @@ export async function saveCharacterPrompt(
   return { characterId: id, prompt: promptText, promptFileName: PROMPT_FILE_NAME }
 }
 
-/** @description 返回包含当前后台同步状态的角色目录。 */
-export async function getCharacterCatalog(): Promise<CharacterCatalog> {
+/** @description 返回包含当前后台同步状态的角色注册表。 */
+export async function getCharacterRegistry(): Promise<CharacterRegistry> {
   await ensureCache()
-  return buildCatalog()
+  if (characterSyncPromise) return characterSyncPromise
+  return buildRegistry()
 }
 
 /** @description 仅重试一个下载失败的远端角色。 */
-export async function retryCharacterSync(id: string): Promise<CharacterCatalog> {
+export async function retryCharacterSync(id: string): Promise<CharacterRegistry> {
   const context = await createGithubRequestContext()
   await ensureCache()
-  const record = remoteCatalogCache.find((item) => item.id === id)
+  const record = remoteRegistryCache.find((item) => item.id === id)
   if (!record) throw new Error('Remote character not found: ' + id)
-  await syncCharacter(id, record, context)
+  syncingIds.add(id)
+  publishRegistry({ ...(await buildRegistry()), isSyncing: true })
+  try {
+    await syncCharacter(id, record, context)
+  } finally {
+    syncingIds.delete(id)
+  }
+  publishRegistry(await buildRegistry())
   await writeCache()
-  return buildCatalog()
+  const registry = await buildRegistry()
+  publishRegistry(registry)
+  return registry
 }
 
 /** @description 读取等待用户确认覆盖的远端 Prompt。 */

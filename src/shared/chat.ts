@@ -60,7 +60,7 @@ export type RemoteCharacterEntry = {
   syncError?: string
 }
 
-export type CharacterCatalog = {
+export type CharacterRegistry = {
   local: LocalCharacterEntry[]
   remote: RemoteCharacterEntry[]
   refreshedAt: string | null

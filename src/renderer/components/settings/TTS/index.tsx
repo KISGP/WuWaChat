@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { SectionCard } from '@renderer/components/settings/section'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/components/ui/select'
 import type { TtsSettings } from '@shared/app-settings'
 import { cn } from '@renderer/utils'
@@ -14,7 +14,7 @@ import { IndexTtsCharacterVoiceSettings, IndexTtsGlobalSettings } from './local/
  * @returns TTS 设置页内容。
  */
 export function TtsTab(): ReactElement {
-  const characters = useCharacterStore((state) => state.characters)
+  const characters = useCharacterRegistryStore((state) => state.registry.local)
   const ttsSettings = useAppSettingsStore((state) => state.settings.tts)
   const setTtsEnabled = useAppSettingsStore((state) => state.setTtsEnabled)
   const updateTtsSettings = useAppSettingsStore((state) => state.updateTtsSettings)

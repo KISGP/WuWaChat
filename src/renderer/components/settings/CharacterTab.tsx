@@ -1,9 +1,9 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Check, Download, LoaderCircle, Save } from 'lucide-react'
-import type { CharacterCatalog, LocalCharacterEntry, RemoteCharacterEntry } from '@shared/chat'
+import type { LocalCharacterEntry, RemoteCharacterEntry } from '@shared/chat'
 import { useAsyncAction } from '@renderer/hooks/useAsyncAction'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { cn } from '@renderer/utils'
 
 type ListItem = {
@@ -18,13 +18,9 @@ type ListItem = {
 
 /** @description 渲染自动同步的统一角色列表，并提供失败重试与 Prompt 更新确认。 */
 export function CharacterTab(): ReactElement {
-  const refreshCharacters = useCharacterStore((state) => state.refreshCharacters)
-  const [catalog, setCatalog] = useState<CharacterCatalog>({
-    local: [],
-    remote: [],
-    refreshedAt: null,
-    isSyncing: false
-  })
+  const registry = useCharacterRegistryStore((state) => state.registry)
+  const refreshRegistry = useCharacterRegistryStore((state) => state.refreshRegistry)
+  const setRegistry = useCharacterRegistryStore((state) => state.setRegistry)
   const [selectedId, setSelectedId] = useState('')
   const [prompts, setPrompts] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -33,28 +29,11 @@ export function CharacterTab(): ReactElement {
   const [remotePrompt, setRemotePrompt] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [applying, setApplying] = useState(false)
-  const load = async (): Promise<void> => {
-    try {
-      const next = await window.characters.getCharacterCatalog()
-      setCatalog(next)
-      setError(next.syncError || '')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-  useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0)
-    return () => window.clearTimeout(timer)
-  }, [])
-  useEffect(() => {
-    if (!catalog.isSyncing) return
-    const timer = window.setInterval(() => void load(), 800)
-    return () => window.clearInterval(timer)
-  }, [catalog.isSyncing])
+  const displayError = error || registry.syncError || ''
   const items = useMemo(
     () =>
       [
-        ...catalog.local.map(
+        ...registry.local.map(
           (local): ListItem => ({
             id: local.id,
             name: local.name,
@@ -64,7 +43,7 @@ export function CharacterTab(): ReactElement {
             local
           })
         ),
-        ...catalog.remote.map(
+        ...registry.remote.map(
           (remote): ListItem => ({
             id: remote.id,
             name: remote.name,
@@ -81,7 +60,7 @@ export function CharacterTab(): ReactElement {
             ? 1
             : -1
       ),
-    [catalog]
+    [registry]
   )
   const selected = items.find((item) => item.id === selectedId) || items[0] || null
   const local = selected?.local
@@ -115,8 +94,7 @@ export function CharacterTab(): ReactElement {
     if (!selected?.remote) return
     setRetrying(selected.id)
     try {
-      setCatalog(await window.characters.retryCharacterSync(selected.id))
-      await refreshCharacters()
+      setRegistry(await window.characters.retryCharacterSync(selected.id))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -143,8 +121,7 @@ export function CharacterTab(): ReactElement {
         delete next[local.id]
         return next
       })
-      await refreshCharacters()
-      await load()
+      await refreshRegistry()
       setDialogOpen(false)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -160,18 +137,18 @@ export function CharacterTab(): ReactElement {
             <div>
               <div className="text-sm font-medium text-white/85">角色列表</div>
               <div className="mt-1 text-xs text-white/45">
-                {catalog.isSyncing
+                {registry.isSyncing
                   ? '正在同步角色...'
-                  : catalog.refreshedAt
-                    ? '上次检查: ' + new Date(catalog.refreshedAt).toLocaleString()
+                  : registry.refreshedAt
+                    ? '上次检查: ' + new Date(registry.refreshedAt).toLocaleString()
                     : '等待角色同步'}
               </div>
             </div>
-            {catalog.isSyncing && <LoaderCircle className="size-4 animate-spin text-[#e8c690]" />}
+            {registry.isSyncing && <LoaderCircle className="size-4 animate-spin text-[#e8c690]" />}
           </div>
-          {error && (
+          {displayError && (
             <div className="mb-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {error}
+              {displayError}
             </div>
           )}
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">

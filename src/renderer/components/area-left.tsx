@@ -1,10 +1,10 @@
 import { type ReactElement } from 'react'
 import bgLeft from '@renderer/assets/T_PhoneSystemBg01A.png'
 import CharCard from './char-card'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 
 export default function AreaLeft(): ReactElement {
-  const characters = useCharacterStore((state) => state.characters)
+  const characters = useCharacterRegistryStore((state) => state.registry.local)
 
   return (
     <div className="relative h-156 w-78 shrink-0">

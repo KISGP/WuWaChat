@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatRunEvent } from '@shared/chat'
 import { useMemoryStore } from '@renderer/stores/memoryStore'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { useSettingsStore } from '@renderer/stores/settingsStore'
 import { useAppSettingsStore } from '@renderer/stores/appSettingsStore'
@@ -39,9 +39,13 @@ export function useRendererStoreBootstrap(): 'loading' | 'ready' | 'error' {
         }
       })
 
-    void useCharacterStore
+    const unsubscribeRegistryEvent = window.characters.onRegistryChanged((registry) => {
+      useCharacterRegistryStore.getState().setRegistry(registry)
+    })
+
+    void useCharacterRegistryStore
       .getState()
-      .refreshCharacters()
+      .refreshRegistry()
       .catch((error) => {
         console.error('Failed to load character resources', error)
       })
@@ -62,6 +66,7 @@ export function useRendererStoreBootstrap(): 'loading' | 'ready' | 'error' {
     return () => {
       isDisposed = true
       unsubscribeRunEvent?.()
+      unsubscribeRegistryEvent?.()
     }
   }, [])
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import type { ChatRunEvent } from '@shared/chat'
 import { trackUiEvent } from '@renderer/logging'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { selectActiveBackground, useAppearanceStore } from '@renderer/stores/appearanceStore'
 import { selectSessionById, useSessionStore } from '@renderer/stores/sessionStore'
 import { selectActiveProfile, useSettingsStore } from '@renderer/stores/settingsStore'
@@ -71,7 +71,7 @@ function getLatestRetryableUserMessageId(
 }
 
 export default function AreaRight(): ReactElement {
-  const activateChar = useCharacterStore((state) => state.activateChar)
+  const activateChar = useCharacterRegistryStore((state) => state.activateChar)
   const activeBackground = useAppearanceStore(selectActiveBackground)
   const activeProfile = useSettingsStore(selectActiveProfile)
   const currentStoreSessionId = useSessionStore((state) => state.currentSessionId)

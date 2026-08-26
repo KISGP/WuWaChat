@@ -10,7 +10,7 @@ import {
   type PromptDiagnosticSnapshot,
   usePromptDiagnosticStore
 } from '@renderer/stores/promptDiagnosticStore'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import { selectActiveProfile, useSettingsStore } from '@renderer/stores/settingsStore'
 
@@ -495,8 +495,8 @@ function DiagnosticDetails({
  * @returns 诊断页面。
  * */
 export default function PromptPreviewTab(): ReactElement {
-  const activateChar = useCharacterStore((state) => state.activateChar)
-  const characters = useCharacterStore((state) => state.characters)
+  const activateChar = useCharacterRegistryStore((state) => state.activateChar)
+  const characters = useCharacterRegistryStore((state) => state.registry.local)
   const currentSessionId = useSessionStore((state) => state.currentSessionId)
   const sessions = useSessionStore((state) => state.sessions)
   const activeProfile = useSettingsStore(selectActiveProfile)

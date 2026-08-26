@@ -4,7 +4,7 @@ import BG2 from '@renderer/assets/2.png'
 import BG4 from '@renderer/assets/4.png'
 import { cn } from '@renderer/utils'
 import { trackUiEvent } from '@renderer/logging'
-import { useCharacterStore } from '@renderer/stores/characterStore'
+import { useCharacterRegistryStore } from '@renderer/stores/characterRegistryStore'
 import { useSessionStore } from '@renderer/stores/sessionStore'
 import ConversationItem from './conversation-item'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,7 +18,7 @@ function getConversationPreview(session: Session): string {
 }
 
 export default function CharCard({ char }: { char: Char }): ReactElement {
-  const { activateChar, setActivateChar } = useCharacterStore(
+  const { activateChar, setActivateChar } = useCharacterRegistryStore(
     useShallow((state) => ({
       activateChar: state.activateChar,
       setActivateChar: state.setActivateChar

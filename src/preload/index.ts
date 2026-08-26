@@ -5,9 +5,11 @@ import type {
   ChatDiagnosticRunRequest,
   ChatDeleteMessageRequest,
   ChatRunEvent,
-  ChatRunRequest
+  ChatRunRequest,
+  CharacterRegistry
 } from '@shared/chat'
 import { CHAT_DIAGNOSTIC_EVENT_CHANNEL, CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
+import { CHARACTER_REGISTRY_CHANGED_CHANNEL } from '@shared/character-events'
 import type { RendererLogEventPayload } from '@shared/logging'
 import type { MemorySettingsStore } from '@shared/memory-settings'
 import type { AgentSettingsStore, MoeGirlpediaConnectionTestRequest } from '@shared/agent-settings'
@@ -25,7 +27,6 @@ const api = {
 }
 
 const ai = {
-  getCharacters: () => ipcRenderer.invoke('chat:getCharacters'),
   getCharacterPrompt: (characterId: string) =>
     ipcRenderer.invoke('chat:getCharacterPrompt', characterId),
   saveCharacterPrompt: (characterId: string, promptText: string) =>
@@ -62,7 +63,18 @@ const ai = {
 }
 
 const characters = {
-  getCharacterCatalog: () => ipcRenderer.invoke('character:getCatalog'),
+  getCharacterRegistry: (): Promise<CharacterRegistry> =>
+    ipcRenderer.invoke('character:getRegistry'),
+  /** @description 订阅主进程发布的角色注册表变更，并返回取消订阅函数。 */
+  onRegistryChanged: (listener: (registry: CharacterRegistry) => void) => {
+    const wrappedListener = (_event: IpcRendererEvent, registry: CharacterRegistry): void => {
+      listener(registry)
+    }
+    ipcRenderer.on(CHARACTER_REGISTRY_CHANGED_CHANNEL, wrappedListener)
+    return () => {
+      ipcRenderer.removeListener(CHARACTER_REGISTRY_CHANGED_CHANNEL, wrappedListener)
+    }
+  },
   getPendingRemoteCharacterPrompt: (characterId: string) =>
     ipcRenderer.invoke('character:getPendingRemotePrompt', characterId),
   retryCharacterSync: (characterId: string) =>

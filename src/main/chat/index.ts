@@ -9,7 +9,6 @@ import type {
 import {
   getCharacterPrompt,
   getCharacterSummaryById,
-  getCharacters,
   saveCharacterPrompt
 } from '@main/characters'
 import { memoryService, worldService } from '@main/app/services'
@@ -53,7 +52,7 @@ const runtime = new ChatRuntime(
   chatAgent
 )
 
-export { getCharacters, getCharacterPrompt, saveCharacterPrompt }
+export { getCharacterPrompt, saveCharacterPrompt }
 
 /**
  * @description 初始化聊天运行时并加载 MemoryService 的设置。
