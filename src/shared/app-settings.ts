@@ -57,6 +57,7 @@ export type TtsSettings = {
 export type AppSettings = {
   animationPreference: AnimationPreference
   messageCollapseLineCount: number
+  settingsSidebarExpanded: boolean
   githubProxy: GithubProxySettings
   tts: TtsSettings
 }
@@ -136,6 +137,7 @@ export function createDefaultAppSettings(): AppSettings {
   return {
     animationPreference: 'system',
     messageCollapseLineCount: DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT,
+    settingsSidebarExpanded: true,
     githubProxy: {
       enabled: true,
       selectedOptionId: DEFAULT_GITHUB_PROXY_OPTION_ID
@@ -182,6 +184,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
           Math.max(MIN_MESSAGE_COLLAPSE_LINE_COUNT, raw.messageCollapseLineCount)
         )
       : DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT
+  const settingsSidebarExpanded = raw.settingsSidebarExpanded !== false
   const rawTts = raw.tts as (Partial<TtsSettings> & LegacyFishTtsSettings) | undefined
   const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
   const selectedOptionId =
@@ -196,6 +199,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   return {
     animationPreference,
     messageCollapseLineCount,
+    settingsSidebarExpanded,
     githubProxy: {
       enabled: rawGithubProxy?.enabled !== false,
       selectedOptionId

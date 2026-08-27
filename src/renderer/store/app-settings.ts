@@ -17,6 +17,7 @@ type AppSettingsStore = {
   hydrate: (settings: AppSettings) => void
   setAnimationPreference: (preference: AnimationPreference) => Promise<void>
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
+  setSettingsSidebarExpanded: (expanded: boolean) => Promise<void>
   updateGithubProxySettings: (patch: Partial<GithubProxySettings>) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
@@ -89,6 +90,16 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
         messageCollapseLineCount
       }
     )
+    await saveSettings(settings, set)
+  },
+  /**
+   * @description 更新设置页侧边栏展开状态并持久化设置。
+   * @param settingsSidebarExpanded 侧边栏是否展开。
+   * @returns 设置保存流程完成后的 Promise。
+   */
+  setSettingsSidebarExpanded: async (settingsSidebarExpanded) => {
+    const settings = { ...get().settings, settingsSidebarExpanded }
+    set({ settings })
     await saveSettings(settings, set)
   },
   /**

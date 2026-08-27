@@ -108,9 +108,12 @@ function TabLoadingFallback(): ReactElement {
 export default function SettingsPage({ onClose }: { onClose: () => void }): ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(SETTINGS_TABS[0].id)
   const [mounted, setMounted] = useState(false)
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
   const sidebarRef = useRef<HTMLElement>(null)
   const { shouldAnimate } = useMotionPreference()
+  const isSidebarExpanded = useAppSettingsStore((state) => state.settings.settingsSidebarExpanded)
+  const setSettingsSidebarExpanded = useAppSettingsStore(
+    (state) => state.setSettingsSidebarExpanded
+  )
   const appSaveError = useAppSettingsStore((state) => state.saveError)
   const retryAppSave = useAppSettingsStore((state) => state.retrySave)
   const profilesSaveError = useSettingsStore((state) => state.saveError)
@@ -276,7 +279,7 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
               </nav>
               <button
                 type="button"
-                onClick={() => setIsSidebarExpanded((expanded) => !expanded)}
+                onClick={() => void setSettingsSidebarExpanded(!isSidebarExpanded)}
                 className="text-background/70 mt-4 ml-1 flex size-8 shrink-0 items-center justify-center hover:text-yellow-300"
                 title={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
                 aria-label={isSidebarExpanded ? '收起设置导航' : '展开设置导航'}
