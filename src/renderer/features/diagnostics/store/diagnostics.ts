@@ -1,0 +1,147 @@
+import type { ChatDiagnosticRunEvent, ChatDiagnosticRunRequest } from '@shared/chat'
+import { create } from 'zustand'
+import { abortDiagnosticRun, onDiagnosticRunEvent, startDiagnosticRun } from '@renderer/services/ai'
+
+export type AgentDiagnosticsStatus = 'idle' | 'running' | 'completed' | 'aborted' | 'error'
+
+export type AgentDiagnosticsSnapshot = {
+  request: ChatDiagnosticRunRequest
+  status: AgentDiagnosticsStatus
+  events: ChatDiagnosticRunEvent[]
+  startedAt: number
+  updatedAt: number
+}
+
+type AgentDiagnosticsStore = {
+  snapshot: AgentDiagnosticsSnapshot | null
+  startRun: (request: Omit<ChatDiagnosticRunRequest, 'requestId'>) => Promise<void>
+  abortRun: () => Promise<void>
+  clear: () => void
+}
+
+let unsubscribeDiagnosticEvents: (() => void) | null = null
+
+/**
+ * @description 创建用于关联主进程诊断事件的唯一请求标识。
+ * @returns 当前应用运行期间唯一的诊断请求标识。
+ */
+function createDiagnosticRequestId(): string {
+  return `diagnostic-${crypto.randomUUID()}`
+}
+
+/**
+ * @description 将主进程事件归并到当前诊断快照，并同步其运行状态。
+ * @param snapshot 当前诊断快照。
+ * @param event 新收到的诊断事件。
+ * @returns 更新后的诊断快照。
+ */
+function appendDiagnosticEvent(
+  snapshot: AgentDiagnosticsSnapshot,
+  event: ChatDiagnosticRunEvent
+): AgentDiagnosticsSnapshot {
+  const status: AgentDiagnosticsStatus =
+    event.type === 'completed'
+      ? 'completed'
+      : event.type === 'aborted'
+        ? 'aborted'
+        : event.type === 'error'
+          ? 'error'
+          : 'running'
+
+  return {
+    ...snapshot,
+    status,
+    events: [...snapshot.events, event],
+    updatedAt: Date.now()
+  }
+}
+
+/**
+ * @description 订阅一次诊断事件通道，使应用级快照跨 Tab 生命周期持续更新。
+ * @returns 无返回值。
+ * @remarks 订阅在 renderer 生命周期内保持，以便关闭诊断页面后仍可接收终态事件。
+ */
+function ensureDiagnosticEventSubscription(): void {
+  if (unsubscribeDiagnosticEvents) {
+    return
+  }
+
+  unsubscribeDiagnosticEvents = onDiagnosticRunEvent((event) => {
+    const snapshot = useAgentDiagnosticsStore.getState().snapshot
+    if (!snapshot || snapshot.request.requestId !== event.requestId) {
+      return
+    }
+
+    useAgentDiagnosticsStore.setState({ snapshot: appendDiagnosticEvent(snapshot, event) })
+  })
+}
+
+export const useAgentDiagnosticsStore = create<AgentDiagnosticsStore>((set, get) => ({
+  snapshot: null,
+  /**
+   * @description 创建新的诊断快照并请求主进程开始隔离的 Agent 运行。
+   * @param request 不含请求标识的诊断运行参数。
+   * @returns 诊断请求提交或失败状态写入完成后的 Promise。
+   * @remarks 新运行会替换已有结果；结果仅存于 renderer 内存。
+   */
+  startRun: async (request): Promise<void> => {
+    ensureDiagnosticEventSubscription()
+    const fullRequest = { ...request, requestId: createDiagnosticRequestId() }
+    const startedAt = Date.now()
+    set({
+      snapshot: {
+        request: fullRequest,
+        status: 'running',
+        events: [],
+        startedAt,
+        updatedAt: startedAt
+      }
+    })
+
+    try {
+      await startDiagnosticRun(fullRequest)
+    } catch (cause) {
+      const snapshot = get().snapshot
+      if (!snapshot || snapshot.request.requestId !== fullRequest.requestId) {
+        return
+      }
+
+      set({
+        snapshot: appendDiagnosticEvent(snapshot, {
+          type: 'error',
+          requestId: fullRequest.requestId,
+          error: cause instanceof Error ? cause.message : String(cause)
+        })
+      })
+    }
+  },
+  /**
+   * @description 中断当前仍在运行的诊断请求。
+   * @returns 中断请求处理完成后的 Promise。
+   * @remarks 中断失败时保留现有快照，等待主进程终态事件更新界面。
+   */
+  abortRun: async (): Promise<void> => {
+    const snapshot = get().snapshot
+    if (!snapshot || snapshot.status !== 'running') {
+      return
+    }
+
+    try {
+      await abortDiagnosticRun(snapshot.request.requestId)
+    } catch (cause) {
+      console.error('Failed to abort diagnostic run:', cause)
+      set({
+        snapshot: appendDiagnosticEvent(snapshot, {
+          type: 'error',
+          requestId: snapshot.request.requestId,
+          error: cause instanceof Error ? cause.message : String(cause)
+        })
+      })
+    }
+  },
+  /**
+   * @description 清除当前应用内存中的诊断运行快照。
+   * @returns 无返回值。
+   */
+  clear: (): void => set({ snapshot: null })
+}))
