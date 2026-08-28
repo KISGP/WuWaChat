@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import type { ChatImageInput, ChatRunEvent } from '@shared/chat'
+import type { ChatImageInput, ChatRunEvent, ChatUserSegment } from '@shared/chat'
 import { trackUiEvent } from '@renderer/app/telemetry'
 import { useCharacterRegistryStore } from '@renderer/store/character-registry'
 import { selectActiveBackground, useAppearanceStore } from '@renderer/store/appearance'
@@ -251,8 +251,8 @@ export default function ChatPanel(): ReactElement {
     triggerRunRef.current = triggerRun
   }, [triggerRun])
 
-  const handleSendMessage = useCallback(
-    (text: string, images: ChatImageInput[] = []): void => {
+  const appendSegment = useCallback(
+    async (segment: ChatUserSegment): Promise<void> => {
       if (!activateChar?.id) return
       let hold = holdRef.current
       if (!hold || hold.characterId !== activateChar.id) {
@@ -266,33 +266,50 @@ export default function ChatPanel(): ReactElement {
         sessionId: hold.sessionId,
         characterId: activateChar.id,
         profileId: activeProfile.id,
-        messageLength: text.length
+        messageLength: segment.type === 'text' ? segment.text.length : 0
       })
-      void appendMessage({
+      const result = await appendMessage({
         holdId: hold.holdId,
         requestId,
         sessionId: hold.sessionId,
         characterId: activateChar.id,
-        content: text,
         profileId: activeProfile.id,
-        images: images.length > 0 ? images : undefined
+        segment
       })
-        .then((result) => {
-          const currentHold = holdRef.current
-          if (!currentHold || currentHold.holdId !== hold?.holdId) return
-          currentHold.sessionId = result.sessionId
-          setCurrentSessionId(result.sessionId)
-          if (!chatSendMerge.enabled) {
-            triggerRun()
-          } else {
-            scheduleHold()
-          }
+      const currentHold = holdRef.current
+      if (!currentHold || currentHold.holdId !== hold.holdId) return
+      currentHold.sessionId = result.sessionId
+      setCurrentSessionId(result.sessionId)
+    },
+    [activateChar, activeProfile.id, currentSessionId, setCurrentSessionId]
+  )
+
+  const handleSendMessage = useCallback(
+    (text: string, images: ChatImageInput[] = []): void => {
+      void appendSegment({ type: 'text', text, ...(images.length ? { images } : {}) })
+        .then(() => {
+          if (!chatSendMerge.enabled) triggerRun()
+          else scheduleHold()
         })
         .catch((error) => {
           console.error(getChatErrorMessage(error))
         })
     },
-    [activateChar, activeProfile.id, chatSendMerge.enabled, currentSessionId, scheduleHold, setCurrentSessionId, triggerRun]
+    [appendSegment, chatSendMerge.enabled, scheduleHold, triggerRun]
+  )
+
+  const handleEmoticonPick = useCallback(
+    (emoticonId: string): void => {
+      void appendSegment({ type: 'emoticon', emoticonId })
+        .then(() => {
+          if (!chatSendMerge.enabled) triggerRun()
+          else scheduleHold()
+        })
+        .catch((error) => {
+          console.error(getChatErrorMessage(error))
+        })
+    },
+    [appendSegment, chatSendMerge.enabled, scheduleHold, triggerRun]
   )
 
   useEffect(() => () => {
@@ -315,8 +332,15 @@ export default function ChatPanel(): ReactElement {
         return
       }
 
-      const images: ChatImageInput[] = []
-      for (const attachment of message.attachments ?? []) {
+      let index = messages.findIndex((item) => item.id === message.id)
+      const retryMessages: Message[] = []
+      while (index >= 0 && messages[index].role === 'user') {
+        retryMessages.unshift(messages[index])
+        index -= 1
+      }
+      for (const retryMessage of retryMessages) {
+        const images: ChatImageInput[] = []
+        for (const attachment of retryMessage.attachments ?? []) {
         try {
           if (!currentSessionId) {
             throw new Error('当前会话不可用')
@@ -336,16 +360,22 @@ export default function ChatPanel(): ReactElement {
           console.error('Failed to restore chat image for retry', error)
           trackUiEvent('chat-retry-failed', 'Failed to restore image attachment for retry', {
             sessionId: currentSessionId,
-            messageId: message.id,
+            messageId: retryMessage.id,
             resourceId: attachment.resourceId
           })
           return
         }
       }
 
-      handleSendMessage(message.content, images)
+        await appendSegment(
+          retryMessage.emoticonId
+            ? { type: 'emoticon', emoticonId: retryMessage.emoticonId }
+            : { type: 'text', text: retryMessage.content, ...(images.length ? { images } : {}) }
+        )
+      }
+      triggerRun()
     },
-    [currentSessionId, handleSendMessage, retryableMessageId]
+    [appendSegment, currentSessionId, messages, retryableMessageId, triggerRun]
   )
 
   return (
@@ -360,6 +390,7 @@ export default function ChatPanel(): ReactElement {
       retryableMessageId={retryableMessageId}
       onRetryMessage={handleRetryMessage}
       onSendMessage={handleSendMessage}
+      onEmoticonPick={handleEmoticonPick}
       onTypingActivity={handleTypingActivity}
       onStop={handleStop}
       isLoading={effectiveIsLoading}

@@ -23,6 +23,7 @@ import type { WorldSyncProgress, WorldSyncResult, WorldSyncStatus } from '@share
 import { WORLD_SYNC_PROGRESS_CHANNEL } from '@shared/world-events'
 import type { GachaUrlRequest } from '@shared/tools'
 import type { TtsSynthesisRequest } from '@shared/tts'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 
 const api = {
   minimize: () => ipcRenderer.send('window:minimize')
@@ -34,6 +35,9 @@ const ai = {
   saveCharacterPrompt: (characterId: string, promptText: string) =>
     ipcRenderer.invoke('chat:saveCharacterPrompt', characterId, promptText),
   getSessions: () => ipcRenderer.invoke('chat:getSessions'),
+  getUserEmoticons: (): Promise<ChatEmoticonImage[]> => ipcRenderer.invoke('chat:getUserEmoticons'),
+  getCharacterEmoticons: (characterId: string): Promise<ChatEmoticonImage[]> =>
+    ipcRenderer.invoke('chat:getCharacterEmoticons', characterId),
   deleteMessage: (request: ChatDeleteMessageRequest) =>
     ipcRenderer.invoke('chat:deleteMessage', request),
   appendMessage: (request: ChatAppendMessageRequest) => ipcRenderer.invoke('chat:appendMessage', request),

@@ -7,7 +7,9 @@ export function createPrepareHistoryNode(context: ChatGraphNodeContext) {
       .filter(
         (message) =>
           message.id !== state.assistantMessageId &&
-          (Boolean(message.content.trim()) || Boolean(message.attachments?.length)) &&
+          (Boolean(message.content.trim()) ||
+            Boolean(message.emoticonId) ||
+            Boolean(message.attachments?.length)) &&
           (message.role === 'user' || message.status !== 'pending')
       )
       .slice(-context.chatContext.getRecentMessageCount())

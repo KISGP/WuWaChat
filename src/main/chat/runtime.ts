@@ -11,10 +11,12 @@ import type {
   ChatAppendMessageResult,
   ChatTriggerRunRequest,
   ChatImageReadRequest,
+  ChatUserSegment,
   ChatRunAccepted,
   ConversationMessage,
   ConversationSession
 } from '@shared/chat'
+import { CHAT_USER_EMOTICONS } from '@shared/chat-emoticons'
 import type { AgentPolicy, AgentToolTrace } from '@shared/agent'
 import { logger } from '@main/logging'
 import { getAppSettings } from '@main/settings/app-settings'
@@ -29,6 +31,31 @@ import { RunRegistry } from './run-registry'
 import type { ChatRuntimeDependencies, ChatContextProvider } from './types'
 import type { ChatAgent } from './agent'
 import { processChatImage } from './image-compression'
+
+/**
+ * @description 校验并规范化一次用户聊天段。
+ * @param segment 来自 renderer 的未受信任聊天段。
+ * @returns 可进入会话存储的规范化段。
+ */
+function normalizeUserSegment(segment: ChatUserSegment): ChatUserSegment {
+  if (!segment || typeof segment !== 'object') {
+    throw new Error('Invalid chat segment.')
+  }
+  if (segment.type === 'emoticon') {
+    const emoticonId = typeof segment.emoticonId === 'string' ? segment.emoticonId.trim() : ''
+    if (!emoticonId || !CHAT_USER_EMOTICONS.some((item) => item.id === emoticonId)) {
+      throw new Error('Unknown user emoticon ID: ' + emoticonId)
+    }
+    return { type: 'emoticon', emoticonId }
+  }
+  if (segment.type !== 'text') {
+    throw new Error('Invalid chat segment type.')
+  }
+  if (typeof segment.text !== 'string') throw new Error('Invalid chat text segment.')
+  const images = segment.images || []
+  if (!Array.isArray(images)) throw new Error('Invalid chat image list.')
+  return { type: 'text', text: segment.text.trim(), ...(images.length ? { images } : {}) }
+}
 
 export class ChatRuntime {
   private readonly sessionStore = new SessionStore()
@@ -85,11 +112,12 @@ export class ChatRuntime {
    * @remarks 历史图片只通过摘要和 resourceId 进入模型；原图仅在本轮请求中读取。
    */
   async appendMessage(request: ChatAppendMessageRequest): Promise<ChatAppendMessageResult> {
-    const userMessage = request.content.trim()
-    if (!userMessage && !(request.images && request.images.length > 0)) {
+    const segment = normalizeUserSegment(request.segment)
+    const userMessage = segment.type === 'text' ? segment.text.trim() : ''
+    const images = segment.type === 'text' ? segment.images || [] : []
+    if (segment.type === 'text' && !userMessage && images.length === 0) {
       throw new Error('Chat message requires text or at least one image.')
     }
-    const images = request.images || []
     if (images.length > 4) {
       throw new Error('A chat message can include at most 4 images.')
     }
@@ -103,10 +131,6 @@ export class ChatRuntime {
         throw new Error('The selected chat model does not support image input.')
       }
     }
-    const attachments: ChatImageAttachment[] = (request.images || []).map(({ dataUrl, ...attachment }) => {
-      void dataUrl
-      return attachment
-    })
     const pending = this.pendingHolds.get(request.holdId)
     if (pending && pending.characterId !== request.characterId) {
       throw new Error('Chat hold character mismatch.')
@@ -115,8 +139,7 @@ export class ChatRuntime {
     const appended = this.sessionStore.appendUserMessage({
       sessionId,
       characterId: request.characterId,
-      content: userMessage,
-      attachments
+      segment: segment.type === 'text' ? { ...segment, text: userMessage } : segment
     }, false)
     const hold = pending || {
       sessionId: appended.session.id,
@@ -129,7 +152,7 @@ export class ChatRuntime {
 
     try {
       const savedAttachments = await Promise.all(
-        (request.images || []).map((image) => this.sessionStore.saveAttachment(appended.session.id, image))
+        images.map((image) => this.sessionStore.saveAttachment(appended.session.id, image))
       )
       const syncedSession = this.sessionStore.setMessageAttachments(
         appended.session.id,
@@ -347,7 +370,7 @@ export class ChatRuntime {
     return virtualMessages
       .filter(
         (message) =>
-          Boolean(message.content.trim()) &&
+          (Boolean(message.content.trim()) || Boolean(message.emoticonId)) &&
           (message.role === 'user' || message.status !== 'pending')
       )
       .slice(-this.chatContext.getRecentMessageCount())

@@ -22,6 +22,14 @@ export function getBundledResourcesRoot(): string {
     : join(app.getAppPath(), 'resources')
 }
 
+/**
+ * @description 返回应用内置聊天表情资源目录。
+ * @returns 打包资源中的聊天表情根目录。
+ */
+export function getBundledEmoticonsRoot(): string {
+  return join(getBundledResourcesRoot(), 'emoticons')
+}
+
 export function getAppDataRoot(): string {
   return join(app.getPath('userData'), 'app-data')
 }
@@ -149,6 +157,15 @@ export function getCharacterAvatarPath(characterId: string): string {
 
 export function getCharacterCardBgPath(characterId: string): string {
   return join(getCharacterDirectoryPath(characterId), 'cardBg.png')
+}
+
+/**
+ * @description 返回指定角色的表情资源根目录。
+ * @param characterId 角色标识。
+ * @returns 角色目录下的表情资源目录。
+ */
+export function getCharacterEmoticonsRoot(characterId: string): string {
+  return join(getCharacterDirectoryPath(characterId), 'emoticons')
 }
 
 /**

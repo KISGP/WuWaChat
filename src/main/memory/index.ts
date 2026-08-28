@@ -1,5 +1,6 @@
 import type { AgentResourcePage } from '@shared/agent'
 import type { ConversationSession, MemoryEntry } from '@shared/chat'
+import { formatChatEmoticonMarker } from '@shared/chat-emoticons'
 import {
   createDefaultMemorySettingsStore,
   normalizeMemorySettingsStore,
@@ -116,7 +117,7 @@ export class MemoryService {
       .filter((session) => session.characterId === characterId)
       .flatMap((session) => {
         const recent = session.messages
-          .filter((message) => Boolean(message.content.trim()))
+          .filter((message) => Boolean(message.content.trim()) || Boolean(message.emoticonId))
           .slice(-this.settings.summaryTriggerTurns)
         if (recent.length === 0) {
           return []
@@ -126,7 +127,19 @@ export class MemoryService {
             id: `memory:${characterId}:${session.id}`,
             text: recent
               .map(
-                (message) => `${message.role === 'user' ? 'User' : 'Character'}: ${message.content}`
+                (message) => {
+                  const content = message.emoticonId
+                    ? [
+                        formatChatEmoticonMarker(message.emoticonId),
+                        message.emoticonDescription
+                          ? `描述：${message.emoticonDescription}`
+                          : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    : message.content
+                  return `${message.role === 'user' ? 'User' : 'Character'}: ${content}`
+                }
               )
               .join('\n'),
             sourceType: 'summary' as const,

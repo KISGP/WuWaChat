@@ -13,11 +13,13 @@ import type {
   AgentRunRequest,
   AgentRunResult,
   AgentTool,
+  AgentToolContext,
   AgentToolCall,
   AgentToolResult
 } from './agent-types'
 import { AgentToolExecutor } from './tool-executor'
 import { AgentToolRegistry } from './tool-registry'
+import { formatChatEmoticonMarker } from '@shared/chat-emoticons'
 
 const TOOL_ROUTING_SYSTEM_PROMPT = `
 You are currently in the tool-routing phase, not the final-answer phase.
@@ -176,7 +178,7 @@ async function runToolRoutingLoop({
 }): Promise<{ messages: BaseMessage[]; toolRounds: number; incomplete: boolean }> {
   const messages: BaseMessage[] = [
     new SystemMessage(
-      `${TOOL_ROUTING_SYSTEM_PROMPT}\n\nCurrent character: ${request.context.character.name}. Chat session selected: ${request.context.policy.memoryScope !== 'none' ? 'yes' : 'no'}.`
+      `${TOOL_ROUTING_SYSTEM_PROMPT}\n\n${getEmoticonRoutingInstruction(request.context)}\n\nCurrent character: ${request.context.character.name}. Chat session selected: ${request.context.policy.memoryScope !== 'none' ? 'yes' : 'no'}.`
     ),
     ...request.history
   ]
@@ -221,6 +223,22 @@ async function runToolRoutingLoop({
   }
 
   return { messages: messages.slice(1 + request.history.length), toolRounds, incomplete: true }
+}
+
+/**
+ * @description 构造工具路由阶段使用的表情清单说明。
+ * @param context 当前 Agent 工具上下文。
+ * @returns 表情读取规则文本；没有表情上下文时返回空文本。
+ */
+function getEmoticonRoutingInstruction(context: AgentToolContext): string {
+  const catalog = context.emoticonCatalog || []
+  if (catalog.length === 0) return ''
+  return [
+    'Emoticon rules:',
+    '- Read a chat emoticon only when its description is insufficient to determine the emotion.',
+    '- Use read_chat_emoticon with the exact global id from the list below.',
+    catalog.map((item) => `- ${formatChatEmoticonMarker(item.id)}: ${item.description}`).join('\n')
+  ].join('\n')
 }
 
 /**

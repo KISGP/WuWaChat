@@ -3,7 +3,7 @@ import { buildSystemPromptText, toConversationMessages } from '@main/chat/model-
 
 export function createBuildMessagesNode() {
   return (state: GraphStateValue) => ({
-    systemPromptText: buildSystemPromptText(state.prompt),
+    systemPromptText: buildSystemPromptText(state.prompt, state.characterEmoticons),
     llmMessages: toConversationMessages(state.history, {
       messageIds: new Set(state.currentMessageIds),
       images: state.currentImages

@@ -1,4 +1,5 @@
-import { splitStreamingAssistantMessages } from '@main/chat/assistant-message-splitter'
+import { splitStreamingAssistantMessageSegments } from '@main/chat/assistant-message-splitter'
+import { getUserEmoticons } from '@main/chat/emoticons'
 import type { GraphStateValue } from '@main/chat/graph-state'
 import type { ChatGraphNodeContext } from '@main/chat/graph-node-context'
 
@@ -9,11 +10,18 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
     let streamBuffer = ''
     const publishAssistantChunk = (text: string): void => {
       assistantDraft += text
-      const assistantMessages = splitStreamingAssistantMessages(assistantDraft)
+      const assistantMessages = splitStreamingAssistantMessageSegments(
+        assistantDraft,
+        new Set(state.characterEmoticons.map((item) => item.id))
+      )
+      const emoticonDescriptions = new Map(
+        state.characterEmoticons.map((item) => [item.id, item.description] as const)
+      )
       const syncedSession = context.sessionStore.syncAssistantRunMessages(
         state.sessionId,
         state.assistantMessageId,
         assistantMessages,
+        emoticonDescriptions,
         'streaming'
       )
       const message =
@@ -57,6 +65,17 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
               requestId: state.requestId,
               session
             })
+          }
+        },
+        emoticonCatalog: [
+          ...(await getUserEmoticons()),
+          ...state.characterEmoticons
+        ],
+        emoticonResources: {
+          read: async (id) => {
+            const user = (await getUserEmoticons()).find((item) => item.id === id)
+            if (user) return user
+            return state.characterEmoticons.find((item) => item.id === id) || null
           }
         }
       },

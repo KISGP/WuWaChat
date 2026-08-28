@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import type {
   CharacterRegistry,
   CharacterInfo,
@@ -9,6 +9,7 @@ import type {
   LocalCharacterEntry,
   RemoteCharacterEntry
 } from '@shared/chat'
+import type { ChatEmoticonDefinition, ChatEmoticonImage } from '@shared/chat-emoticons'
 import { CHARACTER_REGISTRY_CHANGED_CHANNEL } from '@shared/character-events'
 import {
   getCharacterAvatarPath,
@@ -51,8 +52,9 @@ type Bundle = {
   prompt: string
   avatar: Buffer
   cardBg: Buffer
+  emoticons: Array<{ definition: ChatEmoticonDefinition; content: Buffer }>
   etags: Partial<Record<CharacterRemoteFileName, string>>
-  notModified: Record<CharacterRemoteFileName, boolean>
+  notModified: Record<string, boolean>
 }
 
 let remoteRegistryCache: RemoteCharacterRecord[] = []
@@ -60,6 +62,7 @@ let remoteRegistryRefreshedAt: string | null = null
 let characterSyncPromise: Promise<CharacterRegistry> | null = null
 let lastCharacterSyncError = ''
 const syncingIds = new Set<string>()
+const characterEmoticonsCache = new Map<string, Promise<ChatEmoticonImage[]>>()
 
 /** @description 生成目录尚未获取时的最小角色展示信息。 */
 function fallbackInfo(id: string): CharacterInfo {
@@ -225,20 +228,90 @@ function publishRegistry(registry: CharacterRegistry): void {
 }
 
 /** @description 读取 304 响应所需的本地角色文件。 */
-async function readLocalFile(id: string, name: CharacterRemoteFileName): Promise<Buffer> {
+async function readLocalFile(id: string, name: string): Promise<Buffer> {
   const paths: Record<CharacterRemoteFileName, string> = {
     'info.json': getCharacterInfoPath(id),
     'prompt.md': getCharacterPromptPath(id),
     'avatar.png': getCharacterAvatarPath(id),
     'cardBg.png': getCharacterCardBgPath(id)
   }
-  return readFile(paths[name])
+  return readFile(name in paths ? paths[name as CharacterRemoteFileName] : resolveEmoticonPath(id, name))
+}
+
+/**
+ * @description 将角色表情相对路径解析到角色表情目录，并阻止路径穿越。
+ * @param characterId 角色标识。
+ * @param file 表情文件相对路径。
+ * @returns 角色表情文件的绝对路径。
+ */
+function resolveEmoticonPath(characterId: string, file: string): string {
+  const normalized = normalizeEmoticonFile(file)
+  const root = resolve(getCharacterDirectoryPath(characterId))
+  const target = resolve(root, normalized)
+  const remainder = relative(root, target)
+  if (!remainder || remainder.startsWith('..' + '\\') || isAbsolute(remainder)) {
+    throw new Error('Invalid character emoticon file path')
+  }
+  return target
+}
+
+/**
+ * @description 规范化角色表情文件的相对路径。
+ * @param file 表情文件相对路径。
+ * @returns 使用正斜杠分隔的安全 PNG 路径。
+ */
+function normalizeEmoticonFile(file: string): string {
+  const normalized = file.replaceAll('\\', '/').trim()
+  if (!normalized || normalized.startsWith('/') || isAbsolute(normalized)) {
+    throw new Error('Invalid character emoticon file path')
+  }
+  const parts = normalized.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('Invalid character emoticon file path')
+  }
+  if (!normalized.toLowerCase().endsWith('.png')) {
+    throw new Error('Character emoticon files must be PNG images')
+  }
+  return normalized
+}
+
+/**
+ * @description 将角色表情文件路径解析到暂存目录。
+ * @param root 角色暂存目录。
+ * @param file 表情文件相对路径。
+ * @returns 暂存目录中的表情文件路径。
+ */
+function resolveStagingEmoticonPath(root: string, file: string): string {
+  return join(root, normalizeEmoticonFile(file))
+}
+
+/**
+ * @description 校验角色表情元数据及其文件路径。
+ * @param info 角色信息文档。
+ * @returns 校验后的角色表情定义数组。
+ */
+function validateCharacterEmoticons(info: CharacterInfo): ChatEmoticonDefinition[] {
+  if (info.emoticons === undefined) return []
+  if (!Array.isArray(info.emoticons)) throw new Error('Character emoticons must be an array')
+  const ids = new Set<string>()
+  return info.emoticons.map((entry) => {
+    if (!entry || typeof entry !== 'object') throw new Error('Invalid character emoticon definition')
+    const description = typeof entry.description === 'string' ? entry.description.trim() : ''
+    const file = typeof entry.file === 'string' ? entry.file.trim() : ''
+    if (!description) throw new Error('Character emoticon descriptions are required')
+    const normalizedFile = normalizeEmoticonFile(file)
+    const fileName = normalizedFile.slice(normalizedFile.lastIndexOf('/') + 1)
+    const id = fileName.slice(0, -'.png'.length)
+    if (!id || ids.has(id)) throw new Error('Character emoticon IDs must be unique and non-empty')
+    ids.add(id)
+    return { id, description, file: normalizedFile }
+  })
 }
 
 /** @description 以 ETag 条件请求一个远端文件，并在未修改时复用本地内容。 */
 async function getFile(
   id: string,
-  name: CharacterRemoteFileName,
+  name: string,
   etag?: string,
   local = false,
   context?: GithubRequestContext
@@ -261,6 +334,36 @@ async function getFile(
   }
 }
 
+/**
+ * @description 读取不可变的角色表情文件，优先复用已安装的本地副本。
+ * @param id 角色标识。
+ * @param file 表情文件相对路径。
+ * @param local 是否允许复用本地角色目录。
+ * @param context 本次操作固定使用的 GitHub 来源。
+ * @returns 表情文件内容，不为表情文件维护 ETag。
+ */
+async function getImmutableEmoticonFile(
+  id: string,
+  file: string,
+  local: boolean,
+  context?: GithubRequestContext
+): Promise<RemoteFile> {
+  if (local) {
+    try {
+      return { content: await readFile(resolveEmoticonPath(id, file)), notModified: true }
+    } catch (error) {
+      await logger.warn('main', 'character-emoticon-local-missing', 'Local character emoticon is missing', {
+        characterId: id,
+        file,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  const result = await fetchRemoteCharacterFile(id, file, undefined, context)
+  if (!result.content) throw new Error('Remote character emoticon is missing content: ' + file)
+  return { content: result.content, etag: undefined, notModified: false }
+}
+
 /** @description 串行准备一个角色的完整远端文件集。 */
 async function getBundle(
   id: string,
@@ -268,24 +371,31 @@ async function getBundle(
   local = false,
   context?: GithubRequestContext
 ): Promise<Bundle> {
-  const files = {} as Record<CharacterRemoteFileName, RemoteFile>
-  for (const name of CHARACTER_REMOTE_FILE_NAMES)
+  const files = {} as Record<string, RemoteFile>
+  for (const name of CHARACTER_REMOTE_FILE_NAMES) {
     files[name] = await getFile(id, name, etags[name], local, context)
+  }
+  const info = JSON.parse(files['info.json'].content.toString('utf-8')) as CharacterInfo
+  const emoticonDefinitions = validateCharacterEmoticons(info)
+  const emoticons: Array<{ definition: ChatEmoticonDefinition; content: Buffer }> = []
+  for (const definition of emoticonDefinitions) {
+    const file = await getImmutableEmoticonFile(id, definition.file, local, context)
+    files[definition.file] = file
+    emoticons.push({ definition, content: file.content })
+  }
   const nextEtags: Partial<Record<CharacterRemoteFileName, string>> = {}
   for (const name of CHARACTER_REMOTE_FILE_NAMES)
     if (files[name].etag) nextEtags[name] = files[name].etag
   return {
-    info: JSON.parse(files['info.json'].content.toString('utf-8')) as CharacterInfo,
+    info,
     prompt: files['prompt.md'].content.toString('utf-8'),
     avatar: files['avatar.png'].content,
     cardBg: files['cardBg.png'].content,
+    emoticons,
     etags: nextEtags,
-    notModified: {
-      'info.json': files['info.json'].notModified,
-      'prompt.md': files['prompt.md'].notModified,
-      'avatar.png': files['avatar.png'].notModified,
-      'cardBg.png': files['cardBg.png'].notModified
-    }
+    notModified: Object.fromEntries(
+      Object.entries(files).map(([name, file]) => [name, file.notModified])
+    )
   }
 }
 
@@ -302,7 +412,12 @@ async function writeStaging(
     writeFile(join(root, PROMPT_FILE_NAME), prompt, 'utf-8'),
     writeFile(join(root, 'avatar.png'), bundle.avatar),
     writeFile(join(root, 'cardBg.png'), bundle.cardBg),
-    writeJsonFileAtomic(join(root, 'manifest.json'), manifest)
+    writeJsonFileAtomic(join(root, 'manifest.json'), manifest),
+    ...bundle.emoticons.map(async ({ definition, content }) => {
+      const target = resolveStagingEmoticonPath(root, definition.file)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, content)
+    })
   ])
 }
 
@@ -356,6 +471,7 @@ async function install(
   try {
     await writeStaging(staging, bundle, prompt, manifest)
     await commitDirectory(id, staging)
+    characterEmoticonsCache.delete(id)
   } finally {
     try {
       await rm(staging, { recursive: true, force: true })
@@ -496,6 +612,59 @@ export async function getCharacterSummaryById(id: string): Promise<CharacterSumm
     avatar: record.avatar,
     cardBg: record.cardBg
   }
+}
+
+/**
+ * @description 读取指定本地角色的表情定义和图片 Data URL。
+ * @param id 角色标识。
+ * @returns 当前角色可用的表情图片清单；单个文件缺失时返回占位状态。
+ * @remarks 结果按角色 ID 缓存，并在角色同步提交后失效。
+ */
+export async function getCharacterEmoticons(id: string): Promise<ChatEmoticonImage[]> {
+  const cached = characterEmoticonsCache.get(id)
+  if (cached) return cached
+
+  const pending = (async (): Promise<ChatEmoticonImage[]> => {
+    const record = await loadLocal(id)
+    if (!record) throw new Error('Character not found: ' + id)
+    const definitions = validateCharacterEmoticons(
+      JSON.parse(await readFile(getCharacterInfoPath(id), 'utf-8')) as CharacterInfo
+    )
+    return Promise.all(
+      definitions.map(async (definition) => {
+        const filePath = resolveEmoticonPath(id, definition.file)
+        if (!(await pathExists(filePath))) {
+          await logger.warn('main', 'character-emoticon-missing', 'Character emoticon file is missing', {
+            characterId: id,
+            emoticonId: definition.id,
+            file: definition.file
+          })
+          return { id: definition.id, description: definition.description, unavailable: true }
+        }
+        try {
+          return {
+            id: definition.id,
+            description: definition.description,
+            dataUrl: await readImageDataUrl(filePath)
+          }
+        } catch (error) {
+          await logger.warn('main', 'character-emoticon-read-failed', 'Failed to read character emoticon', {
+            characterId: id,
+            emoticonId: definition.id,
+            file: definition.file,
+            error: error instanceof Error ? error.message : String(error)
+          })
+          return { id: definition.id, description: definition.description, unavailable: true }
+        }
+      })
+    )
+  })()
+  const stable = pending.catch((error) => {
+    characterEmoticonsCache.delete(id)
+    throw error
+  })
+  characterEmoticonsCache.set(id, stable)
+  return stable
 }
 
 /** @description 读取指定本地角色的 Prompt 文档。 */

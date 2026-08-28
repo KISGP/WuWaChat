@@ -10,6 +10,8 @@ import {
   abortRun,
   deleteMessage,
   getCharacterPrompt,
+  getCharacterEmoticons,
+  getUserEmoticons,
   getSessions,
   readImageResource,
   saveCharacterPrompt,
@@ -53,6 +55,16 @@ export function registerChatIpc(): void {
   )
   handleLogged('chat:getSessions', () => getSessions())
   handleLogged(
+    'chat:getUserEmoticons',
+    () => getUserEmoticons(),
+    () => ({ source: 'user' })
+  )
+  handleLogged(
+    'chat:getCharacterEmoticons',
+    (_event, characterId: string) => getCharacterEmoticons(characterId),
+    (characterId) => ({ characterId })
+  )
+  handleLogged(
     'chat:readImageResource',
     (_event, request: ChatImageReadRequest) => readImageResource(request),
     (request) => ({ sessionId: request.sessionId, resourceId: request.resourceId })
@@ -66,7 +78,8 @@ export function registerChatIpc(): void {
       sessionId: request.sessionId,
       characterId: request.characterId,
       profileId: request.profileId,
-      messageLength: request.content.length
+      messageLength: request.segment.type === 'text' ? request.segment.text.length : 0,
+      emoticonId: request.segment.type === 'emoticon' ? request.segment.emoticonId : undefined
     })
   )
   handleLogged(

@@ -1,6 +1,7 @@
 import type { CharacterSummary, ChatImageAttachment, ConversationSession, ModelProfile } from '@shared/chat'
 import type { AgentPolicy, AgentResourceId, AgentResourcePage, AgentToolTrace } from '@shared/agent'
 import type { StoryScopeResult } from '@shared/story'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 import type { AIMessageChunk, BaseMessage, MessageContent } from '@langchain/core/messages'
 
 export type AgentToolContext = {
@@ -14,6 +15,10 @@ export type AgentToolContext = {
     read: (resourceId: string) => Promise<{ attachment: ChatImageAttachment; dataUrl: string } | null>
     updateAnalysis: (resourceId: string, analysis: string) => Promise<void>
   }
+  emoticonResources?: {
+    read: (id: string) => Promise<ChatEmoticonImage | null>
+  }
+  emoticonCatalog?: ChatEmoticonImage[]
 }
 
 export type AgentResource = {

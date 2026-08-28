@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -7,8 +8,10 @@ import {
   type KeyboardEvent,
   type ReactElement
 } from 'react'
-import { ImagePlus, Send, StopCircle, X } from 'lucide-react'
+import { ImagePlus, Send, Smile, StopCircle, X } from 'lucide-react'
 import type { ChatImageInput } from '@shared/chat'
+import { getUserEmoticons } from '@renderer/services/emoticons'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 
 const MAX_IMAGE_COUNT = 4
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -24,6 +27,7 @@ type ChatComposerProps = {
   isLoading: boolean
   charId?: string
   onTypingActivity?: () => void
+  onEmoticonPick: (emoticonId: string) => void
 }
 
 /**
@@ -66,14 +70,23 @@ export default function ChatComposer({
   onStop,
   isLoading,
   charId,
-  onTypingActivity
+  onTypingActivity,
+  onEmoticonPick
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState('')
   const [images, setImages] = useState<ChatImageInput[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const [emoticons, setEmoticons] = useState<ChatEmoticonImage[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    void getUserEmoticons()
+      .then(setEmoticons)
+      .catch((cause) => console.error('Failed to load user emoticons', cause))
+  }, [])
 
   /**
    * @description 将选中的图片加入当前待发送列表，并生成稳定的资源标识。
@@ -227,6 +240,43 @@ export default function ChatComposer({
         </div>
       )}
       <div className="flex h-14 items-center gap-1">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsPickerOpen((open) => !open)}
+            disabled={isLoading || !charId}
+            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-[#333] disabled:cursor-not-allowed disabled:opacity-50"
+            title="发送表情"
+            aria-label="发送表情"
+            aria-expanded={isPickerOpen}
+          >
+            <Smile size={20} />
+          </button>
+          {isPickerOpen && (
+            <div className="absolute bottom-12 left-0 z-20 grid w-56 grid-cols-4 gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+              {emoticons.map((emoticon) => (
+                <button
+                  key={emoticon.id}
+                  type="button"
+                  disabled={emoticon.unavailable || !emoticon.dataUrl}
+                  onClick={() => {
+                    onEmoticonPick(emoticon.id)
+                    setIsPickerOpen(false)
+                  }}
+                  className="flex aspect-square items-center justify-center rounded-md hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={`${emoticon.id}：${emoticon.description}`}
+                  aria-label={emoticon.description}
+                >
+                  {emoticon.dataUrl ? (
+                    <img src={emoticon.dataUrl} alt={emoticon.description} className="size-10 object-contain" draggable="false" />
+                  ) : (
+                    <span className="size-10 rounded bg-gray-200" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <input
           ref={fileInputRef}
           type="file"

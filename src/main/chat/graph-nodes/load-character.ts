@@ -3,6 +3,7 @@ import type { ChatGraphNodeContext } from '@main/chat/graph-node-context'
 
 export function createLoadCharacterNode(context: ChatGraphNodeContext) {
   return async (state: GraphStateValue) => ({
-    character: await context.dependencies.getCharacter(state.characterId)
+    character: await context.dependencies.getCharacter(state.characterId),
+    characterEmoticons: await context.dependencies.getCharacterEmoticons(state.characterId)
   })
 }

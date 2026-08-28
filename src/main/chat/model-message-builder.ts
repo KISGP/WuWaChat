@@ -1,5 +1,10 @@
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { ChatDiagnosticMessage, ChatImageInput, ConversationMessage } from '@shared/chat'
+import {
+  CHAT_USER_EMOTICONS,
+  formatChatEmoticonMarker,
+  type ChatEmoticonImage
+} from '@shared/chat-emoticons'
 import { ASSISTANT_MESSAGE_FORMAT_INSTRUCTION } from './assistant-message-splitter'
 import { contentToText } from './message-content'
 
@@ -84,12 +89,40 @@ function getLoggableMessageMetadata(
  * @param prompt 角色 prompt 原文。
  * @returns 最终会发送给模型的 system prompt 文本。
  */
-export function buildSystemPromptText(prompt: string): string {
+export function buildSystemPromptText(
+  prompt: string,
+  characterEmoticons: readonly ChatEmoticonImage[] = []
+): string {
   const systemSections = [prompt.trim()]
   systemSections.push(ASSISTANT_MESSAGE_FORMAT_INSTRUCTION)
   systemSections.push(FINAL_RESPONSE_EVIDENCE_INSTRUCTION)
+  systemSections.push(buildEmoticonInstruction(characterEmoticons))
 
   return systemSections.filter(Boolean).join('\n\n')
+}
+
+/**
+ * @description 构造模型使用表情的规则及用户、角色表情清单。
+ * @param characterEmoticons 当前角色可发送的表情清单。
+ * @returns 表情协议说明文本。
+ */
+function buildEmoticonInstruction(characterEmoticons: readonly ChatEmoticonImage[]): string {
+  const userList = CHAT_USER_EMOTICONS.map(
+    (item) => `- ${formatChatEmoticonMarker(item.id)}：${item.description}`
+  ).join('\n')
+  const characterList = characterEmoticons
+    .filter((item) => !item.unavailable)
+    .map((item) => `- ${formatChatEmoticonMarker(item.id)}：${item.description}`)
+    .join('\n')
+  return [
+    'Emoticon rules:',
+    '- Use a standalone [emoticon:id] only when the current character has that exact ID.',
+    '- A standalone emoticon marker becomes a separate chat message; embedded markers are removed from text.',
+    '- Emoticons supplement text and must not replace a useful written reply.',
+    'User emoticons:',
+    userList,
+    ...(characterList ? ['Current character emoticons:', characterList] : [])
+  ].join('\n')
 }
 
 /**
@@ -123,7 +156,13 @@ export function toConversationMessages(
       .map((attachment) =>
         formatHistoricalImageNote(attachment.resourceId, attachment.fileName, attachment.analysis)
       )
-    const text = [message.content.trim(), ...historicalImageNotes].filter(Boolean).join('\n\n')
+    const text = [
+      message.emoticonId ? formatChatEmoticonMarker(message.emoticonId) : '',
+      message.content.trim(),
+      ...historicalImageNotes
+    ]
+      .filter(Boolean)
+      .join('\n\n')
 
     if (!text && liveImages.length === 0) {
       continue

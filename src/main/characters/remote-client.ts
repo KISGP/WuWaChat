@@ -7,7 +7,7 @@ import {
 } from '@main/download/github'
 import { CHARACTER_REPO_API_URL, CHARACTER_REPOSITORY, PROMPT_FILE_NAME } from './constants'
 import { normalizeCharacterVersion } from './mappers'
-import type { CharacterRemoteFileName, RemoteCharacterRecord } from './types'
+import type { RemoteCharacterRecord } from './types'
 
 /**
  * @description 构造远端角色文件的 raw 下载地址。
@@ -62,7 +62,7 @@ export async function fetchBuffer(url: string): Promise<Buffer> {
  */
 export async function fetchRemoteCharacterFile(
   characterId: string,
-  fileName: CharacterRemoteFileName,
+  fileName: string,
   etag?: string,
   context?: GithubRequestContext
 ): Promise<{ notModified: boolean; etag?: string; content?: Buffer }> {

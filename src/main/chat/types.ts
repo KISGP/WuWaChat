@@ -1,4 +1,5 @@
 import type { CharacterSummary, ConversationSession } from '@shared/chat'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 import type { ProfilesStore } from '@shared/model-settings'
 import type { AgentPolicy } from '@shared/agent'
 
@@ -9,6 +10,7 @@ export type CharacterPromptRecord = {
 
 export type ChatRuntimeDependencies = {
   getCharacter: (characterId: string) => Promise<CharacterSummary>
+  getCharacterEmoticons: (characterId: string) => Promise<ChatEmoticonImage[]>
   getCharacterPrompt: (characterId: string) => Promise<CharacterPromptRecord>
   getProfiles: () => Promise<ProfilesStore>
 }

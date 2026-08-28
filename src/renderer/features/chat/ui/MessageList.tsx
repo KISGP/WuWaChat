@@ -34,7 +34,9 @@ import {
 import { track } from '@renderer/services/logs'
 import { cancel, synthesize } from '@renderer/services/tts'
 import { readImageResource } from '@renderer/services/ai'
+import { getCharacterEmoticons, getUserEmoticons } from '@renderer/services/emoticons'
 import type { ChatImageAttachment } from '@shared/chat'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 
 gsap.registerPlugin(useGSAP)
 
@@ -284,6 +286,50 @@ type CollapsibleMessageContentProps = {
 type AttachmentPreviewProps = {
   sessionId: string | null
   attachment: ChatImageAttachment
+}
+
+type EmoticonBubbleProps = {
+  id: string
+  role: Message['role']
+  characterId: string
+}
+
+/**
+ * @description 按消息来源读取并展示表情图片，缺失时显示稳定占位符。
+ * @param id 表情全局 ID。
+ * @param role 消息角色。
+ * @param characterId 当前角色 ID。
+ * @returns 表情图片或占位元素。
+ */
+function EmoticonBubble({ id, role, characterId }: EmoticonBubbleProps): ReactElement {
+  const [image, setImage] = useState<ChatEmoticonImage | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = role === 'user' ? getUserEmoticons() : getCharacterEmoticons(characterId)
+    void load
+      .then((images) => {
+        if (!cancelled) setImage(images.find((item) => item.id === id) || null)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error('Failed to load chat emoticon', error)
+          setImage(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [characterId, id, role])
+
+  if (image?.dataUrl && !image.unavailable) {
+    return <img src={image.dataUrl} alt={image.description} className="size-30 object-contain" draggable="false" />
+  }
+  return (
+    <div className="flex size-30 items-center justify-center bg-gray-200/80 px-2 text-center text-xs text-gray-500">
+      {id}
+    </div>
+  )
 }
 
 /**
@@ -664,7 +710,9 @@ function MessageItem({
                 ))}
               </div>
             )}
-            {(message.status === 'pending' || message.status === 'streaming') &&
+            {message.emoticonId ? (
+              <EmoticonBubble id={message.emoticonId} role={message.role} characterId={activateChar.id} />
+            ) : (message.status === 'pending' || message.status === 'streaming') &&
             !message.content ? (
               <Bubble
                 align={isUserMessage ? 'end' : 'start'}

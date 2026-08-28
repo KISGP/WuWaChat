@@ -7,6 +7,7 @@ import type {
   ConversationSession,
   ModelProfile
 } from '@shared/chat'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 
 export const GraphState = Annotation.Root({
   requestId: Annotation<string>,
@@ -20,6 +21,7 @@ export const GraphState = Annotation.Root({
   profile: Annotation<ModelProfile>,
   session: Annotation<ConversationSession>,
   character: Annotation<CharacterSummary>,
+  characterEmoticons: Annotation<ChatEmoticonImage[]>(),
   prompt: Annotation<string>,
   systemPromptText: Annotation<string>,
   history: Annotation<ConversationMessage[]>(),

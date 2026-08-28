@@ -12,9 +12,11 @@ import type {
 } from '@shared/chat'
 import {
   getCharacterPrompt,
+  getCharacterEmoticons,
   getCharacterSummaryById,
   saveCharacterPrompt
 } from '@main/characters'
+import { getUserEmoticons } from './emoticons'
 import { memoryService, worldService } from '@main/app/services'
 import { getProfiles } from '@main/settings'
 import { getUnifiedSettingsStore } from '@main/settings/store'
@@ -27,6 +29,7 @@ const chatAgent = createChatAgent(worldService.story, memoryService, worldServic
 const runtime = new ChatRuntime(
   {
     getCharacter: async (characterId) => getCharacterSummaryById(characterId),
+    getCharacterEmoticons,
     getCharacterPrompt: async (characterId) => getCharacterPrompt(characterId),
     getProfiles
   },
@@ -56,7 +59,7 @@ const runtime = new ChatRuntime(
   chatAgent
 )
 
-export { getCharacterPrompt, saveCharacterPrompt }
+export { getCharacterPrompt, saveCharacterPrompt, getCharacterEmoticons, getUserEmoticons }
 
 /**
  * @description 初始化聊天运行时并加载 MemoryService 的设置。

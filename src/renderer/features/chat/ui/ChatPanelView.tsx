@@ -17,6 +17,7 @@ type ChatPanelViewProps = {
   retryableMessageId: string | null
   onRetryMessage: (message: Message) => void
   onSendMessage: (message: string, images: ChatImageInput[]) => void
+  onEmoticonPick: (emoticonId: string) => void
   onStop?: () => void
   isLoading: boolean
   onTypingActivity?: () => void
@@ -33,6 +34,7 @@ export default function ChatPanelView({
   retryableMessageId,
   onRetryMessage,
   onSendMessage,
+  onEmoticonPick,
   onStop,
   isLoading,
   onTypingActivity
@@ -89,6 +91,7 @@ export default function ChatPanelView({
 
       <ChatComposer
         onSendMessage={onSendMessage}
+        onEmoticonPick={onEmoticonPick}
         onStop={onStop}
         isLoading={isLoading}
         charId={activateChar?.id}

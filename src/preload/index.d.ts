@@ -15,6 +15,7 @@ import type {
   CharacterSummary,
   ConversationSession
 } from '@shared/chat'
+import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
 import type { MemorySettingsStore } from '@shared/memory-settings'
 import type {
@@ -52,6 +53,8 @@ declare global {
         promptText: string
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
+      getUserEmoticons: () => Promise<ChatEmoticonImage[]>
+      getCharacterEmoticons: (characterId: string) => Promise<ChatEmoticonImage[]>
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
       startDiagnosticRun: (request: ChatDiagnosticRunRequest) => Promise<{ requestId: string }>
       abortDiagnosticRun: (requestId: string) => Promise<boolean>

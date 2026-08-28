@@ -1,3 +1,5 @@
+import type { ChatEmoticonDefinition } from './chat-emoticons'
+
 export type ProviderKind = 'openai' | 'deepseek'
 
 export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high'
@@ -34,6 +36,7 @@ export type CharacterSummary = {
 export type CharacterInfo = {
   name: { en?: string; cn?: string; jp?: string }
   description: { en?: string; cn?: string; jp?: string }
+  emoticons?: ChatEmoticonDefinition[]
 }
 
 export type CharacterSource = 'preset' | 'custom'
@@ -84,6 +87,8 @@ export type ConversationMessage = {
   id: string
   role: MessageRole
   content: string
+  emoticonId?: string
+  emoticonDescription?: string
   attachments?: ChatImageAttachment[]
   status: MessageStatus
   createdAt: string
@@ -141,9 +146,12 @@ export type ChatAppendMessageRequest = {
   sessionId?: string | null
   characterId: string
   profileId: string
-  content: string
-  images?: ChatImageInput[]
+  segment: ChatUserSegment
 }
+
+export type ChatUserSegment =
+  | { type: 'text'; text: string; images?: ChatImageInput[] }
+  | { type: 'emoticon'; emoticonId: string }
 
 export type ChatAppendMessageResult = {
   requestId: string

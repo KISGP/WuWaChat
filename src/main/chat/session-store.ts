@@ -3,11 +3,14 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import type {
   ChatImageAttachment,
   ChatImageInput,
+  ChatUserSegment,
   ConversationMessage,
   ConversationSession,
   MessageStatus,
   SessionStatus
 } from '@shared/chat'
+import type { AssistantMessageSegment } from './assistant-message-splitter'
+import { CHAT_USER_EMOTICONS } from '@shared/chat-emoticons'
 import { logger } from '@main/logging'
 import {
   getChatAttachmentPath,
@@ -46,12 +49,16 @@ function createMessage(
   content: string,
   status: MessageStatus,
   createdAt = now(),
-  attachments?: ChatImageAttachment[]
+  attachments?: ChatImageAttachment[],
+  emoticonId?: string,
+  emoticonDescription?: string
 ): ConversationMessage {
   return {
     id: randomUUID(),
     role,
     content,
+    ...(emoticonId ? { emoticonId } : {}),
+    ...(emoticonDescription ? { emoticonDescription } : {}),
     status,
     createdAt,
     ...(attachments && attachments.length > 0
@@ -149,8 +156,7 @@ export class SessionStore {
   appendUserMessage(input: {
     sessionId?: string | null
     characterId: string
-    content: string
-    attachments?: ChatImageAttachment[]
+    segment: ChatUserSegment
   }, persist = true): {
     session: ConversationSession
     userMessage: ConversationMessage
@@ -168,13 +174,28 @@ export class SessionStore {
       session.createdAt = timestamp
     }
 
-    const userMessage = createMessage(
-      'user',
-      input.content,
-      'complete',
-      timestamp,
-      input.attachments
-    )
+    const segment = input.segment
+    const userMessage =
+      segment.type === 'emoticon'
+        ? createMessage(
+            'user',
+            '',
+            'complete',
+            timestamp,
+            undefined,
+            segment.emoticonId,
+            CHAT_USER_EMOTICONS.find((item) => item.id === segment.emoticonId)?.description
+          )
+        : createMessage(
+            'user',
+            segment.text,
+            'complete',
+            timestamp,
+            segment.images?.map(({ dataUrl, ...attachment }) => {
+              void dataUrl
+              return attachment
+            })
+          )
     session.messages.push(userMessage)
     session.updatedAt = timestamp
     this.sessions.set(session.id, session)
@@ -317,6 +338,7 @@ export class SessionStore {
    * @param sessionId 会话 ID。
    * @param firstMessageId 本次运行开始时创建的第一条 assistant 消息 ID。
    * @param contents 当前解析出的 assistant 消息段。
+   * @param emoticonDescriptions 当前角色表情 ID 到描述的映射。
    * @param status 最后一条消息应使用的状态；前置消息会标记为 complete。
    * @param nextSessionStatus 可选的会话状态更新。
    * @param persistMode 保存模式；流式中间态使用 debounced。
@@ -325,7 +347,8 @@ export class SessionStore {
   syncAssistantRunMessages(
     sessionId: string,
     firstMessageId: string,
-    contents: string[],
+    contents: AssistantMessageSegment[],
+    emoticonDescriptions: ReadonlyMap<string, string>,
     status: MessageStatus,
     nextSessionStatus?: SessionStatus,
     persistMode: 'immediate' | 'debounced' = 'debounced'
@@ -340,7 +363,7 @@ export class SessionStore {
       throw new Error(`Message not found: ${firstMessageId}`)
     }
 
-    const nextContents = contents.length > 0 ? contents : ['']
+    const nextContents = contents.length > 0 ? contents : [{ type: 'text' as const, text: '' }]
     const existingRunMessages: ConversationMessage[] = []
     let scanIndex = firstIndex
     while (
@@ -352,11 +375,17 @@ export class SessionStore {
     }
 
     const timestamp = now()
-    const nextMessages = nextContents.map((content, index) => {
+    const nextMessages = nextContents.map((segment, index) => {
       const existing = existingRunMessages[index]
       return {
         ...(existing || createMessage('assistant', '', 'pending', timestamp)),
-        content,
+        content: segment.type === 'text' ? segment.text : '',
+        ...(segment.type === 'emoticon'
+          ? {
+              emoticonId: segment.emoticonId,
+              emoticonDescription: emoticonDescriptions.get(segment.emoticonId)
+            }
+          : { emoticonId: undefined, emoticonDescription: undefined }),
         status: index === nextContents.length - 1 ? status : 'complete'
       }
     })
@@ -367,6 +396,25 @@ export class SessionStore {
     this.sessions.set(session.id, session)
     this.schedulePersist(persistMode, session.id)
 
+    return cloneSession(session)
+  }
+
+  /**
+   * @description 完成没有可展示内容的 assistant 运行并移除其占位消息。
+   * @param sessionId 会话 ID。
+   * @param messageId assistant 占位消息 ID。
+   * @returns 更新后的会话快照。
+   */
+  completeEmptyAssistantRun(sessionId: string, messageId: string): ConversationSession {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error(`Session not found: ${sessionId}`)
+    const index = session.messages.findIndex((message) => message.id === messageId)
+    if (index === -1) throw new Error(`Message not found: ${messageId}`)
+    session.messages.splice(index, 1)
+    session.status = 'idle'
+    session.updatedAt = now()
+    this.sessions.set(session.id, session)
+    this.schedulePersist('immediate', session.id)
     return cloneSession(session)
   }
 
