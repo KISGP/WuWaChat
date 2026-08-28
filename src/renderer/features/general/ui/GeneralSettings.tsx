@@ -38,6 +38,8 @@ export function GeneralTab(): ReactElement {
   const updateGithubProxySettings = useAppSettingsStore((state) => state.updateGithubProxySettings)
   const chatImageProcessing = useAppSettingsStore((state) => state.settings.chatImageProcessing)
   const updateChatImageProcessing = useAppSettingsStore((state) => state.updateChatImageProcessing)
+  const chatSendMerge = useAppSettingsStore((state) => state.settings.chatSendMerge)
+  const updateChatSendMerge = useAppSettingsStore((state) => state.updateChatSendMerge)
 
   return (
     <div className="h-full overflow-y-auto px-4">
@@ -71,6 +73,42 @@ export function GeneralTab(): ReactElement {
               )
             })}
           </div>
+        </SettingItem>
+      </SectionCard>
+      <SectionCard title="发送合并">
+        <SettingItem
+          title="合并连续发送"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              在短时间内连续发送的消息会显示为独立气泡，并合并为一次模型请求。
+            </p>,
+            <label key="delay" className="flex items-center justify-between">
+              <span className="text-md text-white/55">等待秒数</span>
+              <input
+                type="number"
+                defaultValue={chatSendMerge.delaySeconds}
+                disabled={!chatSendMerge.enabled}
+                onBlur={(event) => {
+                  const value = Number(event.currentTarget.value)
+                  if (Number.isFinite(value)) {
+                    const delaySeconds = value
+                    event.currentTarget.value = String(delaySeconds)
+                    void updateChatSendMerge({ delaySeconds })
+                  } else {
+                    event.currentTarget.value = String(chatSendMerge.delaySeconds)
+                  }
+                }}
+                className="w-20 border border-white/15 bg-black/35 px-3 py-2 text-center text-sm text-white outline-none focus:border-[#e8c690] disabled:opacity-50"
+              />
+            </label>
+          ]}
+        >
+          <Switch
+            checked={chatSendMerge.enabled}
+            onCheckedChange={(enabled) => void updateChatSendMerge({ enabled })}
+            aria-label="合并连续发送"
+            className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+          />
         </SettingItem>
       </SectionCard>
       <SectionCard title="网络">

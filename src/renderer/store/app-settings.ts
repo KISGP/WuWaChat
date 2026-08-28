@@ -4,6 +4,7 @@ import {
   type TtsSettings,
   type GithubProxySettings,
   type ChatImageProcessingSettings,
+  type ChatSendMergeSettings,
   createDefaultAppSettings,
   normalizeAppSettings
 } from '@shared/app-settings'
@@ -25,6 +26,7 @@ type AppSettingsStore = {
     compression?: Partial<ChatImageProcessingSettings['compression']>
     resize?: Partial<ChatImageProcessingSettings['resize']>
   }) => Promise<void>
+  updateChatSendMerge: (patch: Partial<ChatSendMergeSettings>) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
   updateTtsProviderSettings: <P extends keyof TtsSettings['providers']>(
@@ -141,6 +143,21 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
     }
     set({ settings })
     trackUiEvent('chat-image-processing-changed', 'User changed chat image processing settings')
+    await saveSettings(settings, set)
+  },
+  /**
+   * @description 更新聊天发送合并策略并持久化设置。
+   * @param patch 要合并的发送合并配置。
+   * @returns 设置保存流程完成后的 Promise。
+   */
+  updateChatSendMerge: async (patch) => {
+    const current = get().settings
+    const settings = { ...current, chatSendMerge: { ...current.chatSendMerge, ...patch } }
+    set({ settings })
+    trackUiEvent('chat-send-merge-changed', 'User changed chat send merge settings', {
+      enabled: settings.chatSendMerge.enabled,
+      delaySeconds: settings.chatSendMerge.delaySeconds
+    })
     await saveSettings(settings, set)
   },
   /**

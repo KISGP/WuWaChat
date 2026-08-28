@@ -6,7 +6,8 @@ import type {
   ChatImageReadRequest,
   ChatDeleteMessageRequest,
   ChatRunEvent,
-  ChatRunRequest,
+  ChatAppendMessageRequest,
+  ChatTriggerRunRequest,
   CharacterRegistry
 } from '@shared/chat'
 import { CHAT_DIAGNOSTIC_EVENT_CHANNEL, CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
@@ -35,7 +36,8 @@ const ai = {
   getSessions: () => ipcRenderer.invoke('chat:getSessions'),
   deleteMessage: (request: ChatDeleteMessageRequest) =>
     ipcRenderer.invoke('chat:deleteMessage', request),
-  sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('chat:sendMessage', request),
+  appendMessage: (request: ChatAppendMessageRequest) => ipcRenderer.invoke('chat:appendMessage', request),
+  triggerRun: (request: ChatTriggerRunRequest) => ipcRenderer.invoke('chat:triggerRun', request),
   readImageResource: (request: ChatImageReadRequest) =>
     ipcRenderer.invoke('chat:readImageResource', request),
   abortRun: (requestId: string) => ipcRenderer.invoke('chat:abortRun', requestId),

@@ -135,13 +135,28 @@ export type MemoryEntry = {
   visibility?: 'private' | 'shared'
 }
 
-export type ChatRunRequest = {
+export type ChatAppendMessageRequest = {
+  holdId: string
   requestId: string
   sessionId?: string | null
   characterId: string
-  userMessage: string
   profileId: string
+  content: string
   images?: ChatImageInput[]
+}
+
+export type ChatAppendMessageResult = {
+  requestId: string
+  sessionId: string
+  messageId: string
+}
+
+export type ChatTriggerRunRequest = {
+  holdId: string
+  requestId: string
+  sessionId: string
+  characterId: string
+  profileId: string
 }
 
 export type ChatDeleteMessageRequest = {

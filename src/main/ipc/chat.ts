@@ -1,7 +1,8 @@
 import type {
  ChatDiagnosticRunRequest,
  ChatDeleteMessageRequest,
-  ChatRunRequest,
+  ChatAppendMessageRequest,
+  ChatTriggerRunRequest,
   ChatImageReadRequest
 } from '@shared/chat'
 import {
@@ -13,7 +14,8 @@ import {
   readImageResource,
   saveCharacterPrompt,
   startDiagnosticRun,
-  sendMessage
+  appendMessage,
+  triggerRun
 } from '@main/chat'
 import { handleLogged } from './logged-handler'
 
@@ -56,14 +58,26 @@ export function registerChatIpc(): void {
     (request) => ({ sessionId: request.sessionId, resourceId: request.resourceId })
   )
   handleLogged(
-    'chat:sendMessage',
-    (_event, request: ChatRunRequest) => sendMessage(request),
+    'chat:appendMessage',
+    (_event, request: ChatAppendMessageRequest) => appendMessage(request),
     (request) => ({
       requestId: request.requestId,
+      holdId: request.holdId,
       sessionId: request.sessionId,
       characterId: request.characterId,
       profileId: request.profileId,
-      messageLength: request.userMessage.length
+      messageLength: request.content.length
+    })
+  )
+  handleLogged(
+    'chat:triggerRun',
+    (_event, request: ChatTriggerRunRequest) => triggerRun(request),
+    (request) => ({
+      requestId: request.requestId,
+      holdId: request.holdId,
+      sessionId: request.sessionId,
+      characterId: request.characterId,
+      profileId: request.profileId
     })
   )
   handleLogged(

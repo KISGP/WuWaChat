@@ -95,22 +95,22 @@ export function buildSystemPromptText(prompt: string): string {
 /**
  * @description 将会话历史转换为不包含 system 提示词的模型消息数组。
  * @param history 将发送给模型的历史消息与当前用户输入。
- * @param currentImages 当前请求携带的原始图片；仅匹配到本轮用户消息的图片会进入多模态内容。
+ * @param currentTurn 当前轮次消息 ID 与待发送图片；仅匹配到本轮用户消息的图片会进入多模态内容。
  * @returns 仅包含用户与助手角色的消息数组。
  */
 export function toConversationMessages(
   history: ConversationMessage[],
-  currentMessage?: { id: string; images: ChatImageInput[] }
+  currentTurn?: { messageIds: ReadonlySet<string>; images: ChatImageInput[] }
 ): BaseMessage[] {
   const messages: BaseMessage[] = []
   const currentImagesByResourceId = new Map(
-    (currentMessage?.images || []).map((image) => [image.resourceId, image])
+    (currentTurn?.images || []).map((image) => [image.resourceId, image])
   )
 
   for (const message of history) {
     const attachments = message.attachments || []
     const liveImages =
-      message.role === 'user' && message.id === currentMessage?.id
+      message.role === 'user' && currentTurn?.messageIds.has(message.id)
         ? attachments
             .map((attachment) => currentImagesByResourceId.get(attachment.resourceId))
             .filter((image): image is ChatImageInput => Boolean(image))
@@ -118,7 +118,7 @@ export function toConversationMessages(
     const historicalImageNotes = attachments
       .filter(
         (attachment) =>
-          message.id !== currentMessage?.id || !currentImagesByResourceId.has(attachment.resourceId)
+          !currentTurn?.messageIds.has(message.id) || !currentImagesByResourceId.has(attachment.resourceId)
       )
       .map((attachment) =>
         formatHistoricalImageNote(attachment.resourceId, attachment.fileName, attachment.analysis)
@@ -131,6 +131,30 @@ export function toConversationMessages(
 
     if (message.role === 'assistant') {
       messages.push(new AIMessage(text))
+      continue
+    }
+
+    const previous = messages[messages.length - 1]
+    if (previous instanceof HumanMessage) {
+      const previousContent = contentToText(previous.content)
+      const mergedText = [previousContent, text].filter(Boolean).join('\n')
+      const previousImages = Array.isArray(previous.content)
+        ? previous.content.filter(
+            (item): item is { type: 'image_url'; image_url: { url: string } } =>
+              Boolean(item && typeof item === 'object' && (item as { type?: unknown }).type === 'image_url')
+          )
+        : []
+      if (liveImages.length === 0 && previousImages.length === 0) {
+        messages[messages.length - 1] = new HumanMessage(mergedText)
+      } else {
+        messages[messages.length - 1] = new HumanMessage({
+          content: [
+            ...(mergedText ? [{ type: 'text' as const, text: mergedText }] : []),
+            ...previousImages,
+            ...liveImages.map((image) => ({ type: 'image_url' as const, image_url: { url: image.dataUrl } }))
+          ]
+        })
+      }
       continue
     }
 

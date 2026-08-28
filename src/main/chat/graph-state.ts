@@ -15,7 +15,7 @@ export const GraphState = Annotation.Root({
   profileId: Annotation<string>,
   characterId: Annotation<string>,
   userMessage: Annotation<string>,
-  currentMessageId: Annotation<string>,
+  currentMessageIds: Annotation<string[]>(),
   currentImages: Annotation<ChatImageInput[]>(),
   profile: Annotation<ModelProfile>,
   session: Annotation<ConversationSession>,

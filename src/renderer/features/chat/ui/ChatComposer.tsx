@@ -23,6 +23,7 @@ type ChatComposerProps = {
   onStop?: () => void
   isLoading: boolean
   charId?: string
+  onTypingActivity?: () => void
 }
 
 /**
@@ -64,7 +65,8 @@ export default function ChatComposer({
   onSendMessage,
   onStop,
   isLoading,
-  charId
+  charId,
+  onTypingActivity
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState('')
   const [images, setImages] = useState<ChatImageInput[]>([])
@@ -249,7 +251,10 @@ export default function ChatComposer({
           type="text"
           placeholder="发送消息..."
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            setInput(event.target.value)
+            onTypingActivity?.()
+          }}
           onKeyUp={handleKeyPress}
           onPaste={handlePaste}
           disabled={isLoading || !charId}

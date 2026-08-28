@@ -29,6 +29,13 @@ export type ChatImageProcessingSettings = {
   resize: { preset: ChatImagePreset }
 }
 
+export type ChatSendMergeSettings = {
+  enabled: boolean
+  delaySeconds: number
+}
+
+export const CHAT_SEND_MERGE_DELAY_SECONDS_DEFAULT = 5
+
 export type LocalTtsProviderSettings = {
   engine: LocalTtsEngine
   engineConfigs: {
@@ -71,6 +78,7 @@ export type AppSettings = {
   settingsSidebarExpanded: boolean
   githubProxy: GithubProxySettings
   chatImageProcessing: ChatImageProcessingSettings
+  chatSendMerge: ChatSendMergeSettings
   tts: TtsSettings
 }
 
@@ -159,6 +167,7 @@ export function createDefaultAppSettings(): AppSettings {
       compression: { quality: CHAT_IMAGE_QUALITY_DEFAULT },
       resize: { preset: 'original' }
     },
+    chatSendMerge: { enabled: false, delaySeconds: CHAT_SEND_MERGE_DELAY_SECONDS_DEFAULT },
     tts: {
       enabled: false,
       provider: 'local',
@@ -205,6 +214,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   const rawTts = raw.tts as (Partial<TtsSettings> & LegacyFishTtsSettings) | undefined
   const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
   const rawImageProcessing = raw.chatImageProcessing as Partial<ChatImageProcessingSettings> | undefined
+  const rawSendMerge = raw.chatSendMerge as Partial<ChatSendMergeSettings> | undefined
   const rawCompression = rawImageProcessing?.compression
   const rawResize = rawImageProcessing?.resize
   const quality =
@@ -235,6 +245,13 @@ export function normalizeAppSettings(value: unknown): AppSettings {
       enabled: rawImageProcessing?.enabled !== false,
       compression: { quality },
       resize: { preset }
+    },
+    chatSendMerge: {
+      enabled: rawSendMerge?.enabled === true,
+      delaySeconds:
+        typeof rawSendMerge?.delaySeconds === 'number' && Number.isFinite(rawSendMerge.delaySeconds)
+          ? rawSendMerge.delaySeconds
+          : CHAT_SEND_MERGE_DELAY_SECONDS_DEFAULT
     },
     tts: {
       enabled: rawTts?.enabled === true,

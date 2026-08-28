@@ -3,7 +3,8 @@ import type {
   ChatDeleteMessageRequest,
   ChatDiagnosticRunRequest,
   ChatRunEvent,
-  ChatRunRequest
+  ChatAppendMessageRequest,
+  ChatTriggerRunRequest
 } from '@shared/chat'
 import type { ChatDiagnosticRunEvent } from '@shared/chat'
 
@@ -55,8 +56,17 @@ export function deleteMessage(
  * @param request 包含会话、角色和消息内容的运行请求。
  * @returns 主进程创建聊天运行后的 Promise。
  */
-export function sendMessage(request: ChatRunRequest): ReturnType<typeof window.ai.sendMessage> {
-  return window.ai.sendMessage(request)
+export function appendMessage(request: ChatAppendMessageRequest): ReturnType<typeof window.ai.appendMessage> {
+  return window.ai.appendMessage(request)
+}
+
+/**
+ * @description 触发一次等待窗口对应的聊天运行。
+ * @param request 触发请求。
+ * @returns 主进程接受的运行信息。
+ */
+export function triggerRun(request: ChatTriggerRunRequest): ReturnType<typeof window.ai.triggerRun> {
+  return window.ai.triggerRun(request)
 }
 
 /**

@@ -3,7 +3,9 @@ import type {
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
   ChatRunAccepted,
-  ChatRunRequest,
+  ChatAppendMessageRequest,
+  ChatAppendMessageResult,
+  ChatTriggerRunRequest,
   ChatImageReadRequest,
   ChatImageReadResult,
   ConversationSession
@@ -89,8 +91,17 @@ export async function readImageResource(
  * @param request 运行请求对象。
  * @returns 已接受的运行信息，包含请求 ID 等元数据。
  */
-export async function sendMessage(request: ChatRunRequest): Promise<ChatRunAccepted> {
-  return runtime.sendMessage(request)
+export async function appendMessage(request: ChatAppendMessageRequest): Promise<ChatAppendMessageResult> {
+  return runtime.appendMessage(request)
+}
+
+/**
+ * @description 触发等待窗口对应的一次聊天运行。
+ * @param request 触发请求。
+ * @returns 已接受的运行信息。
+ */
+export async function triggerRun(request: ChatTriggerRunRequest): Promise<ChatRunAccepted> {
+  return runtime.triggerRun(request)
 }
 
 /**

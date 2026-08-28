@@ -9,7 +9,8 @@ import type {
   ChatRunAccepted,
   CharacterRegistry,
   ChatRunEvent,
-  ChatRunRequest,
+  ChatAppendMessageRequest,
+  ChatTriggerRunRequest,
   CharacterPromptDocument,
   CharacterSummary,
   ConversationSession
@@ -54,7 +55,8 @@ declare global {
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>
       startDiagnosticRun: (request: ChatDiagnosticRunRequest) => Promise<{ requestId: string }>
       abortDiagnosticRun: (requestId: string) => Promise<boolean>
-      sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
+      appendMessage: (request: ChatAppendMessageRequest) => Promise<{ requestId: string; sessionId: string; messageId: string }>
+      triggerRun: (request: ChatTriggerRunRequest) => Promise<ChatRunAccepted>
       readImageResource: (request: ChatImageReadRequest) => Promise<ChatImageReadResult | null>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void

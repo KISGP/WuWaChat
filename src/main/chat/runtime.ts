@@ -6,9 +6,12 @@ import type {
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
   ChatImageAttachment,
+  ChatImageInput,
+  ChatAppendMessageRequest,
+  ChatAppendMessageResult,
+  ChatTriggerRunRequest,
   ChatImageReadRequest,
   ChatRunAccepted,
-  ChatRunRequest,
   ConversationMessage,
   ConversationSession
 } from '@shared/chat'
@@ -32,6 +35,12 @@ export class ChatRuntime {
   private readonly runRegistry = new RunRegistry()
   private readonly eventPublisher = new RunEventPublisher()
   private readonly diagnosticControllers = new Map<string, AbortController>()
+  private readonly pendingHolds = new Map<string, {
+    sessionId: string
+    characterId: string
+    profileId: string
+    messageIds: string[]
+  }>()
   private readonly graph
 
   constructor(
@@ -75,8 +84,8 @@ export class ChatRuntime {
    * @returns 已接受的运行标识；图片保存失败时返回已创建但已标记错误的运行。
    * @remarks 历史图片只通过摘要和 resourceId 进入模型；原图仅在本轮请求中读取。
    */
-  async sendMessage(request: ChatRunRequest): Promise<ChatRunAccepted> {
-    const userMessage = request.userMessage.trim()
+  async appendMessage(request: ChatAppendMessageRequest): Promise<ChatAppendMessageResult> {
+    const userMessage = request.content.trim()
     if (!userMessage && !(request.images && request.images.length > 0)) {
       throw new Error('Chat message requires text or at least one image.')
     }
@@ -98,45 +107,36 @@ export class ChatRuntime {
       void dataUrl
       return attachment
     })
-    const { session, userMessage: userMessageRecord, assistantMessage } = this.sessionStore.startRun({
-      sessionId: request.sessionId,
-      characterId: request.characterId,
-      userMessage,
-      attachments
-    })
-    const activeRun = this.runRegistry.register(request.requestId, session.id, assistantMessage.id)
-    const accepted = {
-      requestId: request.requestId,
-      sessionId: session.id,
-      messageId: assistantMessage.id
+    const pending = this.pendingHolds.get(request.holdId)
+    if (pending && pending.characterId !== request.characterId) {
+      throw new Error('Chat hold character mismatch.')
     }
+    const sessionId = pending?.sessionId || request.sessionId || null
+    const appended = this.sessionStore.appendUserMessage({
+      sessionId,
+      characterId: request.characterId,
+      content: userMessage,
+      attachments
+    }, false)
+    const hold = pending || {
+      sessionId: appended.session.id,
+      characterId: request.characterId,
+      profileId: request.profileId,
+      messageIds: []
+    }
+    hold.messageIds.push(appended.userMessage.id)
+    this.pendingHolds.set(request.holdId, hold)
 
-    let currentImages: ChatRunRequest['images'] = []
     try {
-      const appSettings = await getAppSettings()
       const savedAttachments = await Promise.all(
-        (request.images || []).map((image) => this.sessionStore.saveAttachment(session.id, image))
+        (request.images || []).map((image) => this.sessionStore.saveAttachment(appended.session.id, image))
       )
       const syncedSession = this.sessionStore.setMessageAttachments(
-        session.id,
-        userMessageRecord.id,
-        savedAttachments
+        appended.session.id,
+        appended.userMessage.id,
+        savedAttachments,
+        false
       )
-      const originalImages = (
-        await Promise.all(
-          savedAttachments.map((attachment) =>
-            this.sessionStore.readAttachment(session.id, attachment.resourceId)
-          )
-        )
-      ).filter((image): image is NonNullable<typeof image> => Boolean(image))
-        .map(({ attachment, dataUrl }) => ({ ...attachment, dataUrl }))
-      currentImages = await Promise.all(
-        originalImages.map(async (image) => ({
-          ...image,
-          dataUrl: await processChatImage(image.dataUrl, appSettings.chatImageProcessing)
-        }))
-      )
-
       this.eventPublisher.publish({
         type: 'session-synced',
         requestId: request.requestId,
@@ -145,68 +145,84 @@ export class ChatRuntime {
       this.chatContext.syncSessions(this.sessionStore.getSessions())
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const failedSession = this.sessionStore.failRun(session.id, assistantMessage.id, message)
-      this.eventPublisher.publish({
-        type: 'message-updated',
-        requestId: request.requestId,
-        sessionId: session.id,
-        message: failedSession.messages.find((item) => item.id === assistantMessage.id) || assistantMessage
-      })
-      this.eventPublisher.publish({ type: 'session-synced', requestId: request.requestId, session: failedSession })
-      this.eventPublisher.publish({
-        type: 'run-error',
-        requestId: request.requestId,
-        sessionId: session.id,
-        messageId: assistantMessage.id,
-        error: message
-      })
       void logger.error('ai', 'image-save-failed', 'Failed to save chat image attachments', {
         requestId: request.requestId,
-        sessionId: session.id,
+        sessionId: appended.session.id,
         error: message
       })
-      this.runRegistry.delete(request.requestId)
-      return accepted
+      this.sessionStore.deleteMessage(appended.session.id, appended.userMessage.id, false)
+      const currentHold = this.pendingHolds.get(request.holdId)
+      if (currentHold) {
+        currentHold.messageIds = currentHold.messageIds.filter((id) => id !== appended.userMessage.id)
+        if (currentHold.messageIds.length === 0) this.pendingHolds.delete(request.holdId)
+      }
+      throw error
     }
-
-    void logger.info('ai', 'run-accepted', 'Accepted chat run request', {
+    void logger.info('ai', 'message-appended', 'Accepted chat append request', {
       requestId: request.requestId,
-      sessionId: session.id,
+      sessionId: appended.session.id,
       characterId: request.characterId,
       profileId: request.profileId,
-      messageId: assistantMessage.id,
-      messageLength: request.userMessage.length
+      messageId: appended.userMessage.id,
+      messageLength: userMessage.length
     })
+    return { requestId: request.requestId, sessionId: appended.session.id, messageId: appended.userMessage.id }
+  }
 
-    this.eventPublisher.publish({
-      type: 'run-started',
-      requestId: request.requestId,
-      session,
-      messageId: assistantMessage.id
-    })
-    void logger.info('ai', 'run-started', 'Chat run started', {
-      requestId: request.requestId,
-      sessionId: session.id,
-      characterId: request.characterId,
-      profileId: request.profileId,
-      messageId: assistantMessage.id
-    })
-    this.chatContext.syncSessions(this.sessionStore.getSessions())
-
+  /**
+   * @description 将等待窗口内的多条用户消息正式落库并启动一次聊天运行。
+   * @param request 触发请求，包含等待窗口和模型上下文。
+   * @returns 已接受的运行标识。
+   * @remarks 触发开始即持久化用户消息；预处理或模型失败时仍保留用户气泡。
+   */
+  async triggerRun(request: ChatTriggerRunRequest): Promise<ChatRunAccepted> {
+    const hold = this.pendingHolds.get(request.holdId)
+    if (!hold || hold.sessionId !== request.sessionId || hold.characterId !== request.characterId) {
+      throw new Error('Chat hold not found or does not match the session.')
+    }
+    const session = this.sessionStore.getSession(hold.sessionId)
+    if (!session) throw new Error(`Session not found: ${hold.sessionId}`)
+    const trailingUsers: ConversationMessage[] = []
+    for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+      const message = session.messages[index]
+      if (message.role !== 'user') break
+      trailingUsers.unshift(message)
+    }
+    if (trailingUsers.length === 0) {
+      this.pendingHolds.delete(request.holdId)
+      throw new Error('No pending user messages to trigger.')
+    }
+    const begun = this.sessionStore.beginRun(hold.sessionId, true)
+    this.pendingHolds.delete(request.holdId)
+    const activeRun = this.runRegistry.register(request.requestId, hold.sessionId, begun.assistantMessage.id)
+    this.eventPublisher.publish({ type: 'run-started', requestId: request.requestId, session: begun.session, messageId: begun.assistantMessage.id })
+    let currentImages: ChatImageInput[] = []
+    try {
+      const appSettings = await getAppSettings()
+      const images = trailingUsers.flatMap((message) => message.attachments || [])
+      const originals = (await Promise.all(images.map((attachment) => this.sessionStore.readAttachment(hold.sessionId, attachment.resourceId))))
+        .filter((image): image is NonNullable<typeof image> => Boolean(image))
+        .map(({ attachment, dataUrl }) => ({ ...attachment, dataUrl }))
+      currentImages = await Promise.all(originals.map(async (image) => ({
+        ...image,
+        dataUrl: await processChatImage(image.dataUrl, appSettings.chatImageProcessing)
+      })))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const failed = this.sessionStore.failRun(hold.sessionId, begun.assistantMessage.id, message)
+      this.eventPublisher.publish({ type: 'session-synced', requestId: request.requestId, session: failed })
+      this.eventPublisher.publish({ type: 'run-error', requestId: request.requestId, sessionId: hold.sessionId, messageId: begun.assistantMessage.id, error: message })
+      this.runRegistry.delete(request.requestId)
+      throw error
+    }
+    const userMessage = trailingUsers.map((message) => message.content).filter(Boolean).join('\n')
     void this.executeRun({
-      requestId: request.requestId,
-      sessionId: session.id,
-      assistantMessageId: assistantMessage.id,
-      profileId: request.profileId,
-      characterId: request.characterId,
-      userMessage,
-      currentMessageId: userMessageRecord.id,
-      currentImages,
-      assistantDraft: '',
+      requestId: request.requestId, sessionId: hold.sessionId, assistantMessageId: begun.assistantMessage.id,
+      profileId: request.profileId, characterId: request.characterId, userMessage,
+      currentMessageIds: trailingUsers.map((message) => message.id), currentImages, assistantDraft: '',
       abortSignal: activeRun.controller.signal
     })
-
-    return accepted
+    return { requestId: request.requestId, sessionId: hold.sessionId, messageId: begun.assistantMessage.id }
   }
 
   /**
@@ -215,7 +231,11 @@ export class ChatRuntime {
    * @returns 删除后最新的会话快照。
    */
   deleteMessage(request: ChatDeleteMessageRequest): ChatDeleteMessageResult {
-    const session = this.sessionStore.deleteMessage(request.sessionId, request.messageId)
+    const pending = [...this.pendingHolds.values()].find((hold) => hold.sessionId === request.sessionId)
+    const session = this.sessionStore.deleteMessage(request.sessionId, request.messageId, !pending)
+    if (pending) {
+      pending.messageIds = pending.messageIds.filter((messageId) => messageId !== request.messageId)
+    }
     this.chatContext.syncSessions(this.sessionStore.getSessions())
     void logger.info('ai', 'message-deleted', 'Chat message deleted', {
       sessionId: request.sessionId,

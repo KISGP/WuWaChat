@@ -19,6 +19,7 @@ type ChatPanelViewProps = {
   onSendMessage: (message: string, images: ChatImageInput[]) => void
   onStop?: () => void
   isLoading: boolean
+  onTypingActivity?: () => void
 }
 
 export default function ChatPanelView({
@@ -33,7 +34,8 @@ export default function ChatPanelView({
   onRetryMessage,
   onSendMessage,
   onStop,
-  isLoading
+  isLoading,
+  onTypingActivity
 }: ChatPanelViewProps): ReactElement {
   return (
     <div className="relative h-156 w-205">
@@ -90,6 +92,7 @@ export default function ChatPanelView({
         onStop={onStop}
         isLoading={isLoading}
         charId={activateChar?.id}
+        onTypingActivity={onTypingActivity}
       />
     </div>
   )

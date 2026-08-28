@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ChatImageInput, ChatRunEvent } from '@shared/chat'
 import { trackUiEvent } from '@renderer/app/telemetry'
 import { useCharacterRegistryStore } from '@renderer/store/character-registry'
 import { selectActiveBackground, useAppearanceStore } from '@renderer/store/appearance'
 import { selectSessionById, useSessionStore } from '@renderer/store/session'
 import { selectActiveProfile, useSettingsStore } from '@renderer/store/profiles'
+import { useAppSettingsStore } from '@renderer/store/app-settings'
 import ChatPanelView from './ChatPanelView'
 import {
   abortRun,
   deleteMessage,
   onRunEvent,
   readImageResource,
-  sendMessage
+  appendMessage,
+  triggerRun as triggerRunService
 } from '@renderer/services/ai'
 
 /**
@@ -86,11 +88,21 @@ export default function ChatPanel(): ReactElement {
   const activateChar = useCharacterRegistryStore((state) => state.activateChar)
   const activeBackground = useAppearanceStore(selectActiveBackground)
   const activeProfile = useSettingsStore(selectActiveProfile)
+  const chatSendMerge = useAppSettingsStore((state) => state.settings.chatSendMerge)
   const currentStoreSessionId = useSessionStore((state) => state.currentSessionId)
   const setCurrentSessionId = useSessionStore((state) => state.setCurrentSessionId)
   const [isLoading, setIsLoading] = useState(false)
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null)
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
+  const holdRef = useRef<{
+    holdId: string
+    sessionId: string | null
+    characterId: string
+    profileId: string
+    firstAppendAt: number
+    timer: ReturnType<typeof setTimeout> | null
+  } | null>(null)
+  const lastTypingAtRef = useRef(0)
 
   const currentSession = useSessionStore(selectSessionById(currentStoreSessionId))
   const currentSessionId = currentSession?.id ?? null
@@ -179,43 +191,123 @@ export default function ChatPanel(): ReactElement {
     void abortRun(requestId)
   }, [activateChar?.id, currentSession?.id, pendingRequestId])
 
+  const triggerRun = useCallback((): void => {
+    const hold = holdRef.current
+    if (!hold || !hold.sessionId) return
+    const session = useSessionStore.getState().sessions.find((item) => item.id === hold.sessionId)
+    let index = (session?.messages.length || 0) - 1
+    let count = 0
+    while (index >= 0 && session?.messages[index].role === 'user') {
+      count += 1
+      index -= 1
+    }
+    if (!session || count === 0) {
+      holdRef.current = null
+      return
+    }
+    if (hold.timer) {
+      clearTimeout(hold.timer)
+      hold.timer = null
+    }
+    const requestId = globalThis.crypto.randomUUID()
+    setPendingRequestId(requestId)
+    setIsLoading(true)
+    trackUiEvent('chat-run-triggered', 'Chat hold triggered a model run', {
+      requestId, holdId: hold.holdId, sessionId: hold.sessionId, characterId: hold.characterId,
+      messageCount: count
+    })
+    void triggerRunService({
+      holdId: hold.holdId, requestId, sessionId: hold.sessionId, characterId: hold.characterId, profileId: hold.profileId
+    }).catch((error) => {
+      console.error(getChatErrorMessage(error))
+      clearPendingRequest()
+      setIsLoading(false)
+    }).finally(() => {
+      holdRef.current = null
+    })
+  }, [clearPendingRequest])
+
+  const scheduleHold = useCallback((): void => {
+    const hold = holdRef.current
+    if (!hold) return
+    if (hold.timer) clearTimeout(hold.timer)
+    const configured = chatSendMerge.enabled ? chatSendMerge.delaySeconds * 1000 : 0
+    const remaining = Math.max(0, hold.firstAppendAt + 30000 - Date.now())
+    const delay = Math.min(configured, remaining)
+    hold.timer = setTimeout(triggerRun, delay)
+    if (delay === 0) triggerRun()
+  }, [chatSendMerge.delaySeconds, chatSendMerge.enabled, triggerRun])
+
+  const handleTypingActivity = useCallback((): void => {
+    const hold = holdRef.current
+    if (!hold) return
+    const now = Date.now()
+    if (now - lastTypingAtRef.current < 500) return
+    lastTypingAtRef.current = now
+    scheduleHold()
+  }, [scheduleHold])
+  const triggerRunRef = useRef(triggerRun)
+  useEffect(() => {
+    triggerRunRef.current = triggerRun
+  }, [triggerRun])
+
   const handleSendMessage = useCallback(
     (text: string, images: ChatImageInput[] = []): void => {
       if (!activateChar?.id) return
-
+      let hold = holdRef.current
+      if (!hold || hold.characterId !== activateChar.id) {
+        hold = { holdId: globalThis.crypto.randomUUID(), sessionId: currentSessionId, characterId: activateChar.id, profileId: activeProfile.id, firstAppendAt: Date.now(), timer: null }
+        holdRef.current = hold
+      }
       const requestId = globalThis.crypto.randomUUID()
-      const sessionId =
-        currentSession && currentSession.characterId === activateChar.id ? currentSession.id : null
-
-      setPendingRequestId(requestId)
-      setIsLoading(true)
       trackUiEvent('chat-send', 'User sent a chat message', {
         requestId,
-        sessionId,
+        holdId: hold.holdId,
+        sessionId: hold.sessionId,
         characterId: activateChar.id,
         profileId: activeProfile.id,
         messageLength: text.length
       })
-
-      sendMessage({
+      void appendMessage({
+        holdId: hold.holdId,
         requestId,
-        sessionId,
+        sessionId: hold.sessionId,
         characterId: activateChar.id,
-        userMessage: text,
+        content: text,
         profileId: activeProfile.id,
         images: images.length > 0 ? images : undefined
       })
         .then((result) => {
+          const currentHold = holdRef.current
+          if (!currentHold || currentHold.holdId !== hold?.holdId) return
+          currentHold.sessionId = result.sessionId
           setCurrentSessionId(result.sessionId)
+          if (!chatSendMerge.enabled) {
+            triggerRun()
+          } else {
+            scheduleHold()
+          }
         })
         .catch((error) => {
           console.error(getChatErrorMessage(error))
-          clearPendingRequest()
-          setIsLoading(false)
         })
     },
-    [activateChar, activeProfile.id, clearPendingRequest, currentSession, setCurrentSessionId]
+    [activateChar, activeProfile.id, chatSendMerge.enabled, currentSessionId, scheduleHold, setCurrentSessionId, triggerRun]
   )
+
+  useEffect(() => () => {
+    triggerRunRef.current()
+  }, [])
+
+  const previousCharacterIdRef = useRef(activateChar?.id)
+  useEffect(() => {
+    const previousCharacterId = previousCharacterIdRef.current
+    previousCharacterIdRef.current = activateChar?.id
+    const hold = holdRef.current
+    if (hold && previousCharacterId && activateChar?.id !== previousCharacterId && hold.characterId === previousCharacterId) {
+      triggerRun()
+    }
+  }, [activateChar?.id, triggerRun])
 
   const handleRetryMessage = useCallback(
     async (message: Message): Promise<void> => {
@@ -268,6 +360,7 @@ export default function ChatPanel(): ReactElement {
       retryableMessageId={retryableMessageId}
       onRetryMessage={handleRetryMessage}
       onSendMessage={handleSendMessage}
+      onTypingActivity={handleTypingActivity}
       onStop={handleStop}
       isLoading={effectiveIsLoading}
     />

@@ -140,15 +140,20 @@ export class SessionStore {
     return session ? cloneSession(session) : null
   }
 
-  startRun(input: {
+  /**
+   * @description 追加一条用户消息，可选择仅保存在 main 内存中。
+   * @param input 用户消息及会话信息。
+   * @param persist 是否立即持久化；等待窗口内传入 false。
+   * @returns 更新后的会话与用户消息。
+   */
+  appendUserMessage(input: {
     sessionId?: string | null
     characterId: string
-    userMessage: string
+    content: string
     attachments?: ChatImageAttachment[]
-  }): {
+  }, persist = true): {
     session: ConversationSession
     userMessage: ConversationMessage
-    assistantMessage: ConversationMessage
   } {
     assertSafePathSegment(input.characterId, 'character id')
     const timestamp = now()
@@ -159,29 +164,51 @@ export class SessionStore {
     if (session.characterId !== input.characterId) {
       session.characterId = input.characterId
       session.messages = []
+      session.status = 'idle'
       session.createdAt = timestamp
     }
 
     const userMessage = createMessage(
       'user',
-      input.userMessage,
+      input.content,
       'complete',
       timestamp,
       input.attachments
     )
-    const assistantMessage = createMessage('assistant', '', 'pending', timestamp)
+    session.messages.push(userMessage)
+    session.updatedAt = timestamp
+    this.sessions.set(session.id, session)
+    if (persist) {
+      this.schedulePersist('immediate', session.id)
+    }
 
-    session.messages.push(userMessage, assistantMessage)
+    return { session: cloneSession(session), userMessage: cloneMessage(userMessage) }
+  }
+
+  /**
+   * @description 为会话创建 assistant 占位并切换到运行状态。
+   * @param sessionId 目标会话 ID。
+   * @param persist 是否立即持久化。
+   * @returns 更新后的会话与 assistant 占位消息。
+   */
+  beginRun(sessionId: string, persist = true): {
+    session: ConversationSession
+    assistantMessage: ConversationMessage
+  } {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    const timestamp = now()
+    const assistantMessage = createMessage('assistant', '', 'pending', timestamp)
+    session.messages.push(assistantMessage)
     session.status = 'running'
     session.updatedAt = timestamp
     this.sessions.set(session.id, session)
-    this.schedulePersist('immediate', session.id)
-
-    return {
-      session: cloneSession(session),
-      userMessage: cloneMessage(userMessage),
-      assistantMessage: cloneMessage(assistantMessage)
+    if (persist) {
+      this.schedulePersist('immediate', session.id)
     }
+    return { session: cloneSession(session), assistantMessage: cloneMessage(assistantMessage) }
   }
 
   updateAssistantMessage(
@@ -242,7 +269,7 @@ export class SessionStore {
    * @returns 删除后的会话快照。
    * @remarks 删除操作会立即持久化；若目标消息不存在则抛出异常，由上层统一处理。
    */
-  deleteMessage(sessionId: string, messageId: string): ConversationSession {
+  deleteMessage(sessionId: string, messageId: string, persist = true): ConversationSession {
     const session = this.sessions.get(sessionId)
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`)
@@ -278,7 +305,9 @@ export class SessionStore {
     }
     session.updatedAt = now()
     this.sessions.set(session.id, session)
-    this.schedulePersist('immediate', session.id)
+    if (persist) {
+      this.schedulePersist('immediate', session.id)
+    }
 
     return cloneSession(session)
   }
@@ -469,7 +498,8 @@ export class SessionStore {
   setMessageAttachments(
     sessionId: string,
     messageId: string,
-    attachments: ChatImageAttachment[]
+    attachments: ChatImageAttachment[],
+    persist = true
   ): ConversationSession {
     const session = this.sessions.get(sessionId)
     if (!session) {
@@ -487,7 +517,9 @@ export class SessionStore {
     }
     session.updatedAt = now()
     this.sessions.set(session.id, session)
-    this.schedulePersist('immediate', session.id)
+    if (persist) {
+      this.schedulePersist('immediate', session.id)
+    }
     return cloneSession(session)
   }
 

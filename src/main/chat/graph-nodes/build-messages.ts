@@ -5,7 +5,7 @@ export function createBuildMessagesNode() {
   return (state: GraphStateValue) => ({
     systemPromptText: buildSystemPromptText(state.prompt),
     llmMessages: toConversationMessages(state.history, {
-      id: state.currentMessageId,
+      messageIds: new Set(state.currentMessageIds),
       images: state.currentImages
     })
   })
