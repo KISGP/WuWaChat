@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import type { ChatRunEvent } from '@shared/chat'
+import type { ChatImageInput, ChatRunEvent } from '@shared/chat'
 import { trackUiEvent } from '@renderer/app/telemetry'
 import { useCharacterRegistryStore } from '@renderer/store/character-registry'
 import { selectActiveBackground, useAppearanceStore } from '@renderer/store/appearance'
 import { selectSessionById, useSessionStore } from '@renderer/store/session'
 import { selectActiveProfile, useSettingsStore } from '@renderer/store/profiles'
 import ChatPanelView from './ChatPanelView'
-import { abortRun, deleteMessage, onRunEvent, sendMessage } from '@renderer/services/ai'
+import {
+  abortRun,
+  deleteMessage,
+  onRunEvent,
+  readImageResource,
+  sendMessage
+} from '@renderer/services/ai'
 
 /**
  * @description 找出当前正在运行轮次中不允许删除的消息 ID。
@@ -174,7 +180,7 @@ export default function ChatPanel(): ReactElement {
   }, [activateChar?.id, currentSession?.id, pendingRequestId])
 
   const handleSendMessage = useCallback(
-    (text: string): void => {
+    (text: string, images: ChatImageInput[] = []): void => {
       if (!activateChar?.id) return
 
       const requestId = globalThis.crypto.randomUUID()
@@ -196,7 +202,8 @@ export default function ChatPanel(): ReactElement {
         sessionId,
         characterId: activateChar.id,
         userMessage: text,
-        profileId: activeProfile.id
+        profileId: activeProfile.id,
+        images: images.length > 0 ? images : undefined
       })
         .then((result) => {
           setCurrentSessionId(result.sessionId)
@@ -211,14 +218,42 @@ export default function ChatPanel(): ReactElement {
   )
 
   const handleRetryMessage = useCallback(
-    (message: Message): void => {
+    async (message: Message): Promise<void> => {
       if (message.role !== 'user' || message.id !== retryableMessageId) {
         return
       }
 
-      handleSendMessage(message.content)
+      const images: ChatImageInput[] = []
+      for (const attachment of message.attachments ?? []) {
+        try {
+          if (!currentSessionId) {
+            throw new Error('当前会话不可用')
+          }
+          const result = await readImageResource({
+            sessionId: currentSessionId,
+            resourceId: attachment.resourceId
+          })
+          if (!result) {
+            throw new Error('图片文件不存在：' + attachment.fileName)
+          }
+          images.push({
+            ...attachment,
+            dataUrl: result.dataUrl
+          })
+        } catch (error) {
+          console.error('Failed to restore chat image for retry', error)
+          trackUiEvent('chat-retry-failed', 'Failed to restore image attachment for retry', {
+            sessionId: currentSessionId,
+            messageId: message.id,
+            resourceId: attachment.resourceId
+          })
+          return
+        }
+      }
+
+      handleSendMessage(message.content, images)
     },
-    [handleSendMessage, retryableMessageId]
+    [currentSessionId, handleSendMessage, retryableMessageId]
   )
 
   return (
@@ -226,6 +261,7 @@ export default function ChatPanel(): ReactElement {
       activateChar={activateChar}
       activeBackgroundFullSrc={activeBackground.fullSrc}
       messages={messages}
+      sessionId={currentSessionId}
       onDeleteMessage={handleDeleteMessage}
       deletingMessageId={deletingMessageId}
       protectedMessageIds={protectedMessageIds}

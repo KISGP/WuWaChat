@@ -91,7 +91,7 @@ function BubbleTail({ className, ...props }: React.ComponentProps<'div'>): React
     <div
       data-slot="bubble-tail"
       className={cn(
-        'absolute top-[-0.25px] -left-5 z-10 h-5 w-5 border-t border-[#e5e7eb] bg-[radial-gradient(circle_at_0_100%,transparent_19px,#e5e7eb_19.5px,#e5e7eb_20.5px,white_20.5px)] group-data-[align=end]/bubble:-right-5 group-data-[align=end]/bubble:left-auto group-data-[align=end]/bubble:border-transparent group-data-[align=end]/bubble:bg-[radial-gradient(circle_at_100%_100%,transparent_19px,#393C4B_19.5px,#393C4B_20.5px,#393C4B_20.5px)]',
+        'absolute -top-px -left-5 z-10 h-5 w-5 border-t border-[#e5e7eb] bg-[radial-gradient(circle_at_0_100%,transparent_19px,#e5e7eb_19.5px,#e5e7eb_20.5px,white_20.5px)] group-data-[align=end]/bubble:-right-5 group-data-[align=end]/bubble:left-auto group-data-[align=end]/bubble:border-transparent group-data-[align=end]/bubble:bg-[radial-gradient(circle_at_100%_100%,transparent_19px,#393C4B_19.5px,#393C4B_20.5px,#393C4B_20.5px)]',
         className
       )}
       {...props}

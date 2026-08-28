@@ -1,5 +1,5 @@
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
-import type { ChatDiagnosticMessage, ConversationMessage } from '@shared/chat'
+import type { ChatDiagnosticMessage, ChatImageInput, ConversationMessage } from '@shared/chat'
 import { ASSISTANT_MESSAGE_FORMAT_INSTRUCTION } from './assistant-message-splitter'
 import { contentToText } from './message-content'
 
@@ -95,22 +95,75 @@ export function buildSystemPromptText(prompt: string): string {
 /**
  * @description 将会话历史转换为不包含 system 提示词的模型消息数组。
  * @param history 将发送给模型的历史消息与当前用户输入。
+ * @param currentImages 当前请求携带的原始图片；仅匹配到本轮用户消息的图片会进入多模态内容。
  * @returns 仅包含用户与助手角色的消息数组。
  */
-export function toConversationMessages(history: ConversationMessage[]): BaseMessage[] {
+export function toConversationMessages(
+  history: ConversationMessage[],
+  currentMessage?: { id: string; images: ChatImageInput[] }
+): BaseMessage[] {
   const messages: BaseMessage[] = []
+  const currentImagesByResourceId = new Map(
+    (currentMessage?.images || []).map((image) => [image.resourceId, image])
+  )
 
   for (const message of history) {
-    if (!message.content.trim()) {
+    const attachments = message.attachments || []
+    const liveImages =
+      message.role === 'user' && message.id === currentMessage?.id
+        ? attachments
+            .map((attachment) => currentImagesByResourceId.get(attachment.resourceId))
+            .filter((image): image is ChatImageInput => Boolean(image))
+        : []
+    const historicalImageNotes = attachments
+      .filter(
+        (attachment) =>
+          message.id !== currentMessage?.id || !currentImagesByResourceId.has(attachment.resourceId)
+      )
+      .map((attachment) =>
+        formatHistoricalImageNote(attachment.resourceId, attachment.fileName, attachment.analysis)
+      )
+    const text = [message.content.trim(), ...historicalImageNotes].filter(Boolean).join('\n\n')
+
+    if (!text && liveImages.length === 0) {
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      messages.push(new AIMessage(text))
+      continue
+    }
+
+    if (liveImages.length === 0) {
+      messages.push(new HumanMessage(text))
       continue
     }
 
     messages.push(
-      message.role === 'assistant'
-        ? new AIMessage(message.content)
-        : new HumanMessage(message.content)
+      new HumanMessage({
+        content: [
+          ...(text ? [{ type: 'text' as const, text }] : []),
+          ...liveImages.map((image) => ({
+            type: 'image_url' as const,
+            image_url: { url: image.dataUrl }
+          }))
+        ]
+      })
     )
   }
 
   return messages
+}
+
+/**
+ * @description 将历史图片压缩为模型可引用的资源索引与综合摘要。
+ * @param resourceId 图片资源索引 ID。
+ * @param fileName 图片原始文件名。
+ * @param analysis 已融合的图片分析摘要。
+ * @returns 不携带图片二进制内容的历史图片说明。
+ */
+function formatHistoricalImageNote(resourceId: string, fileName: string, analysis: string): string {
+  const summary =
+    analysis.trim() || '暂无图片摘要。若当前问题需要核对图片细节，请根据资源索引重新读取。'
+  return `[历史图片 resourceId=${resourceId} fileName=${fileName}]\n图片综合摘要：${summary}`
 }

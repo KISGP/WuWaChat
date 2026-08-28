@@ -2,6 +2,8 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   ChatDiagnosticRunEvent,
   ChatDiagnosticRunRequest,
+  ChatImageReadRequest,
+  ChatImageReadResult,
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
   ChatRunAccepted,
@@ -53,6 +55,7 @@ declare global {
       startDiagnosticRun: (request: ChatDiagnosticRunRequest) => Promise<{ requestId: string }>
       abortDiagnosticRun: (requestId: string) => Promise<boolean>
       sendMessage: (request: ChatRunRequest) => Promise<ChatRunAccepted>
+      readImageResource: (request: ChatImageReadRequest) => Promise<ChatImageReadResult | null>
       abortRun: (requestId: string) => Promise<boolean>
       onRunEvent: (listener: (event: ChatRunEvent) => void) => () => void
       onDiagnosticRunEvent: (listener: (event: ChatDiagnosticRunEvent) => void) => () => void

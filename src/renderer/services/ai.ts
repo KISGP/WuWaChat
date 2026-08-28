@@ -1,4 +1,5 @@
 import type {
+  ChatImageReadRequest,
   ChatDeleteMessageRequest,
   ChatDiagnosticRunRequest,
   ChatRunEvent,
@@ -56,6 +57,17 @@ export function deleteMessage(
  */
 export function sendMessage(request: ChatRunRequest): ReturnType<typeof window.ai.sendMessage> {
   return window.ai.sendMessage(request)
+}
+
+/**
+ * @description 按会话和资源标识读取已保存的聊天图片。
+ * @param request 图片读取请求，包含会话 ID 与资源 ID。
+ * @returns 主进程返回的图片 Data URL 与 MIME 类型。
+ */
+export function readImageResource(
+  request: ChatImageReadRequest
+): ReturnType<typeof window.ai.readImageResource> {
+  return window.ai.readImageResource(request)
 }
 
 /**

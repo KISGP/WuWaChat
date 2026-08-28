@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import type { ChatImageInput } from '@shared/chat'
 import bgBase from '@renderer/assets/T_PhoneSystemPanel_01.png'
 import bgChar from '@renderer/assets/T_PhoneSystemModel03.png'
 import bgLine from '@renderer/assets/T_PhoneSystemModel03Line.png'
@@ -9,12 +10,13 @@ type ChatPanelViewProps = {
   activateChar: Char | null
   activeBackgroundFullSrc: string
   messages: Message[]
+  sessionId: string | null
   onDeleteMessage: (message: Message) => void
   deletingMessageId: string | null
   protectedMessageIds: Set<string>
   retryableMessageId: string | null
   onRetryMessage: (message: Message) => void
-  onSendMessage: (message: string) => void
+  onSendMessage: (message: string, images: ChatImageInput[]) => void
   onStop?: () => void
   isLoading: boolean
 }
@@ -23,6 +25,7 @@ export default function ChatPanelView({
   activateChar,
   activeBackgroundFullSrc,
   messages,
+  sessionId,
   onDeleteMessage,
   deletingMessageId,
   protectedMessageIds,
@@ -71,6 +74,7 @@ export default function ChatPanelView({
       <div className="absolute top-26 right-3 bottom-24 left-4">
         <MessageList
           messages={messages}
+          sessionId={sessionId}
           activateChar={activateChar}
           onDeleteMessage={onDeleteMessage}
           deletingMessageId={deletingMessageId}

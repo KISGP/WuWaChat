@@ -3,6 +3,11 @@ export const MAX_MESSAGE_COLLAPSE_LINE_COUNT = 20
 export const DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT = 5
 export const DEFAULT_FISH_TTS_MODEL = 's2.1-pro-free'
 export const DEFAULT_INDEX_TTS_BASE_URL = 'http://127.0.0.1:7860'
+export const CHAT_IMAGE_QUALITY_MIN = 60
+export const CHAT_IMAGE_QUALITY_MAX = 100
+export const CHAT_IMAGE_QUALITY_DEFAULT = 85
+export const CHAT_IMAGE_PRESETS = ['original', 768, 1024, 1536, 2048] as const
+export type ChatImagePreset = (typeof CHAT_IMAGE_PRESETS)[number]
 
 export type AnimationPreference = 'system' | 'enabled' | 'disabled'
 export type TtsProvider = 'local' | 'fish'
@@ -16,6 +21,12 @@ export type GithubProxyOption = {
 export type GithubProxySettings = {
   enabled: boolean
   selectedOptionId: string
+}
+
+export type ChatImageProcessingSettings = {
+  enabled: boolean
+  compression: { quality: number }
+  resize: { preset: ChatImagePreset }
 }
 
 export type LocalTtsProviderSettings = {
@@ -59,6 +70,7 @@ export type AppSettings = {
   messageCollapseLineCount: number
   settingsSidebarExpanded: boolean
   githubProxy: GithubProxySettings
+  chatImageProcessing: ChatImageProcessingSettings
   tts: TtsSettings
 }
 
@@ -142,6 +154,11 @@ export function createDefaultAppSettings(): AppSettings {
       enabled: true,
       selectedOptionId: DEFAULT_GITHUB_PROXY_OPTION_ID
     },
+    chatImageProcessing: {
+      enabled: true,
+      compression: { quality: CHAT_IMAGE_QUALITY_DEFAULT },
+      resize: { preset: 'original' }
+    },
     tts: {
       enabled: false,
       provider: 'local',
@@ -187,6 +204,16 @@ export function normalizeAppSettings(value: unknown): AppSettings {
   const settingsSidebarExpanded = raw.settingsSidebarExpanded !== false
   const rawTts = raw.tts as (Partial<TtsSettings> & LegacyFishTtsSettings) | undefined
   const rawGithubProxy = raw.githubProxy as Partial<GithubProxySettings> | undefined
+  const rawImageProcessing = raw.chatImageProcessing as Partial<ChatImageProcessingSettings> | undefined
+  const rawCompression = rawImageProcessing?.compression
+  const rawResize = rawImageProcessing?.resize
+  const quality =
+    typeof rawCompression?.quality === 'number' && Number.isFinite(rawCompression.quality)
+      ? Math.round(Math.min(CHAT_IMAGE_QUALITY_MAX, Math.max(CHAT_IMAGE_QUALITY_MIN, rawCompression.quality)))
+      : CHAT_IMAGE_QUALITY_DEFAULT
+  const preset = CHAT_IMAGE_PRESETS.includes(rawResize?.preset as ChatImagePreset)
+    ? (rawResize?.preset as ChatImagePreset)
+    : 'original'
   const selectedOptionId =
     typeof rawGithubProxy?.selectedOptionId === 'string' &&
     GITHUB_PROXY_OPTIONS.some((option) => option.id === rawGithubProxy.selectedOptionId)
@@ -203,6 +230,11 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     githubProxy: {
       enabled: rawGithubProxy?.enabled !== false,
       selectedOptionId
+    },
+    chatImageProcessing: {
+      enabled: rawImageProcessing?.enabled !== false,
+      compression: { quality },
+      resize: { preset }
     },
     tts: {
       enabled: rawTts?.enabled === true,

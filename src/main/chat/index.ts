@@ -4,6 +4,8 @@ import type {
   ChatDeleteMessageResult,
   ChatRunAccepted,
   ChatRunRequest,
+  ChatImageReadRequest,
+  ChatImageReadResult,
   ConversationSession
 } from '@shared/chat'
 import {
@@ -71,11 +73,23 @@ export function getSessions(): ConversationSession[] {
 }
 
 /**
+ * @description 读取会话中的图片资源并返回界面可展示的 Data URL。
+ * @param request 图片读取请求，包含会话 ID 与资源索引 ID。
+ * @returns 图片内容与 MIME 类型；资源不存在时返回 `null`。
+ */
+export async function readImageResource(
+  request: ChatImageReadRequest
+): Promise<ChatImageReadResult | null> {
+  const result = await runtime.readImageResource(request)
+  return result ? { dataUrl: result.dataUrl, mimeType: result.attachment.mimeType } : null
+}
+
+/**
  * @description 发送一个新的聊天运行请求，调度模型执行并返回已接受的运行信息。
  * @param request 运行请求对象。
  * @returns 已接受的运行信息，包含请求 ID 等元数据。
  */
-export function sendMessage(request: ChatRunRequest): ChatRunAccepted {
+export async function sendMessage(request: ChatRunRequest): Promise<ChatRunAccepted> {
   return runtime.sendMessage(request)
 }
 

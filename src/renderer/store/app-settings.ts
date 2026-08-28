@@ -3,6 +3,7 @@ import {
   type AppSettings,
   type TtsSettings,
   type GithubProxySettings,
+  type ChatImageProcessingSettings,
   createDefaultAppSettings,
   normalizeAppSettings
 } from '@shared/app-settings'
@@ -19,6 +20,11 @@ type AppSettingsStore = {
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
   setSettingsSidebarExpanded: (expanded: boolean) => Promise<void>
   updateGithubProxySettings: (patch: Partial<GithubProxySettings>) => Promise<void>
+  updateChatImageProcessing: (patch: {
+    enabled?: boolean
+    compression?: Partial<ChatImageProcessingSettings['compression']>
+    resize?: Partial<ChatImageProcessingSettings['resize']>
+  }) => Promise<void>
   setTtsEnabled: (enabled: boolean) => Promise<void>
   updateTtsSettings: (patch: Partial<TtsSettings>) => Promise<void>
   updateTtsProviderSettings: <P extends keyof TtsSettings['providers']>(
@@ -115,6 +121,26 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
       enabled: settings.githubProxy.enabled,
       selectedOptionId: settings.githubProxy.selectedOptionId
     })
+    await saveSettings(settings, set)
+  },
+  /**
+   * @description 更新聊天图片处理策略并持久化设置。
+   * @param patch 要合并的图片处理配置字段。
+   * @returns 设置保存流程完成后的 Promise。
+   */
+  updateChatImageProcessing: async (patch) => {
+    const current = get().settings
+    const settings = {
+      ...current,
+      chatImageProcessing: {
+        ...current.chatImageProcessing,
+        ...patch,
+        compression: { ...current.chatImageProcessing.compression, ...patch.compression },
+        resize: { ...current.chatImageProcessing.resize, ...patch.resize }
+      }
+    }
+    set({ settings })
+    trackUiEvent('chat-image-processing-changed', 'User changed chat image processing settings')
     await saveSettings(settings, set)
   },
   /**

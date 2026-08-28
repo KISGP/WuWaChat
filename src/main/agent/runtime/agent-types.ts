@@ -1,7 +1,7 @@
-import type { CharacterSummary, ConversationSession, ModelProfile } from '@shared/chat'
+import type { CharacterSummary, ChatImageAttachment, ConversationSession, ModelProfile } from '@shared/chat'
 import type { AgentPolicy, AgentResourceId, AgentResourcePage, AgentToolTrace } from '@shared/agent'
 import type { StoryScopeResult } from '@shared/story'
-import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages'
+import type { AIMessageChunk, BaseMessage, MessageContent } from '@langchain/core/messages'
 
 export type AgentToolContext = {
   character: CharacterSummary
@@ -10,6 +10,10 @@ export type AgentToolContext = {
   accessedResourceIds: Set<AgentResourceId>
   storyScope?: StoryScopeResult
   abortSignal?: AbortSignal
+  imageResources?: {
+    read: (resourceId: string) => Promise<{ attachment: ChatImageAttachment; dataUrl: string } | null>
+    updateAnalysis: (resourceId: string, analysis: string) => Promise<void>
+  }
 }
 
 export type AgentResource = {
@@ -47,6 +51,7 @@ export type AgentToolResult = {
   error?: string
   sourceIds?: string[]
   complete?: boolean
+  modelContent?: MessageContent
 }
 
 export type AgentTool = {

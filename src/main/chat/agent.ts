@@ -9,6 +9,7 @@ import { createGlossaryToolPackage } from '@main/agent/tools/glossary'
 import { createStoryToolPackage } from '@main/agent/tools/story'
 import { createMemoryToolPackage } from '@main/agent/tools/memory'
 import { createMoeGirlpediaToolPackage } from '@main/agent/tools/moegirlpedia'
+import { createChatImageToolPackage } from '@main/agent/tools/chat-images'
 import { MoeGirlpediaApiClient } from '@main/agent/tools/moegirlpedia/api'
 import type { GlossaryService } from '@main/world/glossary'
 import type { StoryService } from '@main/world/story'
@@ -53,14 +54,17 @@ export function createChatAgent(
     return runAgent({
       ...request,
       context,
-      tools: createEnabledToolPackages(
-        story,
-        memory,
-        glossary,
-        enabled,
-        request.context.policy.moegirlpedia,
-        cachedClient.client
-      )
+      tools: [
+        ...createEnabledToolPackages(
+          story,
+          memory,
+          glossary,
+          enabled,
+          request.context.policy.moegirlpedia,
+          cachedClient.client
+        ),
+        ...(context.imageResources ? [createChatImageToolPackage()] : [])
+      ]
     })
   }
 }

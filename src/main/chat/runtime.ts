@@ -5,6 +5,8 @@ import type {
   ChatTokenUsage,
   ChatDeleteMessageRequest,
   ChatDeleteMessageResult,
+  ChatImageAttachment,
+  ChatImageReadRequest,
   ChatRunAccepted,
   ChatRunRequest,
   ConversationMessage,
@@ -12,6 +14,7 @@ import type {
 } from '@shared/chat'
 import type { AgentPolicy, AgentToolTrace } from '@shared/agent'
 import { logger } from '@main/logging'
+import { getAppSettings } from '@main/settings/app-settings'
 import { SessionStore } from './session-store'
 import { createAiGraph } from './graph-factory'
 import type { GraphStateValue } from './graph-state'
@@ -22,6 +25,7 @@ import { RunEventPublisher } from './run-event-publisher'
 import { RunRegistry } from './run-registry'
 import type { ChatRuntimeDependencies, ChatContextProvider } from './types'
 import type { ChatAgent } from './agent'
+import { processChatImage } from './image-compression'
 
 export class ChatRuntime {
   private readonly sessionStore = new SessionStore()
@@ -54,13 +58,116 @@ export class ChatRuntime {
     return this.sessionStore.getSessions()
   }
 
-  sendMessage(request: ChatRunRequest): ChatRunAccepted {
-    const { session, assistantMessage } = this.sessionStore.startRun({
+  /**
+   * @description 从会话附件目录读取指定图片资源。
+   * @param request 图片读取请求，包含会话 ID 与资源索引 ID。
+   * @returns 图片附件元数据及 Data URL；资源不存在时返回 `null`。
+   */
+  async readImageResource(
+    request: ChatImageReadRequest
+  ): Promise<{ attachment: ChatImageAttachment; dataUrl: string } | null> {
+    return this.sessionStore.readAttachment(request.sessionId, request.resourceId)
+  }
+
+  /**
+   * @description 校验并启动一次聊天运行，保存本轮图片附件后交给 Graph 异步执行。
+   * @param request 聊天请求，包含角色、模型、文本及可选图片。
+   * @returns 已接受的运行标识；图片保存失败时返回已创建但已标记错误的运行。
+   * @remarks 历史图片只通过摘要和 resourceId 进入模型；原图仅在本轮请求中读取。
+   */
+  async sendMessage(request: ChatRunRequest): Promise<ChatRunAccepted> {
+    const userMessage = request.userMessage.trim()
+    if (!userMessage && !(request.images && request.images.length > 0)) {
+      throw new Error('Chat message requires text or at least one image.')
+    }
+    const images = request.images || []
+    if (images.length > 4) {
+      throw new Error('A chat message can include at most 4 images.')
+    }
+    if (images.length > 0) {
+      const profiles = await this.dependencies.getProfiles()
+      const profile = profiles.profiles.find((item) => item.id === request.profileId)
+      if (!profile) {
+        throw new Error('Profile not found: ' + request.profileId)
+      }
+      if (profile.provider === 'deepseek') {
+        throw new Error('The selected chat model does not support image input.')
+      }
+    }
+    const attachments: ChatImageAttachment[] = (request.images || []).map(({ dataUrl, ...attachment }) => {
+      void dataUrl
+      return attachment
+    })
+    const { session, userMessage: userMessageRecord, assistantMessage } = this.sessionStore.startRun({
       sessionId: request.sessionId,
       characterId: request.characterId,
-      userMessage: request.userMessage
+      userMessage,
+      attachments
     })
     const activeRun = this.runRegistry.register(request.requestId, session.id, assistantMessage.id)
+    const accepted = {
+      requestId: request.requestId,
+      sessionId: session.id,
+      messageId: assistantMessage.id
+    }
+
+    let currentImages: ChatRunRequest['images'] = []
+    try {
+      const appSettings = await getAppSettings()
+      const savedAttachments = await Promise.all(
+        (request.images || []).map((image) => this.sessionStore.saveAttachment(session.id, image))
+      )
+      const syncedSession = this.sessionStore.setMessageAttachments(
+        session.id,
+        userMessageRecord.id,
+        savedAttachments
+      )
+      const originalImages = (
+        await Promise.all(
+          savedAttachments.map((attachment) =>
+            this.sessionStore.readAttachment(session.id, attachment.resourceId)
+          )
+        )
+      ).filter((image): image is NonNullable<typeof image> => Boolean(image))
+        .map(({ attachment, dataUrl }) => ({ ...attachment, dataUrl }))
+      currentImages = await Promise.all(
+        originalImages.map(async (image) => ({
+          ...image,
+          dataUrl: await processChatImage(image.dataUrl, appSettings.chatImageProcessing)
+        }))
+      )
+
+      this.eventPublisher.publish({
+        type: 'session-synced',
+        requestId: request.requestId,
+        session: syncedSession
+      })
+      this.chatContext.syncSessions(this.sessionStore.getSessions())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const failedSession = this.sessionStore.failRun(session.id, assistantMessage.id, message)
+      this.eventPublisher.publish({
+        type: 'message-updated',
+        requestId: request.requestId,
+        sessionId: session.id,
+        message: failedSession.messages.find((item) => item.id === assistantMessage.id) || assistantMessage
+      })
+      this.eventPublisher.publish({ type: 'session-synced', requestId: request.requestId, session: failedSession })
+      this.eventPublisher.publish({
+        type: 'run-error',
+        requestId: request.requestId,
+        sessionId: session.id,
+        messageId: assistantMessage.id,
+        error: message
+      })
+      void logger.error('ai', 'image-save-failed', 'Failed to save chat image attachments', {
+        requestId: request.requestId,
+        sessionId: session.id,
+        error: message
+      })
+      this.runRegistry.delete(request.requestId)
+      return accepted
+    }
 
     void logger.info('ai', 'run-accepted', 'Accepted chat run request', {
       requestId: request.requestId,
@@ -71,11 +178,6 @@ export class ChatRuntime {
       messageLength: request.userMessage.length
     })
 
-    this.eventPublisher.publish({
-      type: 'session-synced',
-      requestId: request.requestId,
-      session
-    })
     this.eventPublisher.publish({
       type: 'run-started',
       requestId: request.requestId,
@@ -97,16 +199,14 @@ export class ChatRuntime {
       assistantMessageId: assistantMessage.id,
       profileId: request.profileId,
       characterId: request.characterId,
-      userMessage: request.userMessage,
+      userMessage,
+      currentMessageId: userMessageRecord.id,
+      currentImages,
       assistantDraft: '',
       abortSignal: activeRun.controller.signal
     })
 
-    return {
-      requestId: request.requestId,
-      sessionId: session.id,
-      messageId: assistantMessage.id
-    }
+    return accepted
   }
 
   /**

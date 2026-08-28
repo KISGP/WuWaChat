@@ -3,9 +3,9 @@ import { dirname } from 'path'
 import {
   getAppDataRoot,
   getCharactersRoot,
+  getChatHistoryRoot,
   getLogsRoot,
   getSettingsPath,
-  getSessionsPath,
   getTtsAudioRoot
 } from '../utils'
 import { getWorldRoot } from '@main/world/paths'
@@ -18,6 +18,6 @@ export async function bootstrapAppData(): Promise<void> {
     mkdir(getWorldRoot(), { recursive: true }),
     mkdir(getTtsAudioRoot(), { recursive: true }),
     mkdir(dirname(getSettingsPath()), { recursive: true }),
-    mkdir(dirname(getSessionsPath()), { recursive: true })
+    mkdir(getChatHistoryRoot(), { recursive: true })
   ])
 }

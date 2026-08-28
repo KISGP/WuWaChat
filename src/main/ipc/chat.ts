@@ -1,7 +1,8 @@
 import type {
-  ChatDiagnosticRunRequest,
-  ChatDeleteMessageRequest,
-  ChatRunRequest
+ ChatDiagnosticRunRequest,
+ ChatDeleteMessageRequest,
+  ChatRunRequest,
+  ChatImageReadRequest
 } from '@shared/chat'
 import {
   abortDiagnosticRun,
@@ -9,6 +10,7 @@ import {
   deleteMessage,
   getCharacterPrompt,
   getSessions,
+  readImageResource,
   saveCharacterPrompt,
   startDiagnosticRun,
   sendMessage
@@ -48,6 +50,11 @@ export function registerChatIpc(): void {
     })
   )
   handleLogged('chat:getSessions', () => getSessions())
+  handleLogged(
+    'chat:readImageResource',
+    (_event, request: ChatImageReadRequest) => readImageResource(request),
+    (request) => ({ sessionId: request.sessionId, resourceId: request.resourceId })
+  )
   handleLogged(
     'chat:sendMessage',
     (_event, request: ChatRunRequest) => sendMessage(request),

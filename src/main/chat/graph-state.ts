@@ -2,6 +2,7 @@ import { Annotation } from '@langchain/langgraph'
 import type { BaseMessage } from '@langchain/core/messages'
 import type {
   CharacterSummary,
+  ChatImageInput,
   ConversationMessage,
   ConversationSession,
   ModelProfile
@@ -14,6 +15,8 @@ export const GraphState = Annotation.Root({
   profileId: Annotation<string>,
   characterId: Annotation<string>,
   userMessage: Annotation<string>,
+  currentMessageId: Annotation<string>,
+  currentImages: Annotation<ChatImageInput[]>(),
   profile: Annotation<ModelProfile>,
   session: Annotation<ConversationSession>,
   character: Annotation<CharacterSummary>,

@@ -1,20 +1,37 @@
 import { randomUUID } from 'crypto'
-import { readFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 import type {
+  ChatImageAttachment,
+  ChatImageInput,
   ConversationMessage,
   ConversationSession,
   MessageStatus,
   SessionStatus
 } from '@shared/chat'
 import { logger } from '@main/logging'
-import { getSessionsPath, pathExists, writeJsonFileAtomic } from '@main/utils'
+import {
+  getChatAttachmentPath,
+  getChatAttachmentsRoot,
+  getChatCharacterRoot,
+  getChatHistoryRoot,
+  getChatSessionPath,
+  pathExists,
+  readDirectoryNames,
+  readImageDataUrl,
+  writeJsonFileAtomic
+} from '@main/utils'
 
 function now(): string {
   return new Date().toISOString()
 }
 
 function cloneMessage(message: ConversationMessage): ConversationMessage {
-  return { ...message }
+  return {
+    ...message,
+    ...(message.attachments
+      ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+      : {})
+  }
 }
 
 function cloneSession(session: ConversationSession): ConversationSession {
@@ -28,14 +45,18 @@ function createMessage(
   role: ConversationMessage['role'],
   content: string,
   status: MessageStatus,
-  createdAt = now()
+  createdAt = now(),
+  attachments?: ChatImageAttachment[]
 ): ConversationMessage {
   return {
     id: randomUUID(),
     role,
     content,
     status,
-    createdAt
+    createdAt,
+    ...(attachments && attachments.length > 0
+      ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+      : {})
   }
 }
 
@@ -51,27 +72,60 @@ function createSession(characterId: string, createdAt = now()): ConversationSess
 }
 
 const STREAMING_PERSIST_DELAY_MS = 300
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const IMAGE_MIME_EXTENSIONS: Record<ChatImageAttachment['mimeType'], string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp'
+}
+
+/** @description 判断值是否可作为单一路径片段使用。 @param value 待检查的路径片段。 @returns 路径片段安全时返回 true。 */
+function isSafePathSegment(value: string): boolean {
+  return Boolean(value) && value !== '.' && value !== '..' && !/[\\/]/.test(value)
+}
+
+/** @description 校验路径片段，阻止路径穿越和分隔符注入。 @param value 待校验值。 @param label 错误信息中的字段名。 */
+function assertSafePathSegment(value: string, label: string): void {
+  if (!isSafePathSegment(value)) {
+    throw new Error(`Invalid ${label}`)
+  }
+}
 
 export class SessionStore {
   private sessions = new Map<string, ConversationSession>()
   private persistQueue = Promise.resolve()
   private streamingPersistTimer: NodeJS.Timeout | null = null
+  private readonly pendingPersistSessionIds = new Set<string>()
 
   async initialize(): Promise<void> {
-    const filePath = this.getStorePath()
-    if (!(await pathExists(filePath))) {
-      return
-    }
-
-    try {
-      const raw = JSON.parse(await readFile(filePath, 'utf-8')) as ConversationSession[]
-      this.sessions = new Map(raw.map((session) => [session.id, cloneSession(session)]))
-    } catch (error) {
-      void logger.error('main', 'sessions-load-failed', 'Failed to load conversation sessions', {
-        filePath,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      this.sessions = new Map()
+    const root = getChatHistoryRoot()
+    this.sessions = new Map()
+    for (const characterId of await readDirectoryNames(root)) {
+      if (!isSafePathSegment(characterId)) {
+        continue
+      }
+      const characterRoot = getChatCharacterRoot(characterId)
+      for (const sessionId of await readDirectoryNames(characterRoot)) {
+        if (!isSafePathSegment(sessionId)) {
+          continue
+        }
+        const filePath = getChatSessionPath(characterId, sessionId)
+        if (!(await pathExists(filePath))) {
+          continue
+        }
+        try {
+          const raw = JSON.parse(await readFile(filePath, 'utf-8')) as ConversationSession
+          if (raw.id !== sessionId || raw.characterId !== characterId || !Array.isArray(raw.messages)) {
+            throw new Error('Invalid session document')
+          }
+          this.sessions.set(raw.id, cloneSession(raw))
+        } catch (error) {
+          void logger.error('main', 'session-load-failed', 'Failed to load conversation session', {
+            filePath,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
     }
   }
 
@@ -86,10 +140,17 @@ export class SessionStore {
     return session ? cloneSession(session) : null
   }
 
-  startRun(input: { sessionId?: string | null; characterId: string; userMessage: string }): {
+  startRun(input: {
+    sessionId?: string | null
+    characterId: string
+    userMessage: string
+    attachments?: ChatImageAttachment[]
+  }): {
     session: ConversationSession
+    userMessage: ConversationMessage
     assistantMessage: ConversationMessage
   } {
+    assertSafePathSegment(input.characterId, 'character id')
     const timestamp = now()
     const session =
       (input.sessionId && this.sessions.get(input.sessionId)) ||
@@ -101,17 +162,24 @@ export class SessionStore {
       session.createdAt = timestamp
     }
 
-    const userMessage = createMessage('user', input.userMessage, 'complete', timestamp)
+    const userMessage = createMessage(
+      'user',
+      input.userMessage,
+      'complete',
+      timestamp,
+      input.attachments
+    )
     const assistantMessage = createMessage('assistant', '', 'pending', timestamp)
 
     session.messages.push(userMessage, assistantMessage)
     session.status = 'running'
     session.updatedAt = timestamp
     this.sessions.set(session.id, session)
-    this.schedulePersist()
+    this.schedulePersist('immediate', session.id)
 
     return {
       session: cloneSession(session),
+      userMessage: cloneMessage(userMessage),
       assistantMessage: cloneMessage(assistantMessage)
     }
   }
@@ -210,7 +278,7 @@ export class SessionStore {
     }
     session.updatedAt = now()
     this.sessions.set(session.id, session)
-    this.schedulePersist('immediate')
+    this.schedulePersist('immediate', session.id)
 
     return cloneSession(session)
   }
@@ -268,8 +336,158 @@ export class SessionStore {
     session.status = nextSessionStatus || session.status
     session.updatedAt = timestamp
     this.sessions.set(session.id, session)
-    this.schedulePersist(persistMode)
+    this.schedulePersist(persistMode, session.id)
 
+    return cloneSession(session)
+  }
+
+  /**
+   * @description 将图片输入的二进制内容保存到指定会话附件目录。
+   * @param sessionId 目标会话 ID。
+   * @param input 包含资源 ID、MIME、文件名和 Data URL 的图片输入。
+   * @returns 写入后的图片附件元数据。
+   * @remarks 仅允许 PNG、JPEG 和 WebP；资源 ID 会校验为单一路径片段。
+   */
+  async saveAttachment(sessionId: string, input: ChatImageInput): Promise<ChatImageAttachment> {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    assertSafePathSegment(session.characterId, 'character id')
+    assertSafePathSegment(session.id, 'session id')
+    assertSafePathSegment(input.resourceId, 'resource id')
+    const extension = IMAGE_MIME_EXTENSIONS[input.mimeType]
+    if (!extension) {
+      throw new Error(`Unsupported image MIME type: ${input.mimeType}`)
+    }
+
+    const match = input.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/)
+    if (!match || match[1] !== input.mimeType) {
+      throw new Error('Invalid image data URL')
+    }
+    const data = Buffer.from(match[2], 'base64')
+    if (data.byteLength === 0) {
+      throw new Error('Image data is empty')
+    }
+    if (data.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error('Image exceeds the 10 MB size limit')
+    }
+
+    const attachmentPath = getChatAttachmentPath(
+      session.characterId,
+      session.id,
+      input.resourceId,
+      extension
+    )
+    await mkdir(getChatAttachmentsRoot(session.characterId, session.id), { recursive: true })
+    await writeFile(attachmentPath, data)
+    return {
+      resourceId: input.resourceId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: data.byteLength,
+      analysis: input.analysis || ''
+    }
+  }
+
+  /**
+   * @description 按资源 ID 读取会话附件并转换为模型或界面可用的 Data URL。
+   * @param sessionId 目标会话 ID。
+   * @param resourceId 会话内附件资源 ID。
+   * @returns 附件元数据及 Data URL；资源不存在时返回 null。
+   */
+  async readAttachment(
+    sessionId: string,
+    resourceId: string
+  ): Promise<{ attachment: ChatImageAttachment; dataUrl: string } | null> {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    assertSafePathSegment(resourceId, 'resource id')
+    const attachment = session.messages
+      .flatMap((message) => message.attachments || [])
+      .find((item) => item.resourceId === resourceId)
+    if (!attachment) {
+      return null
+    }
+    const extension = IMAGE_MIME_EXTENSIONS[attachment.mimeType]
+    const attachmentPath = getChatAttachmentPath(
+      session.characterId,
+      session.id,
+      resourceId,
+      extension
+    )
+    if (!(await pathExists(attachmentPath))) {
+      return null
+    }
+    return { attachment: { ...attachment }, dataUrl: await readImageDataUrl(attachmentPath) }
+  }
+
+  /**
+   * @description 更新会话中指定图片资源的综合分析摘要，并替换旧摘要。
+   * @param sessionId 目标会话 ID。
+   * @param resourceId 会话内附件资源 ID。
+   * @param analysis 新的综合分析文本。
+   * @returns 更新后的会话快照。
+   */
+  updateImageAnalysis(sessionId: string, resourceId: string, analysis: string): ConversationSession {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    assertSafePathSegment(resourceId, 'resource id')
+    let updated = false
+    session.messages = session.messages.map((message) => {
+      if (!message.attachments?.some((attachment) => attachment.resourceId === resourceId)) {
+        return message
+      }
+      updated = true
+      return {
+        ...message,
+        attachments: message.attachments.map((attachment) =>
+          attachment.resourceId === resourceId ? { ...attachment, analysis } : attachment
+        )
+      }
+    })
+    if (!updated) {
+      throw new Error(`Attachment not found: ${resourceId}`)
+    }
+    session.updatedAt = now()
+    this.sessions.set(session.id, session)
+    this.schedulePersist('immediate', session.id)
+    return cloneSession(session)
+  }
+
+  /**
+   * @description 设置一条消息的图片附件元数据，并立即持久化会话。
+   * @param sessionId 目标会话 ID。
+   * @param messageId 目标消息 ID。
+   * @param attachments 要写入的附件元数据。
+   * @returns 更新后的会话快照。
+   */
+  setMessageAttachments(
+    sessionId: string,
+    messageId: string,
+    attachments: ChatImageAttachment[]
+  ): ConversationSession {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    const index = session.messages.findIndex((message) => message.id === messageId)
+    if (index === -1) {
+      throw new Error(`Message not found: ${messageId}`)
+    }
+    session.messages[index] = {
+      ...session.messages[index],
+      ...(attachments.length > 0
+        ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+        : { attachments: undefined })
+    }
+    session.updatedAt = now()
+    this.sessions.set(session.id, session)
+    this.schedulePersist('immediate', session.id)
     return cloneSession(session)
   }
 
@@ -318,7 +536,7 @@ export class SessionStore {
     session.status = nextSessionStatus
     session.updatedAt = now()
     this.sessions.set(session.id, session)
-    this.schedulePersist('immediate')
+    this.schedulePersist('immediate', session.id)
 
     return cloneSession(session)
   }
@@ -365,24 +583,39 @@ export class SessionStore {
     session.status = nextSessionStatus || session.status
     session.updatedAt = now()
     this.sessions.set(session.id, session)
-    this.schedulePersist(persistMode)
+    this.schedulePersist(persistMode, session.id)
 
     return cloneSession(session)
   }
 
-  private getStorePath(): string {
-    return getSessionsPath()
-  }
-
-  private async persist(): Promise<void> {
-    await writeJsonFileAtomic(this.getStorePath(), this.getSessions())
+  /**
+   * @description 将单个会话快照原子写入其独立 session.json 文件。
+   * @param sessionId 要持久化的会话 ID。
+   * @returns 写入完成后的 Promise。
+   */
+  private async persistSession(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+    await writeJsonFileAtomic(
+      getChatSessionPath(session.characterId, session.id),
+      cloneSession(session)
+    )
   }
 
   /**
    * @description 将会话保存请求加入串行队列，并统一记录保存失败。
    * @param mode 保存模式；流式中间态使用短延迟合并，终态立即排队保存。
+   * @param sessionId 要保存的会话 ID。
    */
-  private schedulePersist(mode: 'immediate' | 'debounced' = 'immediate'): void {
+  private schedulePersist(
+    mode: 'immediate' | 'debounced' = 'immediate',
+    sessionId?: string
+  ): void {
+    if (sessionId) {
+      this.pendingPersistSessionIds.add(sessionId)
+    }
     if (mode === 'debounced') {
       if (this.streamingPersistTimer) {
         clearTimeout(this.streamingPersistTimer)
@@ -408,11 +641,20 @@ export class SessionStore {
    * @remarks 队列中的每次写入都会读取最新内存快照；失败会记录日志并允许后续保存继续执行。
    */
   private enqueuePersist(): void {
+    const sessionIds = [...this.pendingPersistSessionIds]
+    this.pendingPersistSessionIds.clear()
+    if (sessionIds.length === 0) {
+      return
+    }
     this.persistQueue = this.persistQueue
-      .then(() => this.persist())
+      .then(async () => {
+        for (const sessionId of sessionIds) {
+          await this.persistSession(sessionId)
+        }
+      })
       .catch((error) => {
         void logger.error('main', 'sessions-save-failed', 'Failed to save conversation sessions', {
-          filePath: this.getStorePath(),
+          sessionIds,
           error: error instanceof Error ? error.message : String(error)
         })
       })

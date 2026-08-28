@@ -2,6 +2,7 @@ import {
   SystemMessage,
   ToolMessage,
   AIMessageChunk,
+  type MessageContent,
   type BaseMessage
 } from '@langchain/core/messages'
 import { logger } from '@main/logging'
@@ -213,7 +214,7 @@ async function runToolRoutingLoop({
           new ToolMessage({
             tool_call_id: result.id,
             name: result.name,
-            content: serializeToolResult(result.result)
+            content: toToolMessageContent(result.result)
           })
       )
     )
@@ -434,6 +435,19 @@ function serializeToolResult(result: AgentToolResult): string {
       error: `Unable to serialize tool result: ${error instanceof Error ? error.message : String(error)}`
     })
   }
+}
+
+/**
+ * @description 将工具结果转换为模型可读取的文本或多模态内容块。
+ * @param result 工具执行结果。
+ * @returns ToolMessage 的兼容内容值。
+ * @remarks 图片读取工具通过多模态内容块把原图交给支持视觉的模型，同时保留结构化文本结果。
+ */
+function toToolMessageContent(result: AgentToolResult): MessageContent {
+  if (Array.isArray(result.modelContent)) {
+    return result.modelContent
+  }
+  return serializeToolResult(result)
 }
 
 /**

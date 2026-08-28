@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   ChatDiagnosticRunEvent,
   ChatDiagnosticRunRequest,
+  ChatImageReadRequest,
   ChatDeleteMessageRequest,
   ChatRunEvent,
   ChatRunRequest,
@@ -35,6 +36,8 @@ const ai = {
   deleteMessage: (request: ChatDeleteMessageRequest) =>
     ipcRenderer.invoke('chat:deleteMessage', request),
   sendMessage: (request: ChatRunRequest) => ipcRenderer.invoke('chat:sendMessage', request),
+  readImageResource: (request: ChatImageReadRequest) =>
+    ipcRenderer.invoke('chat:readImageResource', request),
   abortRun: (requestId: string) => ipcRenderer.invoke('chat:abortRun', requestId),
   startDiagnosticRun: (request: ChatDiagnosticRunRequest) =>
     ipcRenderer.invoke('chat:startDiagnosticRun', request),

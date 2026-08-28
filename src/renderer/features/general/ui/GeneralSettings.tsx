@@ -3,12 +3,17 @@ import {
   GITHUB_PROXY_OPTIONS,
   MAX_MESSAGE_COLLAPSE_LINE_COUNT,
   MIN_MESSAGE_COLLAPSE_LINE_COUNT,
+  CHAT_IMAGE_QUALITY_MIN,
+  CHAT_IMAGE_QUALITY_MAX,
+  CHAT_IMAGE_PRESETS,
+  type ChatImagePreset,
   type AnimationPreference
 } from '@shared/app-settings'
 import { Switch } from '@renderer/common/components/switch'
 import { SectionCard } from '@renderer/common/components/SectionCard'
 import { SettingItem } from '@renderer/common/components/SettingItem'
 import { useAppSettingsStore } from '@renderer/store/app-settings'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@renderer/common/components/select'
 
 const ANIMATION_OPTIONS: { value: AnimationPreference; label: string }[] = [
   { value: 'system', label: '跟随系统' },
@@ -31,6 +36,8 @@ export function GeneralTab(): ReactElement {
   )
   const githubProxy = useAppSettingsStore((state) => state.settings.githubProxy)
   const updateGithubProxySettings = useAppSettingsStore((state) => state.updateGithubProxySettings)
+  const chatImageProcessing = useAppSettingsStore((state) => state.settings.chatImageProcessing)
+  const updateChatImageProcessing = useAppSettingsStore((state) => state.updateChatImageProcessing)
 
   return (
     <div className="h-full overflow-y-auto px-4">
@@ -95,6 +102,69 @@ export function GeneralTab(): ReactElement {
             checked={githubProxy.enabled}
             onCheckedChange={(enabled) => void updateGithubProxySettings({ enabled })}
             aria-label="使用 GitHub 代理设置"
+            className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
+          />
+        </SettingItem>
+      </SectionCard>
+      <SectionCard title="图片处理">
+        <SettingItem
+          title="请求时处理图片"
+          expandedItems={[
+            <p key="description" className="text-muted-foreground">
+              关闭时按原图发送；质量 100 表示不压缩，“保持原尺寸”表示不缩放，长边 1024 是 token 与画质的平衡档。
+            </p>,
+            <label key="quality" className="flex items-center justify-between">
+              <span className="text-md text-white/55">压缩质量</span>
+              <input
+                type="number"
+                min={CHAT_IMAGE_QUALITY_MIN}
+                max={CHAT_IMAGE_QUALITY_MAX}
+                defaultValue={chatImageProcessing.compression.quality}
+                disabled={!chatImageProcessing.enabled}
+                onBlur={(event) => {
+                  const value = Number(event.currentTarget.value)
+                  if (Number.isFinite(value)) {
+                    const quality = Math.min(
+                      CHAT_IMAGE_QUALITY_MAX,
+                      Math.max(CHAT_IMAGE_QUALITY_MIN, Math.round(value))
+                    )
+                    event.currentTarget.value = String(quality)
+                    void updateChatImageProcessing({
+                      compression: { ...chatImageProcessing.compression, quality }
+                    })
+                  } else {
+                    event.currentTarget.value = String(chatImageProcessing.compression.quality)
+                  }
+                }}
+                className="w-20 border border-white/15 bg-black/35 px-3 py-2 text-center text-sm text-white outline-none focus:border-[#e8c690] disabled:opacity-50"
+              />
+            </label>,
+            <label key="preset" className="flex items-center justify-between">
+              <span className="text-md text-white/55">预设尺寸</span>
+              <Select
+                value={String(chatImageProcessing.resize.preset)}
+                disabled={!chatImageProcessing.enabled}
+                onValueChange={(value) => {
+                  const preset: ChatImagePreset = value === 'original' ? 'original' : (Number(value) as ChatImagePreset)
+                  void updateChatImageProcessing({ resize: { ...chatImageProcessing.resize, preset } })
+                }}
+              >
+                <SelectTrigger size="sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CHAT_IMAGE_PRESETS.map((preset) => (
+                    <SelectItem key={String(preset)} value={String(preset)}>
+                      {preset === 'original' ? '保持原尺寸' : `长边 ${preset}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          ]}
+        >
+          <Switch
+            checked={chatImageProcessing.enabled}
+            onCheckedChange={(enabled) => void updateChatImageProcessing({ enabled })}
+            aria-label="请求时处理图片"
             className="data-unchecked:bg-input/20 data-checked:bg-[#e8c690]"
           />
         </SettingItem>

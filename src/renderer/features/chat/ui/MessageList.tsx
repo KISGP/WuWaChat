@@ -33,11 +33,14 @@ import {
 } from '@renderer/common/components/bubble'
 import { track } from '@renderer/services/logs'
 import { cancel, synthesize } from '@renderer/services/tts'
+import { readImageResource } from '@renderer/services/ai'
+import type { ChatImageAttachment } from '@shared/chat'
 
 gsap.registerPlugin(useGSAP)
 
 type MessageListProps = {
   messages: Message[]
+  sessionId: string | null
   activateChar: Char | null
   onDeleteMessage: (message: Message) => void
   deletingMessageId: string | null
@@ -278,6 +281,82 @@ type CollapsibleMessageContentProps = {
   maxLineCount: number
 }
 
+type AttachmentPreviewProps = {
+  sessionId: string | null
+  attachment: ChatImageAttachment
+}
+
+/**
+ * @description 按需读取并展示历史聊天图片，避免将图片字节写入会话消息快照。
+ * @param sessionId 当前会话 ID。
+ * @param attachment 图片附件元数据。
+ */
+function AttachmentPreview({ sessionId, attachment }: AttachmentPreviewProps): ReactElement {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loadedResourceId, setLoadedResourceId] = useState<string | null>(null)
+  const [errorResourceId, setErrorResourceId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!sessionId) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void readImageResource({ sessionId, resourceId: attachment.resourceId })
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+        if (!result) {
+          setErrorResourceId(attachment.resourceId)
+          setError('图片文件不存在')
+          return
+        }
+        setLoadedResourceId(attachment.resourceId)
+        setDataUrl(result.dataUrl)
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) {
+          return
+        }
+        const message = cause instanceof Error ? cause.message : String(cause)
+        console.error('Failed to load chat image resource', cause)
+        setErrorResourceId(attachment.resourceId)
+        setError(message)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [attachment.resourceId, sessionId])
+
+  const visibleDataUrl = loadedResourceId === attachment.resourceId ? dataUrl : null
+  const visibleError = errorResourceId === attachment.resourceId ? error : null
+  const loadingText = sessionId ? '加载中...' : '会话不可用'
+
+  return (
+    <div className="relative size-28 shrink-0 overflow-hidden rounded-md border border-black/10 bg-gray-100">
+      {visibleDataUrl ? (
+        <img
+          src={visibleDataUrl}
+          alt={attachment.fileName}
+          className="size-full object-cover"
+          draggable="false"
+        />
+      ) : (
+        <div className="flex size-full flex-col items-center justify-center gap-1 px-2 text-center text-[10px] text-gray-500">
+          <span className="max-w-full truncate">{attachment.fileName}</span>
+          <span>{visibleError || loadingText}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CollapsibleMessageContent({
   content,
   maxLineCount
@@ -456,6 +535,7 @@ function MessageActionArea({
 function MessageItem({
   index,
   messages,
+  sessionId,
   activateChar,
   onDeleteMessage,
   deletingMessageId,
@@ -471,6 +551,7 @@ function MessageItem({
   style
 }: RowComponentProps<{
   messages: Message[]
+  sessionId: string | null
   activateChar: Char
   onDeleteMessage: (message: Message) => void
   deletingMessageId: string | null
@@ -571,36 +652,65 @@ function MessageItem({
             </>
           }
         >
-          <Bubble
-            align={isUserMessage ? 'end' : 'start'}
-            variant="chat"
-            className="max-w-md drop-shadow-[0_1px_2px_rgba(0,0,0,0.05)] filter"
-          >
-            <BubbleTail />
-            <BubbleContent
-              className={cn(
-                'min-h-12 px-5 py-3 text-[#333]',
-                isUserMessage
-                  ? 'rounded-tl-md rounded-tr-none rounded-br-md rounded-bl-xl bg-[#393C4B] text-white'
-                  : 'rounded-tl-none rounded-tr-md rounded-br-xl rounded-bl-md bg-white text-[#333]'
-              )}
-            >
-              {(message.status === 'pending' || message.status === 'streaming') &&
-              !message.content ? (
-                <div className="flex h-6 items-center gap-1 px-1">
-                  <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
-                  <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
-                  <div className="size-2 animate-bounce rounded-full bg-gray-400" />
-                </div>
-              ) : (
-                <CollapsibleMessageContent
-                  key={message.id}
-                  content={message.content}
-                  maxLineCount={messageCollapseLineCount}
-                />
-              )}
-            </BubbleContent>
-          </Bubble>
+          <div className={cn('flex flex-col gap-2', isUserMessage ? 'items-end' : 'items-start')}>
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="flex max-w-full flex-wrap gap-2">
+                {message.attachments.map((attachment) => (
+                  <AttachmentPreview
+                    key={attachment.resourceId}
+                    sessionId={sessionId}
+                    attachment={attachment}
+                  />
+                ))}
+              </div>
+            )}
+            {(message.status === 'pending' || message.status === 'streaming') &&
+            !message.content ? (
+              <Bubble
+                align={isUserMessage ? 'end' : 'start'}
+                variant="chat"
+                className="max-w-md drop-shadow-[0_1px_2px_rgba(0,0,0,0.05)] filter"
+              >
+                <BubbleTail />
+                <BubbleContent
+                  className={cn(
+                    'min-h-12 px-5 py-3 text-[#333]',
+                    isUserMessage
+                      ? 'rounded-tl-md rounded-tr-none rounded-br-md rounded-bl-xl bg-[#393C4B] text-white'
+                      : 'rounded-tl-none rounded-tr-md rounded-br-xl rounded-bl-md bg-white text-[#333]'
+                  )}
+                >
+                  <div className="flex h-6 items-center gap-1 px-1">
+                    <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
+                    <div className="size-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
+                    <div className="size-2 animate-bounce rounded-full bg-gray-400" />
+                  </div>
+                </BubbleContent>
+              </Bubble>
+            ) : message.content ? (
+              <Bubble
+                align={isUserMessage ? 'end' : 'start'}
+                variant="chat"
+                className="max-w-md drop-shadow-[0_1px_2px_rgba(0,0,0,0.05)] filter"
+              >
+                <BubbleTail />
+                <BubbleContent
+                  className={cn(
+                    'min-h-12 px-5 py-3 text-[#333]',
+                    isUserMessage
+                      ? 'rounded-tl-md rounded-tr-none rounded-br-md rounded-bl-xl bg-[#393C4B] text-white'
+                      : 'rounded-tl-none rounded-tr-md rounded-br-xl rounded-bl-md bg-white text-[#333]'
+                  )}
+                >
+                  <CollapsibleMessageContent
+                    key={message.id}
+                    content={message.content}
+                    maxLineCount={messageCollapseLineCount}
+                  />
+                </BubbleContent>
+              </Bubble>
+            ) : null}
+          </div>
         </MessageActionArea>
       </div>
     </div>
@@ -609,6 +719,7 @@ function MessageItem({
 
 export default function MessageList({
   messages,
+  sessionId,
   activateChar,
   onDeleteMessage,
   deletingMessageId,
@@ -810,6 +921,7 @@ export default function MessageList({
       rowHeight={rowHeight}
       rowProps={{
         messages: visibleMessages,
+        sessionId,
         activateChar,
         onDeleteMessage,
         deletingMessageId,

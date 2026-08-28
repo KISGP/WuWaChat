@@ -84,8 +84,31 @@ export type ConversationMessage = {
   id: string
   role: MessageRole
   content: string
+  attachments?: ChatImageAttachment[]
   status: MessageStatus
   createdAt: string
+}
+
+export type ChatImageAttachment = {
+  resourceId: string
+  fileName: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+  sizeBytes: number
+  analysis: string
+}
+
+export type ChatImageInput = ChatImageAttachment & {
+  dataUrl: string
+}
+
+export type ChatImageReadRequest = {
+  sessionId: string
+  resourceId: string
+}
+
+export type ChatImageReadResult = {
+  dataUrl: string
+  mimeType: ChatImageAttachment['mimeType']
 }
 
 export type ConversationSession = {
@@ -118,6 +141,7 @@ export type ChatRunRequest = {
   characterId: string
   userMessage: string
   profileId: string
+  images?: ChatImageInput[]
 }
 
 export type ChatDeleteMessageRequest = {

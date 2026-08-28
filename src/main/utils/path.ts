@@ -43,7 +43,84 @@ export function getSettingsPath(): string {
 }
 
 export function getSessionsPath(): string {
-  return join(getAppDataRoot(), 'sessions.json')
+  return join(getAppDataRoot(), 'chat-history')
+}
+
+/**
+ * @description 返回聊天记录根目录；每个角色和会话分别使用独立子目录。
+ * @returns 聊天记录目录路径。
+ */
+export function getChatHistoryRoot(): string {
+  return getSessionsPath()
+}
+
+function assertChatPathSegment(value: string, label: string): void {
+  if (!value || value === '.' || value === '..' || /[\\/]/.test(value)) {
+    throw new Error(`Invalid ${label}`)
+  }
+}
+
+/**
+ * @description 返回指定角色的聊天记录目录。
+ * @param characterId 角色标识。
+ * @returns 角色聊天记录目录路径。
+ */
+export function getChatCharacterRoot(characterId: string): string {
+  assertChatPathSegment(characterId, 'character id')
+  return join(getChatHistoryRoot(), characterId)
+}
+
+/**
+ * @description 返回指定会话的聊天记录目录。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @returns 会话目录路径。
+ */
+export function getChatSessionRoot(characterId: string, sessionId: string): string {
+  assertChatPathSegment(characterId, 'character id')
+  assertChatPathSegment(sessionId, 'session id')
+  return join(getChatCharacterRoot(characterId), sessionId)
+}
+
+/**
+ * @description 返回指定会话的 JSON 持久化文件路径。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @returns 会话 JSON 文件路径。
+ */
+export function getChatSessionPath(characterId: string, sessionId: string): string {
+  return join(getChatSessionRoot(characterId, sessionId), 'session.json')
+}
+
+/**
+ * @description 返回指定会话的图片附件目录。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @returns 图片附件目录路径。
+ */
+export function getChatAttachmentsRoot(characterId: string, sessionId: string): string {
+  return join(getChatSessionRoot(characterId, sessionId), 'attachments')
+}
+
+/**
+ * @description 返回指定会话图片资源的文件路径。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @param resourceId 会话内资源标识。
+ * @param extension 图片文件扩展名。
+ * @returns 图片附件文件路径。
+ */
+export function getChatAttachmentPath(
+  characterId: string,
+  sessionId: string,
+  resourceId: string,
+  extension: string
+): string {
+  assertChatPathSegment(resourceId, 'resource id')
+  if (!/^\.[a-z0-9]+$/i.test(extension)) {
+    throw new Error('Invalid attachment extension')
+  }
+  return join(getChatAttachmentsRoot(characterId, sessionId), resourceId + extension)
 }
 
 export function getCharactersRoot(): string {
