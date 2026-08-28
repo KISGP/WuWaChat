@@ -332,3 +332,37 @@ export type ChatRunEvent =
   | ChatRunFinishedEvent
   | ChatRunErrorEvent
   | ChatRunAbortedEvent
+
+export type ChatDebugRunStatus = 'running' | 'completed' | 'error' | 'aborted'
+
+export type ChatDebugRunEvent = {
+  sequence: number
+  timestamp: string
+  type: string
+  data: unknown
+}
+
+export type ChatDebugRunSummary = {
+  requestId: string
+  sessionId: string
+  messageId: string
+  characterId: string
+  profileId: string
+  status: ChatDebugRunStatus
+  startedAt: string
+  updatedAt: string
+  eventCount: number
+}
+
+export type ChatDebugRunRecord = ChatDebugRunSummary & {
+  events: ChatDebugRunEvent[]
+}
+
+export type ChatDebugRunListRequest = {
+  characterId: string
+  sessionId: string
+}
+
+export type ChatDebugRunReadRequest = ChatDebugRunListRequest & {
+  requestId: string
+}

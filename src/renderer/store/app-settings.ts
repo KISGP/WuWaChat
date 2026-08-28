@@ -18,6 +18,8 @@ type AppSettingsStore = {
   saveError: string | null
   hydrate: (settings: AppSettings) => void
   setAnimationPreference: (preference: AnimationPreference) => Promise<void>
+  setDeveloperToolsEnabled: (enabled: boolean) => Promise<void>
+  setAgentRunRecordingEnabled: (enabled: boolean) => Promise<void>
   setMessageCollapseLineCount: (lineCount: number) => Promise<void>
   setSettingsSidebarExpanded: (expanded: boolean) => Promise<void>
   updateGithubProxySettings: (patch: Partial<GithubProxySettings>) => Promise<void>
@@ -80,6 +82,32 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
     set({ settings })
     trackUiEvent('animation-preference-changed', 'User changed animation preference', {
       animationPreference
+    })
+    await saveSettings(settings, set)
+  },
+  /**
+   * @description 切换开发者工具可见性并持久化设置。
+   * @param developerToolsEnabled 是否在设置侧边栏显示开发者工具 Tab。
+   * @returns 设置保存流程完成后的 Promise。
+   */
+  setDeveloperToolsEnabled: async (developerToolsEnabled) => {
+    const settings = { ...get().settings, developerToolsEnabled }
+    set({ settings })
+    trackUiEvent('developer-tools-visibility-changed', 'User changed developer tools visibility', {
+      developerToolsEnabled
+    })
+    await saveSettings(settings, set)
+  },
+  /**
+   * @description 切换 Agent 运行记录保存并持久化设置。
+   * @param agentRunRecordingEnabled 是否保存新的 Agent 运行原始记录。
+   * @returns 设置保存流程完成后的 Promise。
+   */
+  setAgentRunRecordingEnabled: async (agentRunRecordingEnabled) => {
+    const settings = { ...get().settings, agentRunRecordingEnabled }
+    set({ settings })
+    trackUiEvent('agent-run-recording-changed', 'User changed Agent run recording', {
+      agentRunRecordingEnabled
     })
     await saveSettings(settings, set)
   },

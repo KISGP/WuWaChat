@@ -20,6 +20,7 @@ import {
   ClipboardList,
   Braces,
   BookOpen,
+  ListTree,
   type LucideIcon
 } from 'lucide-react'
 import { AgentTab } from '@renderer/features/agent/ui/AgentSettings'
@@ -48,7 +49,8 @@ const StorageTab = lazy(() =>
     default: module.StorageTab
   }))
 )
-const AgentDiagnosticsTab = lazy(() => import('@renderer/features/diagnostics/ui/AgentDiagnostics'))
+const AgentDiagnosticsTab = lazy(() => import('@renderer/features/dev/ui/AgentDiagnostics'))
+const AgentRunRecordsTab = lazy(() => import('@renderer/features/dev/ui/AgentRunRecords'))
 const WorldTab = lazy(() =>
   import('@renderer/features/world/ui/WorldSettings').then((module) => ({
     default: module.WorldTab
@@ -66,6 +68,7 @@ type SettingsTabId =
   | 'tools'
   | 'agent'
   | 'agent-diagnostics'
+  | 'agent-run-records'
   | 'world'
 
 type SettingsTabDefinition = {
@@ -85,7 +88,8 @@ const SETTINGS_TABS: readonly SettingsTabDefinition[] = [
   { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'log', label: '日志', icon: ClipboardList },
   { id: 'tools', label: '抽卡链接', icon: Wrench },
-  { id: 'agent-diagnostics', label: 'Agent 调试', icon: Braces }
+  { id: 'agent-diagnostics', label: 'Agent 调试', icon: Braces },
+  { id: 'agent-run-records', label: 'Agent 运行记录', icon: ListTree }
 ]
 
 /**
@@ -111,6 +115,9 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
   const sidebarRef = useRef<HTMLElement>(null)
   const { shouldAnimate } = useMotionPreference()
   const isSidebarExpanded = useAppSettingsStore((state) => state.settings.settingsSidebarExpanded)
+  const developerToolsEnabled = useAppSettingsStore(
+    (state) => state.settings.developerToolsEnabled
+  )
   const setSettingsSidebarExpanded = useAppSettingsStore(
     (state) => state.setSettingsSidebarExpanded
   )
@@ -118,7 +125,11 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
   const retryAppSave = useAppSettingsStore((state) => state.retrySave)
   const profilesSaveError = useSettingsStore((state) => state.saveError)
   const retryProfilesSave = useSettingsStore((state) => state.retrySave)
-  const activeTabItem = SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0]
+  const visibleTabs = developerToolsEnabled
+    ? SETTINGS_TABS
+    : SETTINGS_TABS.filter((tab) => tab.id !== 'agent-diagnostics' && tab.id !== 'agent-run-records')
+  const effectiveActiveTab = visibleTabs.some((tab) => tab.id === activeTab) ? activeTab : 'general'
+  const activeTabItem = visibleTabs.find((tab) => tab.id === effectiveActiveTab) ?? visibleTabs[0]
   const saveFailure = appSaveError
     ? { message: '通用设置保存失败', retry: retryAppSave }
     : profilesSaveError
@@ -160,11 +171,11 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
         overwrite: 'auto'
       })
     },
-    { dependencies: [isSidebarExpanded, shouldAnimate], scope: sidebarRef }
+    { dependencies: [developerToolsEnabled, isSidebarExpanded, shouldAnimate], scope: sidebarRef }
   )
 
   const renderActiveTab = (): ReactElement => {
-    switch (activeTab) {
+    switch (effectiveActiveTab) {
       case 'general':
         return <GeneralTab />
       case 'model':
@@ -195,6 +206,12 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
         return (
           <Suspense fallback={<TabLoadingFallback />}>
             <AgentDiagnosticsTab />
+          </Suspense>
+        )
+      case 'agent-run-records':
+        return (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <AgentRunRecordsTab />
           </Suspense>
         )
       case 'tools':
@@ -249,7 +266,7 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
                 aria-label="设置导航"
               >
                 <div className="space-y-4 pb-2">
-                  {SETTINGS_TABS.map((tab) => (
+                  {visibleTabs.map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
@@ -261,14 +278,14 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
                       <tab.icon
                         className={cn(
                           'text-background ml-1 size-8 hover:text-yellow-300',
-                          activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
+                          effectiveActiveTab === tab.id ? 'text-yellow-300' : 'text-background/70'
                         )}
                       />
                       <span
                         data-settings-sidebar-label
                         className={cn(
                           'text-sm whitespace-nowrap opacity-0',
-                          activeTab === tab.id ? 'text-yellow-300' : 'text-background/70'
+                          effectiveActiveTab === tab.id ? 'text-yellow-300' : 'text-background/70'
                         )}
                       >
                         {tab.label}
@@ -296,7 +313,7 @@ export default function SettingsPage({ onClose }: { onClose: () => void }): Reac
 
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <div
-              key={activeTab}
+              key={effectiveActiveTab}
               className={`h-full p-1 transition-all duration-200 ${
                 mounted ? 'animate-in fade-in-0 slide-in-from-bottom-2' : ''
               }`}

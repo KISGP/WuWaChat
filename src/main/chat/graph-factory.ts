@@ -21,7 +21,7 @@ export function createAiGraph(context: ChatGraphNodeContext): {
     .addNode('loadPrompt', createLoadPromptNode(context))
     .addNode('prepareHistory', createPrepareHistoryNode(context))
     .addNode('buildMessages', createBuildMessagesNode())
-    .addNode('logModelInput', createLogModelInputNode())
+    .addNode('logModelInput', createLogModelInputNode(context))
     .addNode('invokeModel', createInvokeModelNode(context))
     .addNode('commitAssistantMessage', createCommitAssistantMessageNode(context))
     .addEdge(START, 'loadProfile')

@@ -74,6 +74,8 @@ export type TtsSettings = {
 
 export type AppSettings = {
   animationPreference: AnimationPreference
+  developerToolsEnabled: boolean
+  agentRunRecordingEnabled: boolean
   messageCollapseLineCount: number
   settingsSidebarExpanded: boolean
   githubProxy: GithubProxySettings
@@ -156,6 +158,8 @@ function normalizeCharacterVoiceOverrides(value: unknown): TtsCharacterVoiceOver
 export function createDefaultAppSettings(): AppSettings {
   return {
     animationPreference: 'system',
+    developerToolsEnabled: false,
+    agentRunRecordingEnabled: false,
     messageCollapseLineCount: DEFAULT_MESSAGE_COLLAPSE_LINE_COUNT,
     settingsSidebarExpanded: true,
     githubProxy: {
@@ -202,6 +206,8 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     raw.animationPreference === 'enabled' || raw.animationPreference === 'disabled'
       ? raw.animationPreference
       : 'system'
+  const developerToolsEnabled = raw.developerToolsEnabled === true
+  const agentRunRecordingEnabled = raw.agentRunRecordingEnabled === true
   const messageCollapseLineCount =
     typeof raw.messageCollapseLineCount === 'number' &&
     Number.isInteger(raw.messageCollapseLineCount)
@@ -235,6 +241,8 @@ export function normalizeAppSettings(value: unknown): AppSettings {
 
   return {
     animationPreference,
+    developerToolsEnabled,
+    agentRunRecordingEnabled,
     messageCollapseLineCount,
     settingsSidebarExpanded,
     githubProxy: {

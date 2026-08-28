@@ -1,9 +1,11 @@
 import type {
- ChatDiagnosticRunRequest,
- ChatDeleteMessageRequest,
+  ChatDiagnosticRunRequest,
+  ChatDeleteMessageRequest,
   ChatAppendMessageRequest,
   ChatTriggerRunRequest,
-  ChatImageReadRequest
+  ChatImageReadRequest,
+  ChatDebugRunListRequest,
+  ChatDebugRunReadRequest
 } from '@shared/chat'
 import {
   abortDiagnosticRun,
@@ -13,6 +15,8 @@ import {
   getCharacterEmoticons,
   getUserEmoticons,
   getSessions,
+  listDebugRuns,
+  readDebugRun,
   readImageResource,
   saveCharacterPrompt,
   startDiagnosticRun,
@@ -54,6 +58,16 @@ export function registerChatIpc(): void {
     })
   )
   handleLogged('chat:getSessions', () => getSessions())
+  handleLogged(
+    'chat:listDebugRuns',
+    (_event, request: ChatDebugRunListRequest) => listDebugRuns(request),
+    (request) => ({ sessionId: request.sessionId, characterId: request.characterId })
+  )
+  handleLogged(
+    'chat:readDebugRun',
+    (_event, request: ChatDebugRunReadRequest) => readDebugRun(request),
+    (request) => ({ sessionId: request.sessionId, characterId: request.characterId, requestId: request.requestId })
+  )
   handleLogged(
     'chat:getUserEmoticons',
     () => getUserEmoticons(),

@@ -6,6 +6,7 @@ import type {
   ChatAppendMessageRequest,
   ChatTriggerRunRequest
 } from '@shared/chat'
+import type { ChatDebugRunListRequest, ChatDebugRunReadRequest } from '@shared/chat'
 import type { ChatDiagnosticRunEvent } from '@shared/chat'
 
 /**
@@ -38,6 +39,24 @@ export function saveCharacterPrompt(
  */
 export function getSessions(): ReturnType<typeof window.ai.getSessions> {
   return window.ai.getSessions()
+}
+
+/**
+ * @description 读取会话中的 Agent 调试运行摘要。
+ * @param request 会话定位请求。
+ * @returns 调试运行摘要列表。
+ */
+export function listDebugRuns(request: ChatDebugRunListRequest): ReturnType<typeof window.ai.listDebugRuns> {
+  return window.ai.listDebugRuns(request)
+}
+
+/**
+ * @description 读取一次 Agent 调试运行的完整事件记录。
+ * @param request 运行定位请求。
+ * @returns 完整调试记录或空值。
+ */
+export function readDebugRun(request: ChatDebugRunReadRequest): ReturnType<typeof window.ai.readDebugRun> {
+  return window.ai.readDebugRun(request)
 }
 
 /**

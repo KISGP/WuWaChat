@@ -8,6 +8,10 @@ import type {
   ChatTriggerRunRequest,
   ChatImageReadRequest,
   ChatImageReadResult,
+  ChatDebugRunListRequest,
+  ChatDebugRunReadRequest,
+  ChatDebugRunRecord,
+  ChatDebugRunSummary,
   ConversationSession
 } from '@shared/chat'
 import {
@@ -75,6 +79,24 @@ export async function initializeChat(): Promise<void> {
  */
 export function getSessions(): ConversationSession[] {
   return runtime.getSessions()
+}
+
+/**
+ * @description 读取指定会话下的 Agent 调试运行摘要。
+ * @param request 会话定位请求。
+ * @returns 调试运行摘要列表。
+ */
+export async function listDebugRuns(request: ChatDebugRunListRequest): Promise<ChatDebugRunSummary[]> {
+  return runtime.listDebugRuns(request)
+}
+
+/**
+ * @description 读取指定 Agent 调试运行的完整原始事件。
+ * @param request 调试运行定位请求。
+ * @returns 完整运行记录；不存在时返回 `null`。
+ */
+export async function readDebugRun(request: ChatDebugRunReadRequest): Promise<ChatDebugRunRecord | null> {
+  return runtime.readDebugRun(request)
 }
 
 /**

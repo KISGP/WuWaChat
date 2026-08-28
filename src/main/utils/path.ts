@@ -131,6 +131,32 @@ export function getChatAttachmentPath(
   return join(getChatAttachmentsRoot(characterId, sessionId), resourceId + extension)
 }
 
+/**
+ * @description 返回指定会话的 Agent 调试记录目录。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @returns 会话目录下的调试记录根目录。
+ */
+export function getChatDebugRunsRoot(characterId: string, sessionId: string): string {
+  return join(getChatSessionRoot(characterId, sessionId), 'debug-runs')
+}
+
+/**
+ * @description 返回指定 Agent 调试运行的事件文件路径。
+ * @param characterId 角色标识。
+ * @param sessionId 会话标识。
+ * @param requestId 运行请求标识。
+ * @returns 调试运行 JSONL 文件路径。
+ */
+export function getChatDebugRunPath(
+  characterId: string,
+  sessionId: string,
+  requestId: string
+): string {
+  assertChatPathSegment(requestId, 'request id')
+  return join(getChatDebugRunsRoot(characterId, sessionId), requestId + '.jsonl')
+}
+
 export function getCharactersRoot(): string {
   return join(getAppDataRoot(), 'chars')
 }

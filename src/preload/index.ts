@@ -8,7 +8,9 @@ import type {
   ChatRunEvent,
   ChatAppendMessageRequest,
   ChatTriggerRunRequest,
-  CharacterRegistry
+  CharacterRegistry,
+  ChatDebugRunListRequest,
+  ChatDebugRunReadRequest
 } from '@shared/chat'
 import { CHAT_DIAGNOSTIC_EVENT_CHANNEL, CHAT_RUN_EVENT_CHANNEL } from '@shared/chat-events'
 import { CHARACTER_REGISTRY_CHANGED_CHANNEL } from '@shared/character-events'
@@ -35,6 +37,8 @@ const ai = {
   saveCharacterPrompt: (characterId: string, promptText: string) =>
     ipcRenderer.invoke('chat:saveCharacterPrompt', characterId, promptText),
   getSessions: () => ipcRenderer.invoke('chat:getSessions'),
+  listDebugRuns: (request: ChatDebugRunListRequest) => ipcRenderer.invoke('chat:listDebugRuns', request),
+  readDebugRun: (request: ChatDebugRunReadRequest) => ipcRenderer.invoke('chat:readDebugRun', request),
   getUserEmoticons: (): Promise<ChatEmoticonImage[]> => ipcRenderer.invoke('chat:getUserEmoticons'),
   getCharacterEmoticons: (characterId: string): Promise<ChatEmoticonImage[]> =>
     ipcRenderer.invoke('chat:getCharacterEmoticons', characterId),

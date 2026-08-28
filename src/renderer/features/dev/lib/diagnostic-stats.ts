@@ -1,5 +1,5 @@
 import type { ChatDiagnosticRunEvent, ChatTokenUsage } from '@shared/chat'
-import type { AgentDiagnosticsSnapshot } from '@renderer/features/diagnostics/store/diagnostics'
+import type { AgentDiagnosticsSnapshot } from '@renderer/features/dev/store/diagnostics'
 
 export type DiagnosticStats = {
   modelCalls: number

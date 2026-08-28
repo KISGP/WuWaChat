@@ -3,8 +3,9 @@ import { logger } from '@main/logging'
 import type { GraphStateValue } from '@main/chat/graph-state'
 import { contentToText } from '@main/chat/message-content'
 import { toLoggableMessages } from '@main/chat/model-message-builder'
+import type { ChatGraphNodeContext } from '@main/chat/graph-node-context'
 
-export function createLogModelInputNode() {
+export function createLogModelInputNode(context: ChatGraphNodeContext) {
   return async (state: GraphStateValue) => {
     const modelMessages = [new SystemMessage(state.systemPromptText), ...state.llmMessages]
     const chatMessages = toLoggableMessages(modelMessages)
@@ -23,6 +24,16 @@ export function createLogModelInputNode() {
         systemPromptText,
         chatMessages
       }
+    })
+    context.debugRunStore.append(state.requestId, 'model-input-built', {
+      requestId: state.requestId,
+      sessionId: state.sessionId,
+      characterId: state.characterId,
+      profileId: state.profileId,
+      systemPromptText,
+      chatMessages,
+      history: state.history,
+      profile: { ...state.profile, apiKey: '[redacted]' }
     })
 
     return {}

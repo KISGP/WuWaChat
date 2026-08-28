@@ -13,7 +13,11 @@ import type {
   ChatTriggerRunRequest,
   CharacterPromptDocument,
   CharacterSummary,
-  ConversationSession
+  ConversationSession,
+  ChatDebugRunListRequest,
+  ChatDebugRunReadRequest,
+  ChatDebugRunRecord,
+  ChatDebugRunSummary
 } from '@shared/chat'
 import type { ChatEmoticonImage } from '@shared/chat-emoticons'
 import type { LogEntry, LogViewerState, RendererLogEventPayload } from '@shared/logging'
@@ -53,6 +57,8 @@ declare global {
         promptText: string
       ) => Promise<CharacterPromptDocument>
       getSessions: () => Promise<ConversationSession[]>
+      listDebugRuns: (request: ChatDebugRunListRequest) => Promise<ChatDebugRunSummary[]>
+      readDebugRun: (request: ChatDebugRunReadRequest) => Promise<ChatDebugRunRecord | null>
       getUserEmoticons: () => Promise<ChatEmoticonImage[]>
       getCharacterEmoticons: (characterId: string) => Promise<ChatEmoticonImage[]>
       deleteMessage: (request: ChatDeleteMessageRequest) => Promise<ChatDeleteMessageResult>

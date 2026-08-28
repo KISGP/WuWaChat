@@ -16,6 +16,7 @@ import type {
   ConversationMessage,
   ConversationSession
 } from '@shared/chat'
+import type { ChatDebugRunListRequest, ChatDebugRunReadRequest, ChatDebugRunRecord, ChatDebugRunSummary } from '@shared/chat'
 import { CHAT_USER_EMOTICONS } from '@shared/chat-emoticons'
 import type { AgentPolicy, AgentToolTrace } from '@shared/agent'
 import { logger } from '@main/logging'
@@ -31,6 +32,7 @@ import { RunRegistry } from './run-registry'
 import type { ChatRuntimeDependencies, ChatContextProvider } from './types'
 import type { ChatAgent } from './agent'
 import { processChatImage } from './image-compression'
+import { DebugRunStore } from './debug-run-store'
 
 /**
  * @description 校验并规范化一次用户聊天段。
@@ -60,7 +62,8 @@ function normalizeUserSegment(segment: ChatUserSegment): ChatUserSegment {
 export class ChatRuntime {
   private readonly sessionStore = new SessionStore()
   private readonly runRegistry = new RunRegistry()
-  private readonly eventPublisher = new RunEventPublisher()
+  private readonly debugRunStore = new DebugRunStore()
+  private readonly eventPublisher = new RunEventPublisher(this.debugRunStore)
   private readonly diagnosticControllers = new Map<string, AbortController>()
   private readonly pendingHolds = new Map<string, {
     sessionId: string
@@ -81,6 +84,7 @@ export class ChatRuntime {
       sessionStore: this.sessionStore,
       runRegistry: this.runRegistry,
       eventPublisher: this.eventPublisher,
+      debugRunStore: this.debugRunStore,
       agent: this.agent
     })
   }
@@ -92,6 +96,24 @@ export class ChatRuntime {
 
   getSessions(): ConversationSession[] {
     return this.sessionStore.getSessions()
+  }
+
+  /**
+   * @description 读取指定会话保存的 Agent 调试运行摘要。
+   * @param request 会话定位请求。
+   * @returns 按时间倒序排列的运行摘要。
+   */
+  async listDebugRuns(request: ChatDebugRunListRequest): Promise<ChatDebugRunSummary[]> {
+    return this.debugRunStore.list(request.characterId, request.sessionId)
+  }
+
+  /**
+   * @description 读取指定会话中一次运行的完整调试事件。
+   * @param request 运行定位请求。
+   * @returns 完整运行记录；不存在时返回 `null`。
+   */
+  async readDebugRun(request: ChatDebugRunReadRequest): Promise<ChatDebugRunRecord | null> {
+    return this.debugRunStore.read(request.characterId, request.sessionId, request.requestId)
   }
 
   /**
@@ -215,13 +237,23 @@ export class ChatRuntime {
       this.pendingHolds.delete(request.holdId)
       throw new Error('No pending user messages to trigger.')
     }
+    const appSettings = await getAppSettings()
     const begun = this.sessionStore.beginRun(hold.sessionId, true)
     this.pendingHolds.delete(request.holdId)
     const activeRun = this.runRegistry.register(request.requestId, hold.sessionId, begun.assistantMessage.id)
+    if (appSettings.agentRunRecordingEnabled) {
+      await this.debugRunStore.start({
+        requestId: request.requestId,
+        sessionId: hold.sessionId,
+        messageId: begun.assistantMessage.id,
+        characterId: request.characterId,
+        profileId: request.profileId,
+        startedAt: new Date().toISOString()
+      })
+    }
     this.eventPublisher.publish({ type: 'run-started', requestId: request.requestId, session: begun.session, messageId: begun.assistantMessage.id })
     let currentImages: ChatImageInput[] = []
     try {
-      const appSettings = await getAppSettings()
       const images = trailingUsers.flatMap((message) => message.attachments || [])
       const originals = (await Promise.all(images.map((attachment) => this.sessionStore.readAttachment(hold.sessionId, attachment.resourceId))))
         .filter((image): image is NonNullable<typeof image> => Boolean(image))
@@ -235,6 +267,7 @@ export class ChatRuntime {
       const failed = this.sessionStore.failRun(hold.sessionId, begun.assistantMessage.id, message)
       this.eventPublisher.publish({ type: 'session-synced', requestId: request.requestId, session: failed })
       this.eventPublisher.publish({ type: 'run-error', requestId: request.requestId, sessionId: hold.sessionId, messageId: begun.assistantMessage.id, error: message })
+      await this.debugRunStore.finish(request.requestId, 'error', { error: message })
       this.runRegistry.delete(request.requestId)
       throw error
     }
@@ -505,11 +538,19 @@ export class ChatRuntime {
 
     try {
       await this.graph.invoke(input)
+      await this.debugRunStore.finish(requestId, 'completed')
     } catch (error) {
       await handleRunError(requestId, error, activeRun, {
         sessionStore: this.sessionStore,
         eventPublisher: this.eventPublisher
       })
+      await this.debugRunStore.finish(
+        requestId,
+        activeRun.controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')
+          ? 'aborted'
+          : 'error',
+        { error: error instanceof Error ? error.message : String(error) }
+      )
     } finally {
       this.runRegistry.delete(requestId)
     }

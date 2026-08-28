@@ -1,6 +1,6 @@
 import { Eraser } from 'lucide-react'
 import type { ReactElement } from 'react'
-import type { AgentDiagnosticsSnapshot } from '@renderer/features/diagnostics/store/diagnostics'
+import type { AgentDiagnosticsSnapshot } from '@renderer/features/dev/store/diagnostics'
 import type { DiagnosticStats } from '../lib/diagnostic-stats'
 import { formatDuration, formatTokenCount } from '../lib/formatters'
 

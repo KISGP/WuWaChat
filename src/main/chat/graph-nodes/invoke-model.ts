@@ -81,6 +81,7 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
       },
       abortSignal: state.abortSignal,
       onChunk: (text) => {
+        context.debugRunStore.append(state.requestId, 'chunk', { text })
         if (!streamedStructured) {
           streamBuffer += text
           if (streamBuffer.trimStart().startsWith('{')) {
@@ -91,6 +92,18 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
           return
         }
         streamBuffer += text
+      },
+      onProviderRequest: (body, phase) => {
+        context.debugRunStore.append(state.requestId, 'llm-request', { phase, body })
+      },
+      onModelResponse: (response, phase) => {
+        context.debugRunStore.append(state.requestId, 'llm-response', {
+          phase,
+          response: serializeModelResponse(response)
+        })
+      },
+      onTrace: (trace) => {
+        context.debugRunStore.append(state.requestId, 'tool-trace', trace)
       }
     })
 
@@ -129,6 +142,16 @@ export function createInvokeModelNode(context: ChatGraphNodeContext) {
 
     return { assistantDraft }
   }
+}
+
+/**
+ * @description 将 LangChain 模型响应转换为可持久化的原始结构。
+ * @param response 模型响应对象。
+ * @returns 保留内容、工具调用和 provider 元数据的普通对象。
+ */
+function serializeModelResponse(response: unknown): Record<string, unknown> {
+  if (!response || typeof response !== 'object') return { value: response }
+  return response as Record<string, unknown>
 }
 
 /**
